@@ -99,6 +99,23 @@ def test_fred(carpeta_datos, monkeypatch):
         fred.leer_csv(b"<html>", "X")
 
 
+def test_fred_una_serie_caida_no_tumba_las_demas(carpeta_datos, monkeypatch):
+    csv = b"observation_date,DGS10\n2026-11-18,5.01\n"
+
+    def bajar(self, url, **kw):
+        if url.endswith("=DGS10"):
+            return csv
+        raise TimeoutError("FRED no responde")
+
+    monkeypatch.setattr(fred.ConectorFRED, "bajar", bajar)
+    res = fred.ConectorFRED().ejecutar()
+    assert res.estado == "ok" and "sin respuesta" in res.detalle
+    assert storage.leer_tabla("silver", "fact_serie_macro").height == 1
+    # Si no responde ninguna, es error
+    monkeypatch.setattr(fred.ConectorFRED, "bajar", lambda self, url, **kw: (_ for _ in ()).throw(TimeoutError()))
+    assert fred.ConectorFRED().ejecutar().estado == "error"
+
+
 def _cuif(entidad, cuenta, valor, fecha="2026-09-30T00:00:00.000", signo="+"):
     return {"tipo_entidad": "1", "codigo_entidad": entidad, "nombre_entidad": f"BANCO {entidad}",
             "fecha_corte": fecha, "cuenta": cuenta, "nombre_cuenta": cuenta, "moneda": "0",

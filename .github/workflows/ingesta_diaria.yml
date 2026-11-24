@@ -59,6 +59,10 @@ jobs:
           uv sync --quiet
 
       - name: Ingesta
+        id: ingesta
+        # Si una fuente falla, el paso termina en error, pero lo demás se guarda igual (pasos con
+        # !cancelled()); al final, "Resultado" marca la corrida en rojo para que se note
+        continue-on-error: true
         working-directory: invest-pipeline
         env:
           INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
@@ -74,6 +78,7 @@ jobs:
           # escriban el mismo archivo (Git no puede fusionar Parquet)
 
       - name: Dividendos (dos agentes leen cada PDF y llegan a un consenso)
+        if: ${{ !cancelled() }}
         # Solo procesa PDF nuevos. Sin el secreto ANTHROPIC_API_KEY se omite sin fallar.
         # Imprime solo conteos: los registros de este repo son públicos.
         working-directory: invest-pipeline
@@ -94,6 +99,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Guardar datos
+        if: ${{ !cancelled() }}
         working-directory: invest-data
         run: |
           git config user.name "invest-bot"
@@ -108,7 +114,14 @@ jobs:
           fi
 
       - name: Salud de datos
+        if: ${{ !cancelled() }}
         working-directory: invest-pipeline
         env:
           INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
         run: uv run invest salud
+
+      - name: Resultado
+        if: ${{ steps.ingesta.outcome == 'failure' }}
+        run: |
+          echo "Alguna fuente falló en la ingesta (ver el paso Ingesta); lo demás quedó guardado."
+          exit 1

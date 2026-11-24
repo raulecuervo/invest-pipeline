@@ -45,12 +45,23 @@ class ConectorFRED(Conector):
     def descargar(self, desde: date, hasta: date) -> list[dict]:
         registros = []
         self.series = {s["id"]: s for s in self.meta["series"]}
+        fallidas = []
         for sid in self.series:
-            contenido = self.bajar(URL.format(sid))
+            # FRED a veces tarda en responder a los servidores de GitHub: más tiempo de espera, y una serie
+            # que falla no impide guardar las demás (se reintenta en la próxima corrida)
+            try:
+                contenido = self.bajar(URL.format(sid), timeout=120)
+            except Exception as e:  # noqa: BLE001
+                fallidas.append(f"{sid} ({type(e).__name__})")
+                continue
             if contenido is None:
                 continue
             self.crudos[f"{sid}.csv"] = contenido
             registros += leer_csv(contenido, sid)
+        if fallidas:
+            if len(fallidas) == len(self.series):
+                raise RuntimeError("no respondió ninguna serie de FRED: " + ", ".join(fallidas[:3]))
+            self.notas.append(f"series sin respuesta {len(fallidas)} (se reintentan mañana): " + ", ".join(fallidas))
         if not registros:
             self.sin_novedades = True
         return registros
