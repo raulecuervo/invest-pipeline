@@ -501,6 +501,7 @@ def contrato():
 
 ACCIONES = {
     "leer_bvc": ["ingest", "bvc_web", "bvc_indices"],  # lectura manual: la lanza Esteban con el botón
+    "leer_estados_ventana": ["estados-ventana"],        # lectura manual con ventana de los sitios protegidos
     "actualizar_modelo": ["modelo"],
     "rehacer_base": ["modelo", "--sin-calcular"],
 }
@@ -511,7 +512,7 @@ def _correr(trabajo_id: str, argumentos: list[str]) -> None:
     t = _trabajos[trabajo_id]
     try:
         entorno = dict(os.environ)
-        if t["accion"] == "leer_bvc":
+        if t["accion"] in ("leer_bvc", "leer_estados_ventana"):
             entorno["INVEST_LECTURA_MANUAL"] = "1"  # la pidió una persona desde el aplicativo
         proceso = subprocess.Popen([sys.executable, "-m", "invest", *argumentos], stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",

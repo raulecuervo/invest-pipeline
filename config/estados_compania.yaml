@@ -77,6 +77,7 @@ emisores:
   - emisor_id: CO-COT09
     nombre: Grupo Argos
     descarga: automatica
+    ventana: true      # la página índice pide una verificación a los programas (24-nov-2026): invest estados-ventana
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice:
@@ -96,6 +97,7 @@ emisores:
   - emisor_id: CO-COT04
     nombre: Grupo Nutresa
     descarga: automatica
+    ventana: true      # responde 401/403 a los programas (24-nov-2026): invest estados-ventana
     moneda: COP
     unidades_esperadas: [millones]
     paginas_indice:
@@ -146,12 +148,16 @@ emisores:
   - emisor_id: CO-COD38
     nombre: Cementos Argos
     descarga: manual
+    ventana: true
+    patrones:
+      - 'argos\.co/wp-content/uploads/.*(estados[-_ ]financieros|eeff).*consolidad[^/]*\.pdf'
+      - 'argos\.co/wp-content/uploads/.*reporte[-_ ]?[1-4]t[^/]*\.pdf'
+    excluir: ['separad', '[-_]en\.pdf', 'english', 'presentaci']
     moneda: COP
     unidades_esperadas: [millones]
     paginas_indice:
       - url: https://argos.co/ir-2/
         nota: "La página de inversionistas se lee, pero los PDF de argos.co/wp-content/uploads/ responden con el desafío de Imperva Incapsula a los clientes automáticos (24-nov-2026). No se esquiva: los PDF se bajan a mano en el navegador a invest-data/fuentes_compania/CO-COD38/"
-    patrones: []
     verificadas: []
     otros_formatos: "Reporte trimestral de resultados con estado de situación financiera y de resultados consolidados en millones de pesos (comunicado 1T24 leído en api.mziq.com); nombres vistos: Reporte-1T25.pdf, Reporte-3T25-ES.pdf, Reporte-4T25-pw2.pdf en argos.co/wp-content/uploads/<año>/<mes>/ (no se pudieron abrir)."
 
@@ -159,6 +165,8 @@ emisores:
   - emisor_id: CO-COT60
     nombre: Celsia
     descarga: manual
+    ventana: true
+    inicio: https://www.celsia.com/es/   # sin página de informes verificada: se abre la portada y Esteban navega a los estados
     moneda: COP
     unidades_esperadas: [millones]   # por confirmar con el primer PDF
     paginas_indice: []

@@ -866,13 +866,15 @@ paginas.salud = async (v) => {
   const b1 = el("button", { type: "button", class: "boton primario" }, "Leer la Bolsa de Colombia");
   const b2 = el("button", { type: "button", class: "boton" }, "Actualizar el modelo");
   const b3 = el("button", { type: "button", class: "boton" }, "Verificar el contrato");
+  const b4 = el("button", { type: "button", class: "boton" }, "Leer estados de compañías (con ventana)");
   b1.onclick = () => lanzar("leer_bvc", b1); b2.onclick = () => lanzar("actualizar_modelo", b2);
+  b4.onclick = () => lanzar("leer_estados_ventana", b4);
   const contrato = el("div");
   b3.onclick = async () => { b3.disabled = true; contrato.textContent = "Verificando…"; const r = await api("/api/salud/contrato");
     contrato.replaceChildren(r.problemas.length ? el("div", { class: "estado-mal" }, r.problemas.join("; ")) : el("div", { class: "estado-ok" }, "Contrato sin problemas")); b3.disabled = false; };
   v.append(panel("Acciones",
-    el("p", { class: "desc" }, "Leer la Bolsa: después de las 4:15 p. m. de un día bursátil; se abre una ventana de Chromium (la Bolsa no permite navegadores sin ventana). Actualizar el modelo: recalcula técnico, riesgo, valoración, puntajes, calendario y carteras, solo los pasos con datos nuevos (unos minutos si cambió todo, segundos si no; invest modelo --todo fuerza todo)."),
-    el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, b1, b2, b3), consola, contrato));
+    el("p", { class: "desc" }, "Leer la Bolsa: después de las 4:15 p. m. de un día bursátil; se abre una ventana de Chromium (la Bolsa no permite navegadores sin ventana). Actualizar el modelo: recalcula técnico, riesgo, valoración, puntajes, calendario y carteras, solo los pasos con datos nuevos (unos minutos si cambió todo, segundos si no; invest modelo --todo fuerza todo). Leer estados de compañías: abre una ventana en las páginas de inversionistas de Cementos Argos, Celsia, Nutresa y Grupo Argos (sitios que bloquean a los programas); si piden una verificación, resuélvala usted en la ventana; se guardan los PDF de estados consolidados y los que usted abra, y luego se leen con los dos agentes."),
+    el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, b1, b4, b2, b3), consola, contrato));
   const claseEstado = (e) => e === "al día" ? "estado-ok" : (e || "").startsWith("manual") ? "estado-medio" : "estado-mal";
   v.append(panel("Fuentes", tabla([
     { k: "fuente", t: "Fuente", izq: true }, { k: "ultimo_dato", t: "Último dato", f: (r) => fecha(r.ultimo_dato) },

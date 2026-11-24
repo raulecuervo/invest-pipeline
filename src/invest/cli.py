@@ -97,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
     pn.add_argument("corte", type=_fecha)
     pn.add_argument("--visible", action="store_true", help="abre una ventana de Chromium")
 
+    pv = sub.add_parser("estados-ventana", help="Lectura manual con ventana de los estados de las compañías "
+                        "con sitio protegido (la lanza una persona; luego los procesa)")
+    pv.add_argument("--emisor", nargs="*", help="emisor_id (por omisión, todos los marcados ventana: true)")
+    pv.add_argument("--abierta", type=int, default=120, help="segundos que la ventana queda abierta por emisor")
+    pv.add_argument("--sin-procesar", action="store_true", help="solo guarda los PDF; no corre estados_compania")
+
     pins = sub.add_parser("inspeccionar", help="Prueba en vivo la estructura de la SFC (no guarda)")
     pins.add_argument("especie", nargs="?", default="coc04paao008")
 
@@ -124,6 +130,20 @@ def main(argv: list[str] | None = None) -> int:
     if a.comando == "dims":
         for nombre, ruta in dims.construir().items():
             print(f"  {nombre}: {ruta}")
+        return 0
+
+    if a.comando == "estados-ventana":
+        from invest.ingest import estados_ventana
+
+        try:
+            resumen = estados_ventana.leer(a.emisor or None, abierta_s=a.abierta)
+        except estados_ventana.SinPersona as e:
+            print(f"No se lee: {e}")
+            return 2
+        nuevos = sum(r["guardados"] + r["abiertos"] for r in resumen.values())
+        print(f"PDF nuevos guardados: {nuevos}")
+        if nuevos and not a.sin_procesar:
+            return _ingestar(["estados_compania"], None, None)
         return 0
 
     if a.comando == "ingest":
