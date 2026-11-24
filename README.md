@@ -198,7 +198,7 @@ Sin `ANTHROPIC_API_KEY` el paso se omite y los PDF quedan pendientes. Los regist
 | Fuente | Conector | Tabla silver | Notas |
 | --- | --- | --- | --- |
 | `dane_ipc` | `ingest/dane_ipc.py` | `fact_serie_macro` (`ipc_co`) | Anexo mensual del DANE (sin API): la página enlaza `anex-IPC-Indices-<mes><año>.xlsx`; serie de empalme desde 2003, base dic-2018 = 100. `fecha_publicacion` real para el último mes y estimada (5.º día hábil) para los anteriores |
-| `fred` | `ingest/fred.py` | `fact_serie_macro` (`fred_<id>`) | CSV público sin clave; series en el catálogo. La serie del IPC de Colombia en FRED se cortó en 2023 |
+| `fred` | `ingest/fred.py` | `fact_serie_macro` (`fred_<id>`) | CSV público sin clave; series en el catálogo. La serie del IPC de Colombia en FRED se cortó en 2023. Corre en el PC: desde GitHub Actions FRED no responde (24-nov-2026) |
 | `cuif_datos_gov` | `ingest/cuif.py` | `fact_cuif_mensual` | Primer nivel de cuentas y las `cuentas_extra` de la plantilla de bancos, moneda total, 8 bancos inscritos; control activo = pasivo + patrimonio. La API tarda unos 40 s por consulta |
 | `sec_edgar` | `ingest/sec_edgar.py` | `fact_xbrl_sec` | `companyfacts` de la SEC (NIIF, en pesos): todos los conceptos `ifrs-full` con formulario, radicación y fecha de presentación (para evitar sesgo de anticipación). Requiere `SEC_USER_AGENT` = "Nombre correo@dominio" |
 | `estados_compania` | `ingest/estados_compania.py` | `fact_ee_compania` | Estados consolidados de los PDF de cada compañía con dos agentes (ver abajo). Corre en el PC; requiere `ANTHROPIC_API_KEY` |

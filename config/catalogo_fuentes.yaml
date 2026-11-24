@@ -476,7 +476,7 @@ fuentes:
     frecuencia: diaria
     ventana_publicacion: "diaria (Tesoro, VIX) y mensual (IPC de EE. UU., tasa larga de Colombia)"
     recarga_dias: 0
-    ejecuta_en: actions
+    ejecuta_en: pc                 # FRED no responde a los servidores de GitHub Actions (24-nov-2026); desde el PC sí
     licencia: términos de FRED
     redistribuible: false
     estado: implementado
