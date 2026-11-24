@@ -10,6 +10,16 @@ Une dos fuentes del SIMEV (``ingest/sfc_niif.py``) en ``gold/fact_fundamental``:
   (total y de la controladora), ingresos, utilidad de la controladora y utilidad por acción. Solo las
   cifras del periodo del informe (no los comparativos); las de resultados son acumuladas del año.
 
+- **Supersociedades** (``silver/fact_ee_anual_supersociedades``, respaldo): activos, pasivos,
+  patrimonio, ingresos operacionales y utilidad de los estados **separados** anuales (``base =
+  separado_anual``, ``fuente = supersociedades``), con precisión de ± 5.000 millones y
+  ``fecha_disponible`` = 30 de junio del año siguiente. Cubre a los emisores sin XBRL.
+
+``cotejo()`` compara las fuentes entre sí (``gold/fact_cotejo_fundamental``): el patrimonio que dan
+los anexos (valor patrimonial por acción × acciones en circulación) contra el de Supersociedades, y
+lo mismo con la utilidad (utilidad por acción × acciones; aproximada si las acciones cambiaron en el
+año, porque la utilidad por acción usa el promedio ponderado).
+
 Unidades: todo en pesos (el XBRL viene en miles y se multiplica por 1.000), salvo Canacol, que
 reporta en dólares (``unidad`` = ``usd``). Las cifras por acción quedan en pesos por acción.
 
@@ -99,7 +109,9 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
                     & (pl.col("columna").map_elements(normalizar, return_dtype=pl.Utf8) == "NUMERO DE ACCIONES"))
     for (emisor, corte), g in t211.group_by(["emisor_id", "fecha_corte"]):
         primera = g.sort("fila").get_column("valor").to_list()[0]
-        if primera and primera > 100:  # las otras filas TOTAL son porcentajes (100)
+        # Las otras filas TOTAL son porcentajes (100). Menos de 100.000 acciones no es un emisor listado:
+        # es una celda mal diligenciada (El Cóndor dic-2025 reportó 1.367)
+        if primera and primera >= MINIMO_ACCIONES:
             filas.append({"emisor_id": emisor, "fecha_corte": corte, "concepto": "acciones_circulacion",
                           "valor": float(primera), "unidad": "acciones", "base": "separado", "fuente": "anexo_211"})
     filas += _acciones_por_clase(a)
@@ -116,7 +128,17 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
           .drop("_p"))
     # Un valor patrimonial en cero o negativo es un campo sin diligenciar (p. ej. Promigas, sep-2025)
     df = df.filter(~((pl.col("concepto") == "valor_patrimonial_accion") & (pl.col("valor") <= 0)))
+    # Una utilidad por acción en cero exacto cuando otro anexo del mismo corte trae una cifra es un campo
+    # sin diligenciar (Terpel dic-2025: 0 en el 211 y 709,07 en el 141)
+    otra = (df.filter((pl.col("concepto") == "utilidad_accion") & (pl.col("valor") != 0))
+            .select("emisor_id", "fecha_corte").unique().with_columns(pl.lit(True).alias("_otra")))
+    df = (df.join(otra, on=["emisor_id", "fecha_corte"], how="left")
+          .filter(~((pl.col("concepto") == "utilidad_accion") & (pl.col("valor") == 0) & pl.col("_otra").fill_null(False)))
+          .drop("_otra"))
     return _a_dolares(_fecha_disponible_anexo(df)).select(list(ESQUEMA))
+
+
+MINIMO_ACCIONES = 100_000
 
 
 CLASES_211 = {
@@ -168,7 +190,18 @@ def desde_xbrl(xbrl: pl.DataFrame) -> pl.DataFrame:
         pl.col("concepto").is_in(list(XBRL)) & (pl.col("fecha_fin") == pl.col("fecha_corte"))
         & ((pl.col("tipo_periodo") == "instante")
            | (pl.col("fecha_inicio") == pl.date(pl.col("fecha_corte").dt.year(), 1, 1))))
-    factor = (pl.when(pl.col("escala").is_in(["miles_de_pesos", "miles_de_dolares"])).then(1000.0).otherwise(1.0))
+    # Los emisores que reportan en dólares: un hecho guardado como pesos se corrige aquí también (el conector
+    # lo hace al leer, pero hay cortes guardados antes de marcar la moneda). Y los que transmiten el XBRL con
+    # los montos sin escalar (xbrl_montos_en_unidades en config/emisores_rnve.yaml) no se multiplican por 1.000
+    lista = emisores()
+    en_usd = [e["emisor_id"] for e in lista if e.get("moneda_informes") == "USD"]
+    en_unidades = [e["emisor_id"] for e in lista if e.get("xbrl_montos_en_unidades")]
+    x = x.with_columns(
+        pl.when(pl.col("emisor_id").is_in(en_usd) & (pl.col("escala") == "miles_de_pesos")).then(pl.lit("miles_de_dolares"))
+        .when(pl.col("emisor_id").is_in(en_usd) & (pl.col("escala") == "pesos")).then(pl.lit("dolares"))
+        .otherwise(pl.col("escala")).alias("escala"))
+    factor = (pl.when(pl.col("emisor_id").is_in(en_unidades)).then(1.0)
+              .when(pl.col("escala").is_in(["miles_de_pesos", "miles_de_dolares"])).then(1000.0).otherwise(1.0))
     unidad = (pl.when(pl.col("escala") == "dolares").then(pl.lit("usd_por_accion"))
               .when(pl.col("escala") == "miles_de_dolares").then(pl.lit("usd"))
               .when(pl.col("escala") == "pesos").then(pl.lit("pesos_por_accion"))
@@ -182,14 +215,99 @@ def desde_xbrl(xbrl: pl.DataFrame) -> pl.DataFrame:
         .select(list(ESQUEMA)))
 
 
+SUPERSOCIEDADES = {"activos": "activos", "pasivos": "pasivos", "patrimonio": "patrimonio_total",
+                   "ingresos_operacionales": "ingresos_operacionales", "ganancia": "utilidad_total"}
+
+
+def desde_supersociedades(ss: pl.DataFrame | None) -> pl.DataFrame:
+    """Estados separados anuales de Supersociedades (respaldo; ver docstring del módulo)."""
+    if ss is None or ss.is_empty():
+        return pl.DataFrame(schema=ESQUEMA)
+    largo = ss.filter(pl.col("emisor_id").is_not_null()).unpivot(
+        index=["emisor_id", "fecha_corte"], on=list(SUPERSOCIEDADES), variable_name="concepto", value_name="valor")
+    return (largo.filter(pl.col("valor").is_not_null())
+            .with_columns(pl.col("concepto").replace_strict(SUPERSOCIEDADES),
+                          pl.date(pl.col("fecha_corte").dt.year() + 1, 6, 30).alias("fecha_disponible"),
+                          pl.lit("pesos").alias("unidad"), pl.lit("separado_anual").alias("base"),
+                          pl.lit("supersociedades").alias("fuente"))
+            .select(list(ESQUEMA)).cast(ESQUEMA))
+
+
+# Tolerancias del cotejo: el patrimonio debe cuadrar casi exacto; la utilidad por acción usa el promedio
+# de acciones del año, así que si hubo recompras, emisiones o escisiones se aleja más
+TOLERANCIA_COTEJO = {"patrimonio": 0.02, "utilidad": 0.10}
+
+
+def cotejo(fund: pl.DataFrame) -> pl.DataFrame:
+    """Compara, por emisor y cierre anual, lo que dicen los anexos de la SFC y Supersociedades.
+
+    ``estado``: ``ok`` dentro de la tolerancia (o de la precisión de Supersociedades), ``revisar`` si se
+    aleja, ``sin_par`` si falta una de las dos cifras. Se comparan en pesos; ``diferencia`` es relativa
+    a Supersociedades.
+    """
+    esquema = {"emisor_id": pl.Utf8, "fecha_corte": pl.Date, "concepto": pl.Utf8, "anexos": pl.Float64,
+               "supersociedades": pl.Float64, "diferencia": pl.Float64, "tolerancia": pl.Float64, "estado": pl.Utf8,
+               "nota": pl.Utf8}
+    if fund is None or fund.is_empty():
+        return pl.DataFrame(schema=esquema)
+    dic = fund.filter(pl.col("fecha_corte").dt.month() == 12)
+
+    def uno(concepto: str, base: str | None = None) -> pl.DataFrame:
+        d = dic.filter(pl.col("concepto") == concepto)
+        if base:
+            d = d.filter(pl.col("base") == base)
+        # Si dos anexos traen el mismo concepto, se usa el 141/187 (el informe de información económica)
+        d = d.with_columns((pl.col("fuente") == "anexo_211").alias("_ultimo")).sort(["emisor_id", "fecha_corte", "_ultimo"])
+        return d.unique(subset=["emisor_id", "fecha_corte"], keep="first", maintain_order=True).select(
+            "emisor_id", "fecha_corte", pl.col("valor").alias(concepto))
+
+    llave = ["emisor_id", "fecha_corte"]
+    t = (uno("valor_patrimonial_accion", "separado").join(uno("acciones_circulacion"), on=llave, how="full", coalesce=True)
+         .join(uno("utilidad_accion", "separado"), on=llave, how="full", coalesce=True)
+         .join(uno("patrimonio_total", "separado_anual"), on=llave, how="full", coalesce=True)
+         .join(uno("utilidad_total", "separado_anual"), on=llave, how="full", coalesce=True))
+    from invest.ingest.supersociedades import PRECISION
+
+    partes = []
+    for concepto, por_accion, total in (("patrimonio", "valor_patrimonial_accion", "patrimonio_total"),
+                                        ("utilidad", "utilidad_accion", "utilidad_total")):
+        tol = TOLERANCIA_COTEJO[concepto]
+        p = t.select(*llave, (pl.col(por_accion) * pl.col("acciones_circulacion")).alias("anexos"),
+                     pl.col(total).alias("supersociedades"))
+        p = p.filter(pl.col("anexos").is_not_null() | pl.col("supersociedades").is_not_null()).with_columns(
+            pl.lit(concepto).alias("concepto"), pl.lit(tol).alias("tolerancia"),
+            ((pl.col("anexos") - pl.col("supersociedades")) / pl.col("supersociedades").abs()).alias("diferencia"))
+        dentro = ((pl.col("anexos") - pl.col("supersociedades")).abs()
+                  <= pl.max_horizontal(tol * pl.col("supersociedades").abs(), pl.lit(PRECISION)))
+        p = p.with_columns(
+            pl.when(pl.col("anexos").is_null() | pl.col("supersociedades").is_null()).then(pl.lit("sin_par"))
+            .when(dentro).then(pl.lit("ok")).otherwise(pl.lit("revisar")).alias("estado"),
+            pl.when(pl.col("anexos").is_null()).then(pl.lit("faltan el valor por acción o las acciones en los anexos"))
+            .when(pl.col("supersociedades").is_null()).then(pl.lit("el emisor no está en Supersociedades ese año"))
+            .when(~dentro & (pl.lit(concepto) == "utilidad"))
+            .then(pl.lit("la utilidad por acción usa el promedio de acciones del año: revisar si cambiaron"))
+            .when(~dentro).then(pl.lit("el valor por acción y las acciones de los anexos no dan el patrimonio"))
+            .otherwise(pl.lit(None)).alias("nota"))
+        partes.append(p.select(list(esquema)))
+    return pl.concat(partes).cast(esquema).sort(["emisor_id", "fecha_corte", "concepto"])
+
+
 def construir() -> tuple[pl.DataFrame | None, dict]:
     anexos = storage.leer_tabla("silver", "fact_anexo_sfc")
     xbrl = storage.leer_tabla("silver", "fact_xbrl_sfc")
-    df = pl.concat([desde_anexos(anexos), desde_xbrl(xbrl)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
+    ss = storage.leer_tabla("silver", "fact_ee_anual_supersociedades")
+    df = pl.concat([desde_anexos(anexos), desde_xbrl(xbrl), desde_supersociedades(ss)]).sort(
+        ["emisor_id", "fecha_corte", "base", "concepto"])
     if df.is_empty():
         return None, {}
     storage.escribir_completa("gold", "fact_fundamental", df)
+    c = cotejo(df)
+    if not c.is_empty():
+        storage.escribir_completa("gold", "fact_cotejo_fundamental", c)
     return df, {
+        "cotejo_ok": c.filter(pl.col("estado") == "ok").height,
+        "cotejo_revisar": c.filter(pl.col("estado") == "revisar").height,
+        "con_respaldo_anual": df.filter(pl.col("base") == "separado_anual").get_column("emisor_id").n_unique(),
         "emisores": df.get_column("emisor_id").n_unique(),
         "cortes": df.get_column("fecha_corte").n_unique(),
         "con_valor_patrimonial": df.filter(pl.col("concepto") == "valor_patrimonial_accion")

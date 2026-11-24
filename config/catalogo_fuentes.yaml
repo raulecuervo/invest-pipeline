@@ -253,6 +253,24 @@ fuentes:
       - {codigo: "12", nombre: Banco GNB Sudameris}
     cuentas_extra: []
 
+  - id: supersociedades_10000
+    nombre: Supersociedades, 10.000 empresas más grandes del país (estados anuales de respaldo)
+    tipo_dato: fundamentales
+    url: https://www.datos.gov.co/resource/6cat-2gcs.json
+    acceso: api_socrata
+    frecuencia: anual
+    ventana_publicacion: "fin de junio del año siguiente al corte"
+    recarga_dias: 800              # vuelve a pedir los dos últimos años por si Supersociedades corrige
+    ejecuta_en: actions
+    licencia: "datos abiertos del Estado colombiano; citar Fuente Superintendencia de Sociedades"
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    historico_desde: "2021-01-01"
+    tabla_destino: fact_ee_anual_supersociedades
+    columna_fecha: fecha_corte
+    nota: "Respaldo de los emisores sin XBRL en el SIMEV y control del patrimonio de los anexos. Billones con dos decimales (± 5.000 millones), estados separados, solo cierres anuales desde 2021; los bancos no están (CUIF)"
+
   # -------------------------------------------------------------- Renta fija
   - id: banrep_curva_tes
     nombre: Banco de la República, curvas cero cupón TES (pesos y UVR)

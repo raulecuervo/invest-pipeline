@@ -54,5 +54,29 @@ activos:
   # Mineros paga en dólares; Investing mezcla filas en USD con filas ya pasadas a pesos, así que en el
   # archivo cada fila en dólares lleva un quinto campo "USD" (se marcan las de valor menor que 1).
   - {especie: coc07paao002, investing: mineros-sa}
-# Pendientes, sin copiar: Corficolombiana (paga parte en acciones; Investing mezcla ambos),
-# Conconcreto (no aparece en Investing) y las acciones poco líquidas.
+  # Corficolombiana (24-nov-2026). De 2017 a 2022 pagó el dividendo en acciones nuevas (relación y precio
+  # de referencia por especie; la asamblea de 2019 eliminó la parte en efectivo) y las dos páginas lo
+  # muestran como si fuera efectivo: ese periodo se excluye. Desde las utilidades de 2023 la ordinaria no
+  # recibe dividendo y la preferencial solo el mínimo (1.135 en 2024, 1.194 en 2025, 1.255 en 2026). Antes
+  # de 2017 había seis cuotas mensuales en efectivo por semestre y un dividendo en acciones por semestre.
+  # La página de Investing de la preferencial no carga: solo stockanalysis (últimos 20 pagos).
+  - especie: coj12paao007
+    investing: corficolcf
+    stockanalysis: CORFICOLCF
+    excluir:
+      - {desde: 2017-04-01, hasta: 2022-12-31, motivo: "Corficolombiana pagó en acciones de 2017 a 2022; las páginas lo muestran como efectivo"}
+  - especie: coj12paad000
+    stockanalysis: PFCORFICOL
+    excluir:
+      - {desde: 2017-04-01, hasta: 2022-12-31, motivo: "Corficolombiana pagó en acciones de 2017 a 2022; las páginas lo muestran como efectivo"}
+  # Conconcreto: en Investing es "conconcret" (sin la O final). Sin dividendo de los ejercicios 2017–2025
+  # salvo uno no gravado de 15.000 millones con utilidades anteriores a 2016, en 3 cuotas de 4,40818
+  # (sep-2022, dic-2022 y mar-2023). Hasta abr-2013 Investing multiplica los valores por 0,926196 (emisión de
+  # 2012) y mezcla en jun-2012 un dividendo en acciones; las cuotas de 2010–2012 no cuadran entre el
+  # prospecto y la página. Ese periodo se excluye; la tabla oficial del emisor arranca en 2013.
+  - especie: cof02paao006
+    investing: conconcret
+    stockanalysis: CONCONCRET
+    excluir:
+      - {desde: 2007-01-01, hasta: 2013-04-30, motivo: "Investing ajusta por la emisión de 2012 y mezcla un dividendo en acciones; cuotas 2010–2012 sin confirmar"}
+# Pendientes, sin copiar: las acciones poco líquidas.

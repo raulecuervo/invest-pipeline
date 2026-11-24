@@ -78,3 +78,23 @@ def test_xbrl_solo_periodo_del_informe_y_en_pesos():
     upa = _valor(df, "CO-COE15", "upa_basica")
     assert upa["valor"] == 1669.82 and upa["unidad"] == "pesos_por_accion"
     assert upa["fecha_disponible"] == date(2025, 11, 12) and upa["base"] == "consolidado"
+
+
+def test_xbrl_de_emisores_en_dolares():
+    # BAC: montos en dólares sin escalar y un corte guardado como pesos; Canacol: miles de dólares
+    def hecho(emisor, corte, valor, escala):
+        return {"emisor_id": emisor, "nit": "", "entidad_sfc": "", "fecha_corte": corte, "tipo_informe": "consolidado",
+                "concepto": "ifrs:Assets", "tipo_periodo": "instante", "fecha_inicio": corte, "fecha_fin": corte,
+                "valor": valor, "unidad": "COP", "escala": escala, "radicado": "1", "fecha_transmision": corte,
+                "fuente_id": "sfc_rnve_niif", "ingest_ts": None}
+    xbrl = pl.DataFrame([
+        hecho("CO-PAT07", date(2025, 12, 31), 41932672874.0, "miles_de_dolares"),
+        hecho("CO-PAT07", date(2026, 6, 30), 48130000000.0, "miles_de_pesos"),
+        hecho("CO-CAC13", date(2024, 12, 31), 1215777.0, "miles_de_dolares"),
+    ])
+    df = fundamentales.desde_xbrl(xbrl).sort(["emisor_id", "fecha_corte"])
+    bac = df.filter(pl.col("emisor_id") == "CO-PAT07")
+    assert bac.get_column("valor").to_list() == [41932672874.0, 48130000000.0]
+    assert set(bac.get_column("unidad")) == {"usd"}
+    canacol = _valor(df, "CO-CAC13", "activos")
+    assert canacol["valor"] == 1215777.0 * 1000 and canacol["unidad"] == "usd"

@@ -2,6 +2,12 @@
 
 ``invest modelo`` hace, en orden:
 
+0. Revisa qué cambió: cada paso del punto 1 guarda la huella (contenido) de lo que lee — tablas,
+   archivos de config/, su propio código y, para el calendario, la fecha del día — y de lo que escribe,
+   en ``invest-data/.modelo/huellas.json`` (junto a ``modelo.duckdb``, fuera de Git). Un paso cuyos
+   insumos y salidas siguen iguales desde su última corrida exitosa se salta; si un paso se recalcula,
+   también los que leen sus salidas. ``invest modelo --todo`` recalcula todo.
+
 1. Las tablas derivadas que dependen de dims, factores y ficha: técnico e índices propios
    (``tecnico``), riesgo (``riesgo``), métricas fundamentales y valoración (``metricas``), puntajes de
    1 a 10, matriz y screeners (``puntajes``), calendario (``calendario_eventos``), carteras
@@ -18,6 +24,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import duckdb
@@ -79,14 +86,219 @@ def leer(nombre: str) -> pl.DataFrame | None:
     return pl.concat([pl.read_parquet(a) for a in archivos], how="diagonal_relaxed")
 
 
-def calcular() -> dict[str, dict]:
-    from invest import calendario_eventos, cartera, metricas, puntajes, riesgo, tecnico, variables
+# --------------------------------------------------------------------------- recálculo incremental
+# Qué lee y qué escribe cada paso de ``calcular``, en orden. Las tablas son (capa, tabla) como las usan
+# ``storage.leer_tabla`` / ``storage.escribir_*`` (las dimensiones de gold, ``dim_*``, viven en
+# gold/dims/), ``("usuario", tabla)`` lo que lee ``usuario.leer`` y ``config`` los archivos de config/
+# (un patrón con * para carpetas). ``hoy``: el resultado depende de la fecha del día. Una prueba
+# (tests/test_modelo_incremental.py) compara estas listas con el código de cada módulo.
+PASOS: dict[str, dict] = {
+    "tecnico": {
+        "modulo": "tecnico",
+        "entradas": [("gold", "fact_precio_diario"), ("gold", "fact_liquidez_diaria")],
+        "salidas": [("gold", "fact_indice_mercado"), ("gold", "fact_tecnico_diario")],
+    },
+    "riesgo": {
+        "modulo": "riesgo",
+        "entradas": [("gold", "fact_tecnico_diario"), ("gold", "fact_indice_mercado"), ("gold", "fact_macro")],
+        "salidas": [("gold", "fact_riesgo")],
+    },
+    "metricas": {
+        "modulo": "metricas",
+        "entradas": [("gold", "fact_fundamental"), ("gold", "fact_precio_diario")],
+        "salidas": [("gold", "fact_metrica_fundamental"), ("gold", "fact_valoracion")],
+    },
+    "puntajes": {
+        "modulo": "puntajes",
+        "entradas": [("gold", "fact_valoracion"), ("gold", "dim_activo"), ("gold", "fact_factor_mensual"),
+                     ("gold", "fact_tecnico_diario"), ("gold", "fact_riesgo"), ("gold", "fact_metrica_fundamental"),
+                     ("gold", "fact_puntaje_mensual"), ("gold", "fact_validacion_factor")],
+        "config": ["escala.yaml", "screeners.yaml"],
+        "salidas": [("gold", "fact_puntaje"), ("gold", "fact_matriz"), ("gold", "fact_screener_corrida")],
+    },
+    "calendario": {
+        "modulo": "calendario_eventos",
+        "entradas": [("gold", "fact_dividendo"), ("gold", "fact_dividendo_web"), ("gold", "dim_activo"),
+                     ("gold", "fact_evento_corporativo"), ("gold", "fact_macro")],
+        "config": ["calendario_macro.yaml"],
+        "hoy": True,  # separa los eventos pasados de los futuros y proyecta el calendario macro
+        "salidas": [("gold", "fact_evento_calendario")],
+    },
+    "cartera": {
+        "modulo": "cartera",
+        "entradas": [("usuario", "fact_transaccion"), ("usuario", "dim_cartera"), ("usuario", "dim_perfil"),
+                     ("usuario", "dim_perfil_asignacion"), ("gold", "fact_precio_diario"), ("gold", "dim_activo"),
+                     ("gold", "fact_indice_mercado")],
+        "hoy": True,  # sin precios, las posiciones llegan hasta hoy (es un paso de segundos)
+        "salidas": [("gold", "fact_posicion"), ("gold", "fact_asignacion"), ("gold", "fact_desempeno")],
+    },
+    "variables": {
+        "modulo": "variables",
+        "entradas": [],
+        "config": ["variables/*.yaml", "modelo.yaml", "indicadores_macro.yaml"],
+        "salidas": [("gold", "dim_variable")],
+    },
+}
 
-    resumen = {}
-    for nombre, modulo in (("tecnico", tecnico), ("riesgo", riesgo), ("metricas", metricas),
-                           ("puntajes", puntajes), ("calendario", calendario_eventos), ("cartera", cartera),
-                           ("variables", variables)):
-        resumen[nombre] = modulo.construir()
+CARPETA_HUELLAS = ".modelo"  # junto a modelo.duckdb; se ignora sola en Git (no va a meta/, que se versiona)
+VERSION_HUELLAS = 1
+
+
+def ruta_huellas() -> Path:
+    return data_dir() / CARPETA_HUELLAS / "huellas.json"
+
+
+def _archivos_tabla(capa: str, tabla: str) -> list[Path]:
+    """Los Parquet de una tabla, con las mismas reglas de ruta que storage y usuario."""
+    base = data_dir()
+    if capa == "usuario":
+        archivo = base / "usuario" / f"{tabla}.parquet"
+        return [archivo] if archivo.exists() else []
+    if capa == "gold" and tabla.startswith("dim_"):
+        archivo = base / "gold" / "dims" / f"{tabla}.parquet"
+        return [archivo] if archivo.exists() else []
+    carpeta = base / capa / tabla
+    return sorted(carpeta.glob("**/*.parquet")) if carpeta.exists() else []
+
+
+def _archivos_config(patron: str) -> list[Path]:
+    from invest.config import CONFIG_DIR
+
+    return sorted(CONFIG_DIR.glob(patron)) if "*" in patron else [CONFIG_DIR / patron]
+
+
+def _modulos_codigo(modulo: str) -> list[Path]:
+    """El archivo del módulo y los de invest que importa (un nivel): un cambio de código recalcula."""
+    import re
+
+    carpeta = Path(__file__).parent
+    fuente = carpeta / f"{modulo}.py"
+    nombres = {modulo}
+    texto = fuente.read_text(encoding="utf-8")
+    for m in re.finditer(r"^from invest(?:\.(\w+))? import ([\w, ]+)", texto, flags=re.M):
+        nombres |= {m.group(1)} if m.group(1) else {n.strip() for n in m.group(2).split(",")}
+    return sorted(p for p in (carpeta / f"{n}.py" for n in nombres) if p.exists())
+
+
+class _Huellas:
+    """Contenido (sha1) de cada archivo, con caché por tamaño y fecha de modificación: solo se vuelve a
+    leer un archivo que cambió, y reescribir un archivo con el mismo contenido no cuenta como cambio."""
+
+    def __init__(self, cache: dict | None = None):
+        self.cache: dict[str, list] = dict(cache or {})
+
+    def archivo(self, ruta: Path) -> str:
+        import hashlib
+
+        if not ruta.exists():
+            return "-"
+        st = ruta.stat()
+        clave = ruta.as_posix()
+        previo = self.cache.get(clave)
+        if previo and previo[0] == st.st_size and previo[1] == st.st_mtime_ns:
+            return previo[2]
+        h = hashlib.sha1()
+        with open(ruta, "rb") as f:
+            for bloque in iter(lambda: f.read(1 << 20), b""):
+                h.update(bloque)
+        self.cache[clave] = [st.st_size, st.st_mtime_ns, h.hexdigest()]
+        return h.hexdigest()
+
+    def conjunto(self, rutas: list[Path]) -> str:
+        import hashlib
+
+        base = data_dir()
+        h = hashlib.sha1()
+        for r in rutas:
+            try:
+                nombre = r.relative_to(base).as_posix()
+            except ValueError:
+                nombre = r.name
+            h.update(f"{nombre}={self.archivo(r)}\n".encode())
+        return h.hexdigest()
+
+    def entradas(self, nombre: str, hoy: str) -> str:
+        p = PASOS[nombre]
+        partes = [f"v{VERSION_HUELLAS}", "codigo:" + self.conjunto(_modulos_codigo(p["modulo"]))]
+        for capa, tabla in p["entradas"]:
+            partes.append(f"{capa}/{tabla}:" + self.conjunto(_archivos_tabla(capa, tabla)))
+        for patron in p.get("config", []):
+            partes.append(f"config/{patron}:" + self.conjunto(_archivos_config(patron)))
+        if p.get("hoy"):
+            partes.append("hoy:" + hoy)
+        return "|".join(partes)
+
+    def salidas(self, nombre: str) -> str:
+        return "|".join(f"{capa}/{tabla}:" + self.conjunto(_archivos_tabla(capa, tabla))
+                        for capa, tabla in PASOS[nombre]["salidas"])
+
+
+def _leer_huellas() -> dict:
+    archivo = ruta_huellas()
+    try:
+        d = json.loads(archivo.read_text(encoding="utf-8"))
+        return d if d.get("version") == VERSION_HUELLAS else {}
+    except (OSError, ValueError):
+        return {}  # primera corrida o archivo dañado: se recalcula todo
+
+
+def _guardar_huellas(pasos: dict, cache: dict) -> None:
+    archivo = ruta_huellas()
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    ignorar = archivo.parent / ".gitignore"
+    if not ignorar.exists():
+        ignorar.write_text("# Huellas del recálculo incremental de invest modelo: propias de este computador\n*\n",
+                           encoding="utf-8")
+    base = data_dir().as_posix() + "/"
+    cache = {k: v for k, v in cache.items() if not k.startswith(base) or Path(k).exists()}
+    tmp = archivo.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"version": VERSION_HUELLAS, "pasos": pasos, "archivos": cache}, ensure_ascii=False,
+                              indent=1, sort_keys=True), encoding="utf-8")
+    tmp.replace(archivo)
+
+
+def depende_de(nombre: str) -> set[str]:
+    """Pasos anteriores cuyas salidas lee ``nombre``."""
+    orden = list(PASOS)
+    entradas = set(PASOS[nombre]["entradas"])
+    return {otro for otro in orden[:orden.index(nombre)] if entradas & set(PASOS[otro]["salidas"])}
+
+
+def calcular(todo: bool = True, informar=None, hoy=None) -> dict[str, dict]:
+    """Recalcula las tablas derivadas en orden.
+
+    Con ``todo=False`` salta los pasos cuyos insumos (tablas que lee, archivos de config/, su código y,
+    si aplica, la fecha del día) no cambiaron desde su última corrida exitosa y cuyas salidas siguen
+    como las dejó. Si un paso se recalcula, también los que leen sus salidas. Los saltados quedan en el
+    resumen como ``{"saltado": True}``. ``informar(nombre, resultado)`` se llama al terminar cada paso.
+    ``hoy`` (fecha) solo cambia la huella de los pasos que dependen del día; sirve para las pruebas.
+    """
+    import importlib
+    from datetime import date
+
+    previas = _leer_huellas()  # con todo=True también: los pasos que no alcance a correr conservan su huella
+    huellas = _Huellas(previas.get("archivos"))
+    estado = dict(previas.get("pasos") or {})
+    hoy = (hoy or date.today()).isoformat()
+    resumen: dict[str, dict] = {}
+    recalculados: set[str] = set()
+    for nombre, paso in PASOS.items():
+        entradas = huellas.entradas(nombre, hoy)
+        anterior = estado.get(nombre) or {}
+        arrastre = depende_de(nombre) & recalculados
+        if (not todo and not arrastre and anterior.get("entradas") == entradas
+                and anterior.get("salidas") == huellas.salidas(nombre)):
+            resumen[nombre] = {"saltado": True}
+        else:
+            estado.pop(nombre, None)
+            _guardar_huellas(estado, huellas.cache)  # si el paso falla, la próxima corrida lo repite
+            modulo = importlib.import_module(f"invest.{paso['modulo']}")
+            resumen[nombre] = modulo.construir()
+            recalculados.add(nombre)
+            estado[nombre] = {"entradas": entradas, "salidas": huellas.salidas(nombre)}
+            _guardar_huellas(estado, huellas.cache)
+        if informar:
+            informar(nombre, resumen[nombre])
     return resumen
 
 
@@ -161,9 +373,11 @@ def resumen_tablas() -> pl.DataFrame:
     return pl.DataFrame(filas)
 
 
-def construir(recalcular: bool = True) -> dict:
-    resumen = calcular() if recalcular else {}
+def construir(recalcular: bool = True, todo: bool = False, informar=None) -> dict:
+    """Tablas derivadas (solo los pasos con insumos nuevos, o todos con ``todo=True``), base y contrato."""
+    resumen = calcular(todo=todo, informar=informar) if recalcular else {}
     destino, vistas = construir_duckdb()
     problemas = verificar()
-    return {"calculo": resumen, "duckdb": str(destino), "vistas": len(vistas), "problemas": problemas}
+    return {"calculo": resumen, "saltados": [n for n, r in resumen.items() if r.get("saltado")],
+            "duckdb": str(destino), "vistas": len(vistas), "problemas": problemas}
 

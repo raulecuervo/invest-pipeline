@@ -5,8 +5,11 @@
   usa), así que una consulta "lo que se sabía el día d" es ``fecha_disponible <= d``.
   Base **separada** (anexos de la SFC, por acción): valor patrimonial por acción (``vpa``), utilidad
   por acción de 12 meses (``upa_12m``), ``roe_12m`` (= upa_12m / vpa), dividendo por acción decretado,
-  ``payout`` (dividendo decretado en el año sobre la utilidad por acción del año anterior), crecimiento
-  de la utilidad por acción y de los ingresos en 12 meses. Base **consolidada** (XBRL): utilidad de la
+  ``payout`` (dividendo decretado en el año sobre la utilidad por acción del año anterior) y crecimiento
+  de la utilidad por acción en 12 meses. Los "ingresos" del anexo 141 no se usan: el cotejo con
+  Supersociedades mostró que no son los ingresos operacionales. Base **separado_anual**
+  (Supersociedades, respaldo de quienes no tienen XBRL): ingresos, ``apalancamiento``,
+  ``margen_neto_12m``, ``roe_anual`` y ``crecimiento_ingresos_12m`` de cada cierre. Base **consolidada** (XBRL): utilidad de la
   controladora e ingresos de 12 meses, ``roe_consolidado_12m``, ``margen_neto_12m``,
   ``apalancamiento`` (pasivos / activos) y ``efectivo_activos``.
   Las cifras de resultados de los informes son acumuladas del año; las de 12 meses se arman como
@@ -107,7 +110,8 @@ def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
     vpa, upa = sep("valor_patrimonial_accion"), sep("utilidad_accion")
     upa12 = doce_meses(upa)
     div = sep("dividendo_accion_ordinaria")
-    ingresos12 = doce_meses(sep("ingresos_separados"))
+    anual = lambda c: _serie(fund, c, "separado_anual")  # noqa: E731
+    ingresos_a = anual("ingresos_operacionales")
     util_ctrl12 = doce_meses(con("utilidad_controladora"))
     util_tot12 = doce_meses(con("utilidad_total"))
     ingresos_c12 = doce_meses(con("ingresos_consolidados"))
@@ -118,8 +122,11 @@ def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
         ("separado", "dividendo_accion"): div,
         ("separado", "payout"): _payout(div, upa),
         ("separado", "crecimiento_upa_12m"): _crecimiento(upa12),
-        ("separado", "ingresos_12m"): ingresos12,
-        ("separado", "crecimiento_ingresos_12m"): _crecimiento(ingresos12),
+        ("separado_anual", "ingresos_12m"): ingresos_a,
+        ("separado_anual", "crecimiento_ingresos_12m"): _crecimiento(ingresos_a),
+        ("separado_anual", "margen_neto_12m"): _cociente(anual("utilidad_total"), ingresos_a),
+        ("separado_anual", "roe_anual"): _cociente(anual("utilidad_total"), anual("patrimonio_total")),
+        ("separado_anual", "apalancamiento"): _cociente(anual("pasivos"), anual("activos")),
         ("consolidado", "utilidad_controladora_12m"): util_ctrl12,
         ("consolidado", "ingresos_12m"): ingresos_c12,
         ("consolidado", "roe_consolidado_12m"): _cociente(util_ctrl12, con("patrimonio_controladora")),

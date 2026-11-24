@@ -26,7 +26,13 @@ function sv(tag, attrs = {}, texto) {
 }
 async function api(ruta, opciones) {
   const r = await fetch(ruta, opciones);
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  if (!r.ok) {
+    // FastAPI responde {"detail": "..."}: se muestra el motivo, no el JSON crudo
+    const texto = await r.text();
+    let detalle = texto;
+    try { detalle = JSON.parse(texto).detail ?? texto; } catch (_) { /* no era JSON */ }
+    throw new Error(`${r.status} · ${typeof detalle === "string" ? detalle : JSON.stringify(detalle)}`);
+  }
   return r.json();
 }
 const postear = (ruta, cuerpo) => api(ruta, { method: "POST", headers: { "Content-Type": "application/json", "X-Invest": "1" }, body: JSON.stringify(cuerpo || {}) });
@@ -137,7 +143,14 @@ function lineas(caja, series, op = {}) {
     s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "#1A2540" }), sv("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, fy(v)));
   }
   const paso = Math.max(1, Math.ceil(xs.length / 7));
-  xs.forEach((x, i) => { if (i % paso === 0) s.append(sv("text", { x: X(x), y: H - 6, "text-anchor": "middle" }, op.fx ? op.fx(x) : fechaCorta(x))); });
+  let rotuloAnterior = null;
+  xs.forEach((x, i) => {
+    if (i % paso !== 0) return;
+    const rotulo = op.fx ? op.fx(x) : fechaCorta(x);
+    if (rotulo === rotuloAnterior) return;  // dos marcas en el mismo mes repetían el rótulo
+    rotuloAnterior = rotulo;
+    s.append(sv("text", { x: X(x), y: H - 6, "text-anchor": "middle" }, rotulo));
+  });
   for (const se of series) {
     let d = "", abierto = false;
     for (const p of se.puntos) {
@@ -365,6 +378,7 @@ paginas.mercado = async (v) => {
     catalogo.map((c) => el("option", { value: c.serie_id }, `${c.corto} (${c.categoria})`)));
   selector.value = catalogo.some((c) => c.serie_id === "trm_usd_cop") ? "trm_usd_cop" : catalogo[0]?.serie_id;
   const pintarMacro = async () => {
+    if (!catalogo.length) { cajaMacro.replaceChildren(el("div", { class: "vacio" }, "Todavía no hay series macro.")); return; }
     const c = catalogo.find((x) => x.serie_id === selector.value);
     const datos = await api("/api/macro/" + selector.value + "?anios=10");
     const esPct = ["pct", "%"].includes(c?.unidad);
@@ -571,10 +585,11 @@ paginas.ficha = async (v, especie) => {
 };
 
 // ------------------------------------------------------------------ cartera
-function elegirCartera(v, alCambiar) {
+function elegirCartera(v, alCambiar, pedida) {
   const carteras = estado.info?.carteras || [];
   if (!carteras.length) return null;
-  let actual = localStorage.getItem("cartera") || carteras[0].cartera_id;
+  // #/cartera/<id> manda sobre la última elegida
+  let actual = (pedida && carteras.some((c) => c.cartera_id === pedida) ? pedida : null) || localStorage.getItem("cartera") || carteras[0].cartera_id;
   if (!carteras.some((c) => c.cartera_id === actual)) actual = carteras[0].cartera_id;
   const sel = el("select", { "aria-label": "Cartera", style: { height: "40px", background: "var(--panel)", border: "1px solid var(--borde-boton)", borderRadius: "8px", padding: "0 10px" },
     onchange: (e) => { localStorage.setItem("cartera", e.target.value); alCambiar(e.target.value); } },
@@ -583,8 +598,11 @@ function elegirCartera(v, alCambiar) {
   return { sel, actual };
 }
 
-paginas.cartera = async (v) => {
-  const eleccion = elegirCartera(v, () => ir());
+paginas.cartera = async (v, pedida) => {
+  const eleccion = elegirCartera(v, (id) => { location.hash = "#/cartera/" + encodeURIComponent(id); }, pedida);
+  if (eleccion && pedida && eleccion.actual !== pedida) {
+    v.append(el("div", { class: "aviso" }, `No existe la cartera «${pedida}»; se muestra ${eleccion.actual}.`));
+  }
   v.append(el("div", { class: "encabezado" }, el("div", {}, el("h1", {}, "Mi cartera"), el("div", { class: "sub" }, "Valores en pesos, con el último precio disponible")),
     el("div", { style: { display: "flex", gap: "8px" } }, eleccion ? eleccion.sel : null, el("a", { class: "boton", href: "#/carteras", style: { display: "inline-flex", alignItems: "center" } }, "Registrar transacción"))));
   if (!eleccion) { v.append(panel(null, el("div", { class: "vacio" }, "Todavía no hay carteras. Cree una en ", el("a", { href: "#/carteras", style: { color: "var(--acento)" } }, "Carteras y transacciones"), "."))); return; }
@@ -796,7 +814,7 @@ paginas.salud = async (v) => {
   b3.onclick = async () => { b3.disabled = true; contrato.textContent = "Verificando…"; const r = await api("/api/salud/contrato");
     contrato.replaceChildren(r.problemas.length ? el("div", { class: "estado-mal" }, r.problemas.join("; ")) : el("div", { class: "estado-ok" }, "Contrato sin problemas")); b3.disabled = false; };
   v.append(panel("Acciones",
-    el("p", { class: "desc" }, "Leer la Bolsa: después de las 4:15 p. m. de un día bursátil; se abre una ventana de Chromium (la Bolsa no permite navegadores sin ventana). Actualizar el modelo: recalcula técnico, riesgo, valoración, puntajes, calendario y carteras (unos minutos)."),
+    el("p", { class: "desc" }, "Leer la Bolsa: después de las 4:15 p. m. de un día bursátil; se abre una ventana de Chromium (la Bolsa no permite navegadores sin ventana). Actualizar el modelo: recalcula técnico, riesgo, valoración, puntajes, calendario y carteras, solo los pasos con datos nuevos (unos minutos si cambió todo, segundos si no; invest modelo --todo fuerza todo)."),
     el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, b1, b2, b3), consola, contrato));
   const claseEstado = (e) => e === "al día" ? "estado-ok" : (e || "").startsWith("manual") ? "estado-medio" : "estado-mal";
   v.append(panel("Fuentes", tabla([

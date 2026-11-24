@@ -66,10 +66,14 @@ def panel() -> pl.DataFrame | None:
         base = _asof(base, r, ["volatilidad_anual", "drawdown_maximo", "beta"])
     metricas = storage.leer_tabla("gold", "fact_metrica_fundamental")
     if metricas is not None and not metricas.is_empty():
-        for metrica, preferida in (("apalancamiento", "consolidado"), ("crecimiento_upa_12m", "separado"),
-                                   ("crecimiento_ingresos_12m", "consolidado")):
-            m = (metricas.filter(pl.col("metrica") == metrica)
-                 .with_columns((pl.col("base") == preferida).alias("_pref"))
+        # Orden de preferencia de bases: el consolidado (XBRL) primero; los separados anuales de
+        # Supersociedades son el respaldo de los emisores sin XBRL
+        for metrica, orden in (("apalancamiento", ["separado_anual", "consolidado"]),
+                               ("crecimiento_upa_12m", ["separado"]),
+                               ("crecimiento_ingresos_12m", ["separado_anual", "consolidado"])):
+            m = (metricas.filter((pl.col("metrica") == metrica) & pl.col("base").is_in(orden))
+                 .with_columns(pl.col("base").replace_strict({b: i for i, b in enumerate(orden)},
+                                                             return_dtype=pl.Int32).alias("_pref"))
                  .sort(["emisor_id", "fecha_disponible", "_pref"])
                  .unique(subset=["emisor_id", "fecha_disponible"], keep="last", maintain_order=True)
                  .select("emisor_id", "fecha_disponible", pl.col("valor").alias(metrica)))

@@ -13,6 +13,7 @@
     invest factores                     calcula los factores mensuales y su validación estadística
     invest ficha [--abrir]              puntaje de los factores validados por acción y tablero local (HTML)
     invest modelo [--sin-calcular]      tablas del aplicativo, base modelo.duckdb y verificación del contrato
+    invest modelo --todo                recalcula todos los pasos aunque sus insumos no hayan cambiado
     invest usuario --plantillas         tablas vacías y CSV de ejemplo en invest-data/usuario/
     invest app [--puerto 8790] [--no-abrir]   aplicativo local en el navegador (requiere el extra app)
     invest usuario --importar TABLA ARCHIVO.csv   carga perfiles, carteras o transacciones validadas
@@ -73,7 +74,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("factores", help="Factores mensuales y su validación estadística")
 
     pm = sub.add_parser("modelo", help="Tablas del aplicativo, base DuckDB y verificación del contrato")
-    pm.add_argument("--sin-calcular", action="store_true", help="solo rehace la base y verifica")
+    modo = pm.add_mutually_exclusive_group()
+    modo.add_argument("--sin-calcular", action="store_true", help="solo rehace la base y verifica")
+    modo.add_argument("--todo", action="store_true",
+                      help="recalcula todos los pasos (por omisión salta los que no tienen insumos nuevos)")
 
     pa = sub.add_parser("app", help="Aplicativo local en el navegador")
     pa.add_argument("--puerto", type=int, default=8790, help="si está ocupado por otro programa, usa el siguiente libre")
@@ -203,9 +207,18 @@ def main(argv: list[str] | None = None) -> int:
     if a.comando == "modelo":
         from invest import modelo
 
-        r = modelo.construir(recalcular=not a.sin_calcular)
-        for nombre, res in r["calculo"].items():
-            print(f"{nombre}: " + (", ".join(f"{k} {v}" for k, v in res.items()) or "sin datos"))
+        def informar(nombre: str, res: dict) -> None:
+            if res.get("saltado"):
+                print(f"{nombre}: saltado (sin cambios en sus insumos)", flush=True)
+            else:
+                print(f"{nombre}: " + (", ".join(f"{k} {v}" for k, v in res.items()) or "sin datos"), flush=True)
+
+        r = modelo.construir(recalcular=not a.sin_calcular, todo=a.todo, informar=informar)
+        if r["calculo"]:
+            hechos = len(r["calculo"]) - len(r["saltados"])
+            print(f"Pasos: {hechos} recalculados, {len(r['saltados'])} saltados"
+                  + (f" ({', '.join(r['saltados'])})" if r["saltados"] else "")
+                  + ("" if a.todo or not r["saltados"] else "; invest modelo --todo los fuerza"))
         print(f"Base: {r['duckdb']} ({r['vistas']} vistas)")
         for p in r["problemas"]:
             print(f"[contrato] {p}")

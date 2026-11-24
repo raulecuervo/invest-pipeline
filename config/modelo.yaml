@@ -355,7 +355,7 @@ tablas:
   fact_fundamental:
     capa: gold
     ruta: fact_fundamental
-    descripcion: "Cifras de los estados financieros (anexos separados y XBRL consolidado del SIMEV) con fecha desde la que se conocían"
+    descripcion: "Cifras de los estados financieros (anexos separados y XBRL consolidado del SIMEV; separados anuales de Supersociedades como respaldo) con fecha desde la que se conocían"
     grano: "emisor × corte × base × concepto × fuente"
     claves: [emisor_id, fecha_corte, base, concepto, fuente]
     pagina: "Ficha"
@@ -368,6 +368,40 @@ tablas:
       unidad: String
       base: String
       fuente: String
+  fact_cotejo_fundamental:
+    capa: gold
+    ruta: fact_cotejo_fundamental
+    descripcion: "Control de calidad: patrimonio y utilidad de los anexos de la SFC (por acción × acciones) contra los de Supersociedades, por cierre anual"
+    grano: "emisor × cierre × concepto"
+    claves: [emisor_id, fecha_corte, concepto]
+    pagina: "Salud de datos"
+    columnas:
+      emisor_id: String
+      fecha_corte: Date
+      concepto: String
+      anexos: Float64
+      supersociedades: Float64
+      diferencia: Float64
+      estado: String
+      nota: String
+  fact_ee_anual_supersociedades:
+    capa: silver
+    ruta: fact_ee_anual_supersociedades
+    descripcion: "Estados separados anuales de Supersociedades (10.000 empresas más grandes): respaldo de los emisores sin XBRL; billones con dos decimales"
+    grano: "NIT × año"
+    claves: [nit, anio]
+    pagina: "Ficha"
+    columnas:
+      nit: String
+      emisor_id: String
+      anio: Int32
+      fecha_corte: Date
+      ingresos_operacionales: Float64
+      ganancia: Float64
+      activos: Float64
+      pasivos: Float64
+      patrimonio: Float64
+      precision_pesos: Float64
   fact_metrica_fundamental:
     capa: gold
     ruta: fact_metrica_fundamental
