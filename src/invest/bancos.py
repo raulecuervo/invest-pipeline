@@ -50,7 +50,8 @@ METRICAS = {
     "roe_banco_12m": ("ratio", "utilidad 12m / patrimonio promedio"),
     "roa_banco_12m": ("ratio", "utilidad 12m / activo promedio"),
     "rote_12m": ("ratio", "utilidad 12m / patrimonio tangible promedio"),
-    "nim_12m": ("ratio", "(intereses recibidos − pagados) 12m / (cartera bruta + mercado monetario) promedio"),
+    "nim_12m": ("ratio", "(intereses de cartera y mercado monetario + rendimiento de inversiones en deuda − intereses pagados) 12m / (cartera bruta + mercado monetario + inversiones) promedio"),
+    "utilidad_filiales_12m": ("ratio", "utilidad por el método de participación (filiales) 12m / utilidad 12m"),
     "eficiencia_12m": ("ratio", "gastos de personal y administrativos 12m / margen financiero bruto 12m"),
     "costo_riesgo_12m": ("ratio", "deterioro neto de cartera 12m / cartera bruta promedio"),
     "indice_cartera_riesgo": ("ratio", "cartera calificada B a E / cartera bruta"),
@@ -95,12 +96,20 @@ def agregados_entidad(cuif: pl.DataFrame, cfg: dict | None = None) -> pl.DataFra
     """codigo_entidad × fecha_corte × agregado → valor (suma de sus cuentas)."""
     cfg = cfg or config()
     c = _normalizar(cuif).filter(pl.col("valor").is_not_null())
+    # Meses en que la entidad reportó algo: una cuenta que no aparece ese mes no tiene
+    # saldo (AV Villas no reporta el mercado monetario en 29 de 129 meses) y vale 0, siempre que la entidad
+    # la haya reportado alguna vez (si nunca aparece, p. ej. una cuenta recién agregada, queda vacía)
+    meses = c.select("codigo_entidad", "fecha_corte").unique()
     partes = []
     for nombre, d in cfg["agregados"].items():
         v = pl.col("valor").abs() if d.get("absoluto") else pl.col("valor")
-        partes.append(c.filter(pl.col("cuenta").is_in([str(x) for x in d["cuentas"]]))
-                      .group_by("codigo_entidad", "fecha_corte").agg(v.sum().alias("valor"))
-                      .with_columns(pl.lit(nombre).alias("agregado")))
+        suma = (c.filter(pl.col("cuenta").is_in([str(x) for x in d["cuentas"]]))
+                .group_by("codigo_entidad", "fecha_corte").agg(v.sum().alias("valor")))
+        con_cuenta = suma.select("codigo_entidad").unique()
+        completa = (meses.join(con_cuenta, on="codigo_entidad", how="semi")
+                    .join(suma, on=["codigo_entidad", "fecha_corte"], how="full", coalesce=True)
+                    .with_columns(pl.col("valor").fill_null(0.0)))
+        partes.append(completa.with_columns(pl.lit(nombre).alias("agregado")))
     if not partes:
         return pl.DataFrame(schema={"codigo_entidad": pl.Utf8, "fecha_corte": pl.Date, "valor": pl.Float64,
                                     "agregado": pl.Utf8})
@@ -154,7 +163,7 @@ def metricas_grupo(ag: pl.DataFrame, rezago: int) -> dict[str, pl.DataFrame]:
     tangible = _operar(patrimonio, s("intangibles"))
     cartera, depositos = s("cartera_bruta"), s("depositos")
     ni = doce_meses(_operar(s("ingresos_intereses"), s("gastos_intereses")))
-    productivos = _operar(cartera, s("mercado_monetario"), signo=1.0)
+    productivos = _operar(_operar(cartera, s("mercado_monetario"), signo=1.0), s("inversiones"), signo=1.0)
     admin = s("gastos_administrativos")
     # Margen financiero bruto = ingresos sin recuperaciones de deterioro − gastos que no son de personal,
     # administrativos ni de deterioro (= utilidad antes de impuestos + gastos administrativos + deterioro neto)
@@ -166,6 +175,9 @@ def metricas_grupo(ag: pl.DataFrame, rezago: int) -> dict[str, pl.DataFrame]:
         "roa_banco_12m": _cociente(utilidad12, _promedio_13(activo)),
         "rote_12m": _cociente(utilidad12, _promedio_13(tangible)),
         "nim_12m": _cociente(ni, _promedio_13(productivos)),
+        # Qué parte de la utilidad del banco viene de sus filiales: alta en GNB Sudameris y en los bancos
+        # matrices; con ella el ROE del CUIF no mide solo el negocio bancario propio
+        "utilidad_filiales_12m": _cociente(doce_meses(s("metodo_participacion")), utilidad12),
         "eficiencia_12m": _cociente(doce_meses(admin), doce_meses(mfb)),
         "costo_riesgo_12m": _cociente(deterioro_neto, _promedio_13(cartera)),
         "indice_cartera_riesgo": _cociente(s("cartera_b_e"), cartera),

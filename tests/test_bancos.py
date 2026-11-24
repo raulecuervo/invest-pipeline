@@ -22,13 +22,14 @@ FLUJOS = {
     "590000": 10.0,                                  # utilidad: 120 al año
     "410200": 20.0, "410300": 10.0,                  # intereses recibidos: 360 al año
     "510200": 8.0, "510300": 3.0, "510400": 1.0,     # intereses pagados: 144 al año
+    "415000": 2.5,                                   # utilidad de filiales: 30 al año (25 % de la utilidad)
     "410000": 100.0, "419800": 2.0, "510000": 85.0, "517000": 4.0, "517100": 1.0,
     "512000": 6.0, "513000": 1.0, "519000": 3.0,     # gastos administrativos: 10 al mes
     "517005": 3.0, "517010": 0.5, "517105": 0.3, "517115": 0.2,   # deterioro de cartera: 4 al mes
     "419810": 1.0, "419855": 0.5,                    # recuperaciones de cartera: 1,5 al mes
 }
 SALDOS = {
-    "100000": 10_000.0, "300000": 1_000.0, "191100": 200.0, "120000": 0.0,
+    "100000": 10_000.0, "300000": 1_000.0, "191100": 200.0, "120000": 0.0, "130000": 0.0,
     "140400": 1_000.0, "140800": 2_000.0, "141000": 3_000.0, "141200": 0.0,
     "140810": 100.0, "140815": 50.0, "140820": 30.0, "140825": 20.0, "141010": 100.0,
     "149100": -150.0, "149500": -90.0,               # deterioro acumulado (cuentas correctoras)
@@ -90,6 +91,7 @@ def test_metricas_de_un_banco():
     assert v("cobertura_cartera_cde") == pytest.approx(240 / 100)  # valor absoluto del deterioro
     assert v("crecimiento_depositos_12m") == pytest.approx(1.01 ** 12 - 1)
     assert v("crecimiento_cartera_12m") == pytest.approx(0)
+    assert v("utilidad_filiales_12m") == pytest.approx(30 / 120)
     assert set(df.get_column("metrica")) == set(bancos.METRICAS)
     # Fecha disponible = corte + rezago; los 12 meses exigen el año anterior y los promedios 13 cierres
     assert (df.get_column("fecha_disponible") == df.get_column("fecha_corte") + timedelta(days=50)).all()

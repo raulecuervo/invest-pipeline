@@ -20,6 +20,7 @@ agregados:
   ingresos_operacion: {cuentas: ["410000"]}             # acumulado del año
   gastos_operacion: {cuentas: ["510000"]}               # acumulado del año
   mercado_monetario: {cuentas: ["120000"]}              # interbancarios, repos y simultáneas activos
+  inversiones: {cuentas: ["130000"]}                    # inversiones y derivados (activos productivos junto con la cartera)
   intangibles: {cuentas: ["191100"], absoluto: true}     # 1911 activos intangibles (incluye la plusvalía 191105), neto de amortización
   cartera_bruta: {cuentas: ["140400", "140800", "141000", "141200"]}   # vivienda, consumo, comercial, microcrédito (con leasing)
   cartera_b_e:
@@ -38,8 +39,12 @@ agregados:
   depositos:
     cuentas: ["210500", "210600", "210700", "210800", "210900", "211000", "211300", "211600", "211700",
               "211800", "212000"]
-  ingresos_intereses: {cuentas: ["410200", "410300"]}                  # acumulado del año
-  gastos_intereses: {cuentas: ["510200", "510300", "510400"]}          # acumulado del año
+  # Margen de intereses: intereses de cartera y mercado monetario MÁS el rendimiento de las inversiones en
+  # deuda (valoración a valor razonable y a costo amortizado, netas de la pérdida por valoración). Sin las
+  # inversiones, los bancos con mucho portafolio (GNB, Occidente) salían con margen negativo o casi cero
+  ingresos_intereses: {cuentas: ["410200", "410300", "410700", "411100"]}   # acumulado del año
+  gastos_intereses: {cuentas: ["510200", "510300", "510400", "510600"]}     # acumulado del año
+  metodo_participacion: {cuentas: ["415000"]}           # utilidad de filiales por el método de participación
   gastos_administrativos:                                # personal + administrativos + depreciación y amortización
     cuentas: ["512000", "513000", "514000", "514500", "515000", "515500", "516000", "516500", "517500",
               "518000", "519000"]

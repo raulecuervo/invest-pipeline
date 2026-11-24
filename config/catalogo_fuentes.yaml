@@ -308,9 +308,13 @@ fuentes:
       # Ingresos y gastos por intereses (acumulados del año)
       - "410200"   # 4102 ingresos financieros cartera
       - "410300"   # 4103 ingresos financieros operaciones del mercado monetario y otros intereses (modificada por la CE 033/2014)
+      - "410700"   # 4107 por valoración de inversiones a valor razonable - instrumentos de deuda (nombre verificado en la API, 24-nov-2026)
+      - "411100"   # 4111 por valoración a costo amortizado de inversiones
+      - "415000"   # 4150 por el método de participación patrimonial (utilidad de filiales)
       - "510200"   # 5102 intereses depósitos y exigibilidades
       - "510300"   # 5103 intereses créditos de bancos y otras obligaciones financieras
       - "510400"   # 5104 financieros por operaciones del mercado monetario y otros intereses (modificada por la CE 033/2014)
+      - "510600"   # 5106 valoración inversiones a valor razonable - instrumentos de deuda (pérdida)
       # Gastos de personal y administrativos (acumulados del año)
       - "512000"   # 5120 beneficios a empleados (gastos de personal)
       - "513000"   # 5130 honorarios
