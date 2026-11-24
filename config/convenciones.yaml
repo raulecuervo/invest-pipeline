@@ -1,0 +1,54 @@
+# Convenciones de cálculo (ver sección "Convenciones de cálculo" del documento de diseño).
+# Cambiar una convención aquí y volver a construir silver/gold; nunca codificarla a mano en un script.
+
+trm:
+  # La TRM vigente en el día t se calcula con las operaciones del día hábil t-1.
+  # Para convertir un precio de cierre del día t (p. ej. Nueva York) se usa la TRM vigente en t+1,
+  # que refleja las operaciones del propio día t.
+  conversion_cierre_dia_t: trm_vigente_t_mas_1
+  # Columna en fact_fx_diaria que guarda la fecha de mercado a la que corresponde la tasa.
+  columna_fecha_mercado: fecha_mercado
+
+tasa_libre_riesgo:
+  COP: IBR_3M          # alternativa: TES de corto plazo
+  USD: TBILL_3M
+
+sortino:
+  retorno_minimo_aceptable: meta_del_perfil   # p. ej. inflación + x %
+
+riesgo:
+  frecuencia_retornos: semanal
+  ventana_correlacion_semanas: 52
+
+datos:
+  dias_habiles_para_dato_vencido: 3   # pasado este rezago, las señales del activo se bloquean
+  salto_maximo_diario_trm: 0.05       # pico aislado (sube más de 5 % y vuelve) va a cuarentena
+  salto_extremo_trm: 0.15             # una variación diaria mayor a 15 % va a cuarentena aunque se sostenga
+  salto_atipico_accion: 0.5           # un retorno diario de una acción mayor a 50 % se marca (posible split o error)
+
+liquidez:
+  # Filtro de liquidez (gold/fact_liquidez_diaria). Una acción es "líquida" en una fecha si en las
+  # últimas 20 ruedas negoció en promedio al menos este monto y en al menos esta fracción de días.
+  # Las poco líquidas no se excluyen del sistema: sus señales usan retornos semanales o mensuales y
+  # beta de Dimson, y la matriz exige mayor margen de seguridad.
+  ventana_corta: 20
+  ventana_larga: 60
+  monto_medio_minimo_cop: 200000000   # COP 200 millones diarios en promedio
+  fraccion_dias_minima: 0.8
+
+dividendos:
+  # Periodo ex-dividendo: días hábiles bursátiles antes de la fecha de pago (el periodo incluye el
+  # día de pago). Solo se usa cuando el PDF no trae la fecha ex-dividendo; esas filas quedan
+  # marcadas con fecha_ex_estimada. Si el primer día de pago no es hábil, cuenta el siguiente hábil.
+  # Fuentes: Decreto 4766 de 2011 (antes, 10 días; desde entonces lo fija la bolsa, mínimo 2) y
+  # reglamento de la BVC (4 días). El Decreto 1013 de 2026 incorpora reglas nuevas sobre periodos
+  # ex-dividendo, de registro y de pago: cuando se reglamente, agregar aquí la fila con su vigencia.
+  periodo_ex_dividendo:
+    - {desde: "1990-01-01", dias_habiles: 10}
+    - {desde: "2012-01-01", dias_habiles: 4}
+  # Clase de acción del decreto -> clases de especie que reciben el dividendo
+  clases_por_decreto:
+    ordinaria: [ordinaria]
+    preferencial: [preferencial]
+    privilegiada: [privilegiada]
+    todas: [ordinaria, preferencial, privilegiada]

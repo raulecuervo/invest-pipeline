@@ -1,0 +1,48 @@
+# Equivalencias nemotécnico de la Bolsa de Colombia → especie SFC (código ISIN en minúscula).
+#
+# La SFC identifica cada acción por su especie (p. ej. coc04paao008) y la Bolsa de Colombia por su
+# nemotécnico (ECOPETROL). Esta tabla las une para cruzar el cierre, máximo y mínimo de la Bolsa con
+# el precio promedio y los eventos de la SFC. Armada el 23-nov-2026 con la tabla "Mercado local en
+# línea" y dim_activo; un nemotécnico nuevo sin equivalencia queda en la tabla con especie vacía y
+# se avisa en la bitácora.
+#
+# clase: accion | etf | otro (TEIS, títulos participativos). Solo las acciones tienen especie SFC
+# de acciones.
+
+nemotecnicos:
+  ECOPETROL: {especie: coc04paao008, clase: accion}
+  CIBEST: {especie: cotk7paao003, clase: accion}
+  PFCIBEST: {especie: cotk7paad014, clase: accion}
+  GRUPOSURA: {especie: cot13paao004, clase: accion}
+  PFGRUPSURA: {especie: cot13paad031, clase: accion}
+  GRUPOARGOS: {especie: cot09paao003, clase: accion}
+  PFGRUPOARG: {especie: cot09paad006, clase: accion}
+  CEMARGOS: {especie: cod38paao005, clase: accion}
+  PFCEMARGOS: {especie: cod38paad115, clase: accion}
+  PFDAVIGRP: {especie: pak01paad010, clase: accion}
+  PFDAVVNDA: {especie: cob51paad096, clase: accion}
+  ISA: {especie: coe15paao001, clase: accion}
+  GEB: {especie: coe01paao018, clase: accion}
+  CORFICOLCF: {especie: coj12paao007, clase: accion}
+  PFCORFICOL: {especie: coj12paad000, clase: accion}
+  MINEROS: {especie: coc07paao002, clase: accion}
+  GRUPOAVAL: {especie: cot29paao001, clase: accion}
+  PFAVAL: {especie: cot29paad012, clase: accion}
+  CELSIA: {especie: cot60paao005, clase: accion}
+  BOGOTA: {especie: cob01paao006, clase: accion}
+  TERPEL: {especie: cog20paao006, clase: accion}
+  BHI: {especie: pat07paao009, clase: accion}
+  GRUBOLIVAR: {especie: cot23paao003, clase: accion}
+  PROMIGAS: {especie: coi04paao006, clase: accion}
+  EXITO: {especie: cog31paao003, clase: accion}
+  CONCONCRET: {especie: cof02paao006, clase: accion}
+  NUTRESA: {especie: cot04paao003, clase: accion}
+  BVC: {especie: cor01paao011, clase: accion}
+  FABRICATO: {especie: cod04paao006, clase: accion}
+  ETB: {especie: coi13paao007, clase: accion}
+  ENKA: {especie: cod05paao004, clase: accion}
+  ICOLCAP: {especie: null, clase: etf}
+  HCOLSEL: {especie: null, clase: etf}
+  GXTESCOL: {especie: null, clase: etf}
+  PEI: {especie: null, clase: otro}
+  TIN: {especie: null, clase: otro}

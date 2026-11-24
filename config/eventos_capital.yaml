@@ -1,0 +1,139 @@
+# Distribuciones en especie: escisiones y repartos de acciones de otra sociedad.
+#
+# En estos eventos el accionista conserva su acción y recibe además acciones de otra empresa. El
+# precio de su acción cae en lo entregado, así que sin este ajuste el retorno total muestra una
+# pérdida que no ocurrió. invest dims convierte esta lista en gold/fact_distribucion_especie y el
+# retorno total suma lo entregado como si fuera un dividendo pagado en especie:
+#
+#     valor entregado por acción = Σ acciones_por_accion × precio de la acción recibida
+#     retorno_total = (P_t + dividendo + valor entregado) / P_(t-1) − 1
+#
+# Campos:
+#   especie        acción que reparte (código SFC)
+#   fecha_ex       primera rueda en que la acción negocia sin el derecho (después de la suspensión)
+#   tipo           escision | reparto_acciones
+#   entrega        lista de lo que recibe cada acción:
+#     especie            acción recibida (código SFC); vacío si no cotiza en la SFC
+#     nombre             para leer la tabla
+#     acciones_por_accion  relación de reparto oficial
+#     precio_referencia  precio a usar si la acción recibida no negoció en los 10 días siguientes a
+#                        fecha_ex (debut tardío o fuera del universo SFC); se anota la fuente
+#   fuente         de dónde sale la relación
+#
+# Los dividendos que se pagan en acciones propias SOLO a quien lo acepta (Aval y Banco de Bogotá
+# en 2022, artículo 455 del Código de Comercio) no van aquí: quien no responde recibe el efectivo,
+# así que se tratan como dividendo en efectivo en revision/dividendos_web.csv.
+#
+# Revisado por Claude el 23-nov-2026 con los avisos de la SFC y prensa económica (ver fuente).
+
+ventana_precio_dias: 10
+
+eventos:
+
+  # ---- BAC Holding International (mar-2022): Banco de Bogotá y Grupo Aval escinden BHI
+  - especie: cob01paao006          # Banco de Bogotá
+    fecha_ex: 2022-03-30
+    tipo: escision
+    entrega:
+      - especie: pat07paao009
+        nombre: BAC Holding International (BHI)
+        acciones_por_accion: 97.848
+        precio_referencia: 291       # precio de referencia de inscripción en la BVC; BHI negoció desde el 19-abr-2022
+    fuente: "La República 30-mar-2022 y 19-abr-2022: 97.848 acciones de BHI por acción del Banco de Bogotá; precio de referencia $291"
+
+  - especie: cot29paao001          # Grupo Aval ordinaria
+    fecha_ex: 2022-03-30
+    tipo: escision
+    entrega:
+      - especie: pat07paao009
+        nombre: BAC Holding International (BHI)
+        acciones_por_accion: 1
+        precio_referencia: 291
+    fuente: "Portafolio y La República 30-mar-2022: una acción de BHI por cada acción de Grupo Aval"
+
+  - especie: cot29paad012          # Grupo Aval preferencial
+    fecha_ex: 2022-03-30
+    tipo: escision
+    entrega:
+      - especie: pat07paao009
+        nombre: BAC Holding International (BHI)
+        acciones_por_accion: 1
+        precio_referencia: 291
+    fuente: "Portafolio y La República 30-mar-2022: una acción de BHI por cada acción de Grupo Aval"
+
+  # ---- Cementos Argos (may-jun 2012): escisión de activos no cementeros a favor de Grupo Argos
+  - especie: cod38paao005
+    fecha_ex: 2012-06-08
+    tipo: escision
+    entrega:
+      - especie: cot09paad006
+        nombre: Grupo Argos preferencial
+        acciones_por_accion: 0.31
+    fuente: "Grupo Argos, información relevante 17-ene-2012 (cifras de la escisión): cada accionista de Cemargos conserva su acción y recibe 0,31 acciones preferenciales de Inversiones Argos"
+
+  # ---- Grupo Nutresa (dic-2023): escisión simétrica, nace Sociedad Portafolio
+  - especie: cot04paao003
+    fecha_ex: 2023-12-18
+    tipo: escision
+    entrega:
+      - especie: null
+        nombre: Sociedad Portafolio (PORT)
+        acciones_por_accion: 1
+        precio_referencia: 5857.45   # promedio ponderado del primer día de negociación, 9-ene-2024
+    fuente: "La República 15-dic-2023 (escisión espejo, una acción de Sociedad Portafolio por acción de Nutresa); Valora Analitik 9-ene-2024 (primer día de PORT, promedio $5.857,45). PORT se liquidó en jun-2024 entregando acciones de Sura y Argos; no está en el universo SFC"
+
+  # ---- Cementos Argos (jul-2025): escinde sus acciones de Grupo Sura
+  - especie: cod38paao005
+    fecha_ex: 2025-07-14
+    tipo: escision
+    entrega:
+      - especie: cot13paao004
+        nombre: Grupo Sura ordinaria
+        acciones_por_accion: 0.022005198744807
+    fuente: "Cementos Argos, información relevante 8-jul-2025 (ratio de reparto definitiva); ordinarias reciben ordinarias de Grupo Sura"
+
+  - especie: cod38paad115
+    fecha_ex: 2025-07-14
+    tipo: escision
+    entrega:
+      - especie: cot13paad031
+        nombre: Grupo Sura preferencial
+        acciones_por_accion: 0.022005198744807
+    fuente: "Cementos Argos, información relevante 8-jul-2025; preferenciales reciben preferenciales de Grupo Sura"
+
+  # ---- Grupo Argos y Grupo Sura (jul-2025): fin de las participaciones cruzadas
+  - especie: cot09paao003
+    fecha_ex: 2025-07-28
+    tipo: escision
+    entrega:
+      - especie: cot13paao004
+        nombre: Grupo Sura ordinaria
+        acciones_por_accion: 0.235880284767547
+    fuente: "Grupo Argos, información relevante 22-jul-2025 (ratios de reparto definitivas); ordinarias reciben ordinarias (La República 26-jul-2025)"
+
+  - especie: cot09paad006
+    fecha_ex: 2025-07-28
+    tipo: escision
+    entrega:
+      - especie: cot13paad031
+        nombre: Grupo Sura preferencial
+        acciones_por_accion: 0.235880284767547
+    fuente: "Grupo Argos, información relevante 22-jul-2025; preferenciales reciben preferenciales (convenio de escisión, La República dic-2024)"
+
+  - especie: cot13paao004
+    fecha_ex: 2025-07-28
+    tipo: escision
+    entrega:
+      - especie: cot09paao003
+        nombre: Grupo Argos ordinaria
+        acciones_por_accion: 0.723395840821982
+    fuente: "Grupo Argos, información relevante 22-jul-2025 (ratio de reparto de la escisión Sura); ordinarias reciben ordinarias"
+
+  - especie: cot13paad031
+    fecha_ex: 2025-07-28
+    tipo: escision
+    entrega:
+      - especie: cot09paad006
+        nombre: Grupo Argos preferencial
+        acciones_por_accion: 0.723395840821982
+    fuente: "Grupo Argos, información relevante 22-jul-2025; preferenciales reciben preferenciales (La República 26-jul-2025)"

@@ -1,0 +1,48 @@
+# Emisores de acciones y sus códigos en el SIMEV (tipo y código de entidad de la SFC).
+#
+# Lo usa src/invest/ingest/sfc_niif.py. Un emisor puede tener varios códigos porque la SFC lo
+# reclasifica (p. ej. Grupo Sura: sociedad inversora 066-018 hasta pasar a holding financiero 142-002).
+# El conector prueba los códigos en orden hasta encontrar el informe del corte. Buscados en
+# https://www.superfinanciera.gov.co/SIMEV2/rnve el 23-nov-2026 (nombre y NIT).
+#
+# emisor_id: el de gold/dims/dim_activo (prefijo de la especie de la SFC). Ordenados por monto
+# negociado medio de 60 días al 18-nov-2026.
+emisores:
+  - {emisor_id: CO-COC04, nit: "8999990681", nombre: Ecopetrol, codigos: [{tipo: 260, codigo: 36}, {tipo: 53, codigo: 13}]}
+  # Grupo Cibest reemplazó a Bancolombia como emisor en 2025 (intercambio de acciones); antes, Bancolombia
+  - {emisor_id: CO-COTK7, nit: "9018781692", nombre: Grupo Cibest / Bancolombia, codigos: [{tipo: 66, codigo: 66}, {tipo: 1, codigo: 7, nit: "8909039388"}]}
+  - {emisor_id: CO-COT13, nit: "8110122713", nombre: Grupo Sura, codigos: [{tipo: 142, codigo: 2}, {tipo: 66, codigo: 18}]}
+  - {emisor_id: CO-COT09, nit: "8909002663", nombre: Grupo Argos, codigos: [{tipo: 66, codigo: 58}, {tipo: 43, codigo: 11}]}
+  - {emisor_id: CO-COE15, nit: "8600166103", nombre: ISA, codigos: [{tipo: 260, codigo: 34}, {tipo: 250, codigo: 21}]}
+  - {emisor_id: CO-COD38, nit: "8901002510", nombre: Cementos Argos, codigos: [{tipo: 43, codigo: 5}]}
+  - {emisor_id: CO-PAK01, nit: "9019290576", nombre: Davivienda Group, codigos: [{tipo: 66, codigo: 68}]}
+  - {emisor_id: CO-COC07, nit: "8909145257", nombre: Mineros, codigos: [{tipo: 30, codigo: 3}]}
+  - {emisor_id: CO-COE01, nit: "8999990823", nombre: Grupo Energía Bogotá, codigos: [{tipo: 260, codigo: 43}]}
+  - {emisor_id: CO-COJ12, nit: "8903006536", nombre: Corficolombiana, codigos: [{tipo: 2, codigo: 11}]}
+  - {emisor_id: CO-COG31, nit: "8909006089", nombre: Grupo Éxito, codigos: [{tipo: 58, codigo: 6}]}
+  - {emisor_id: CO-COT29, nit: "8002161815", nombre: Grupo Aval, codigos: [{tipo: 142, codigo: 1}, {tipo: 66, codigo: 23}]}
+  - {emisor_id: CO-COT60, nit: "8110303227", nombre: Celsia, codigos: [{tipo: 66, codigo: 61}, {tipo: 261, codigo: 50}]}
+  - {emisor_id: CO-COG20, nit: "8300952130", nombre: Terpel, codigos: [{tipo: 53, codigo: 22}]}
+  - {emisor_id: CO-COI04, nit: "8901055263", nombre: Promigas, codigos: [{tipo: 261, codigo: 4}, {tipo: 250, codigo: 4}, {tipo: 53, codigo: 4}]}
+  - {emisor_id: CO-COB01, nit: "8600029644", nombre: Banco de Bogotá, codigos: [{tipo: 1, codigo: 1}]}
+  - {emisor_id: CO-COF02, nit: "8909011108", nombre: Conconcreto, codigos: [{tipo: 55, codigo: 3}]}
+  - {emisor_id: CO-COB51, nit: "8600343137", nombre: Banco Davivienda, codigos: [{tipo: 1, codigo: 39}]}
+  - {emisor_id: CO-COT23, nit: "8300254485", nombre: Grupo Bolívar, codigos: [{tipo: 142, codigo: 3}, {tipo: 66, codigo: 9}]}
+  - {emisor_id: CO-PAT07, nit: "4444005240", nombre: BAC Holding, codigos: [{tipo: 141, codigo: 3}]}
+  - {emisor_id: CO-COI13, nit: "8999991158", nombre: ETB, codigos: [{tipo: 260, codigo: 47}, {tipo: 250, codigo: 33}]}
+  - {emisor_id: CO-COT04, nit: "8909000501", nombre: Grupo Nutresa, codigos: [{tipo: 66, codigo: 32}]}
+  - {emisor_id: CO-COD05, nit: "8909034742", nombre: Enka, codigos: [{tipo: 39, codigo: 21}]}
+  - {emisor_id: CO-COD04, nit: "8909003084", nombre: Fabricato, codigos: [{tipo: 34, codigo: 4}]}
+  - {emisor_id: CO-COR01, nit: "8300854261", nombre: Bolsa de Valores de Colombia, codigos: [{tipo: 82, codigo: 4}]}
+  - {emisor_id: CO-COB23, nit: "8903002794", nombre: Banco de Occidente, codigos: [{tipo: 1, codigo: 23}]}
+  - {emisor_id: CO-COW19, nit: "8001381881", nombre: Protección, codigos: [{tipo: 23, codigo: 2}]}
+  - {emisor_id: CO-COO08, nit: "8600024643", nombre: Corferias, codigos: [{tipo: 78, codigo: 4}]}
+  - {emisor_id: CO-COB13, nit: "8600030201", nombre: BBVA Colombia, codigos: [{tipo: 1, codigo: 13}]}
+  - {emisor_id: CO-COB02, nit: "8600077389", nombre: Banco Popular, codigos: [{tipo: 1, codigo: 2}]}
+  - {emisor_id: CO-COB52, nit: "8600358275", nombre: Banco AV Villas, codigos: [{tipo: 1, codigo: 49}]}
+  - {emisor_id: CO-COD12, nit: "8600299951", nombre: Acerías Paz del Río, codigos: [{tipo: 45, codigo: 3}]}
+  - {emisor_id: CO-COF20, nit: "8909224474", nombre: Construcciones El Cóndor, codigos: [{tipo: 56, codigo: 8}]}
+  - {emisor_id: CO-COD06, nit: "8600030122", nombre: Manufacturas de Cemento, codigos: [{tipo: 44, codigo: 5}]}
+  - {emisor_id: CO-COR02, nit: "8600712509", nombre: Bolsa Mercantil (antes Bolsa Nacional Agropecuaria), codigos: [{tipo: 76, codigo: 1}]}
+  # Canacol reporta en dólares aunque la unidad del XBRL diga COP (activos de 1,29 millones de miles = USD 1.290 millones)
+  - {emisor_id: CO-CAC13, nit: "9003571608", nombre: Canacol Energy, moneda_informes: USD, codigos: [{tipo: 106, codigo: 6}]}

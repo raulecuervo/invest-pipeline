@@ -1,0 +1,281 @@
+"""Factores mensuales de las acciones y su validación estadística.
+
+Todo se calcula con lo que se sabía al cierre de cada mes (sin sesgo de anticipación):
+
+1. **Índice limpio** de retorno total por acción: se encadenan los retornos totales de los días con
+   negocios, salvo los saltos atípicos (``salto_atipico``), que cuentan como 0. Así un precio viejo
+   o un posible split sin confirmar no contamina el momentum ni la volatilidad.
+2. **Fin de mes**: última sesión XBOG de cada mes. Para cada acción se toma el último dato a esa
+   fecha (as-of) y se exige que haya negociado en las últimas ``max_sesiones_sin_negocio`` sesiones.
+3. **Universo**: acción líquida a fin de mes (``gold/fact_liquidez_diaria``), con al menos
+   ``sesiones_historia_min`` días con negocios.
+4. **Factores** (``config/factores.yaml``): momentum 12-1 y 6-1, reversión de un mes, volatilidad de
+   un año, liquidez y rendimiento por dividendo de 12 meses. Cada uno con su percentil dentro del
+   universo del mes.
+5. **Retorno siguiente**: retorno total desde este fin de mes hasta el siguiente, con el mismo índice.
+
+Salidas: ``gold/fact_factor_mensual`` (fecha, especie, factor, valor, percentil, retorno siguiente)
+y ``gold/fact_validacion_factor`` (ver ``validar``).
+
+Validación (``validar``), por factor y aplicando su signo de hipótesis:
+
+- IC mensual: correlación de Spearman entre el factor y el retorno del mes siguiente, en los meses
+  con al menos ``minimo_acciones_por_mes`` acciones. Media, estadístico t de Newey-West (los IC de
+  meses vecinos no son independientes) y valor p bilateral.
+- Spread: retorno medio del tercio superior menos el del tercio inferior (pesos iguales), con su
+  t de Newey-West y Sharpe anualizado.
+- Muestra de descubrimiento (``inicio`` a ``inicio_fuera_de_muestra``) y fuera de muestra (después).
+- Corrección de Holm sobre los valores p de la muestra completa, porque se prueban varios factores.
+- Veredicto: ``validado`` si el p ajustado < ``nivel`` y el IC medio es positivo dentro y fuera de
+  muestra; ``debil`` si el p sin ajustar < ``nivel_debil`` con el mismo signo en ambas muestras;
+  ``no_validado`` en otro caso. Con 20 a 30 acciones líquidas el poder estadístico es bajo: lo
+  esperable es que pocos o ningún factor se validen, y eso es un resultado, no un error.
+"""
+
+from __future__ import annotations
+
+import math
+from datetime import date, timedelta
+
+import polars as pl
+
+from invest import storage
+from invest.calendario import sesiones_entre
+from invest.config import cargar_yaml
+
+DIAS_ANIO = 252
+
+
+def config() -> dict:
+    return cargar_yaml("factores.yaml")
+
+
+# --------------------------------------------------------------------------- utilidades
+def fines_de_mes(desde: date, hasta: date) -> list[date]:
+    """Última sesión XBOG de cada mes completo entre las dos fechas."""
+    salida: dict[tuple[int, int], date] = {}
+    for d in sesiones_entre(desde, hasta):
+        salida[(d.year, d.month)] = d
+    return sorted(salida.values())
+
+
+def newey_west(serie: list[float], rezagos: int) -> tuple[float, float, float]:
+    """(media, t, p bilateral) con error estándar de Newey-West (núcleo de Bartlett)."""
+    x = [v for v in serie if v is not None and not math.isnan(v)]
+    n = len(x)
+    if n < 3:
+        return (sum(x) / n if n else float("nan")), float("nan"), float("nan")
+    m = sum(x) / n
+    d = [v - m for v in x]
+    var = sum(v * v for v in d) / n
+    for k in range(1, min(rezagos, n - 1) + 1):
+        gamma = sum(d[i] * d[i - k] for i in range(k, n)) / n
+        var += 2 * (1 - k / (rezagos + 1)) * gamma
+    if var <= 0:
+        return m, float("nan"), float("nan")
+    t = m / math.sqrt(var / n)
+    p = math.erfc(abs(t) / math.sqrt(2))
+    return m, t, p
+
+
+def holm(pvalores: dict[str, float]) -> dict[str, float]:
+    """Valores p ajustados por Holm-Bonferroni (los nan quedan nan)."""
+    validos = sorted((p, k) for k, p in pvalores.items() if p == p)
+    m, ajustados, maximo = len(validos), {}, 0.0
+    for i, (p, k) in enumerate(validos):
+        maximo = max(maximo, min(1.0, (m - i) * p))
+        ajustados[k] = maximo
+    return {k: ajustados.get(k, float("nan")) for k in pvalores}
+
+
+def _spearman(a: list[float], b: list[float]) -> float | None:
+    if len(a) < 3:
+        return None
+    ra = pl.Series(a).rank("average").to_list()
+    rb = pl.Series(b).rank("average").to_list()
+    n = len(ra)
+    ma, mb = sum(ra) / n, sum(rb) / n
+    cov = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
+    va = sum((x - ma) ** 2 for x in ra)
+    vb = sum((y - mb) ** 2 for y in rb)
+    return cov / math.sqrt(va * vb) if va > 0 and vb > 0 else None
+
+
+# --------------------------------------------------------------------------- factores
+def _indice_limpio(retornos: pl.DataFrame) -> pl.DataFrame:
+    return (
+        retornos.select("fecha", "especie", "precio_promedio", "dividendo", "retorno_total", "salto_atipico")
+        .sort(["especie", "fecha"])
+        .with_columns(
+            pl.when(pl.col("salto_atipico").fill_null(False)).then(0.0)
+            .otherwise(pl.col("retorno_total").fill_null(0.0)).alias("r"))
+        .with_columns(
+            (1 + pl.col("r")).cum_prod().over("especie").alias("indice"),
+            pl.int_range(1, pl.len() + 1).over("especie").alias("n_negocios"),
+        )
+    )
+
+
+def _asof(panel: pl.DataFrame, fechas: list[date], columnas: list[str]) -> pl.DataFrame:
+    """Para cada acción y fecha, el último dato del panel a esa fecha (y la fecha de ese dato)."""
+    especies = panel.select("especie").unique()
+    grilla = especies.join(pl.DataFrame({"fecha_mes": fechas}), how="cross").sort(["especie", "fecha_mes"])
+    datos = panel.select("especie", pl.col("fecha").alias("fecha_dato"), *columnas).sort(["especie", "fecha_dato"])
+    return grilla.join_asof(datos, left_on="fecha_mes", right_on="fecha_dato", by="especie", strategy="backward",
+                           check_sortedness=False)
+
+
+def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
+    cfg = config()
+    retornos = storage.leer_tabla("gold", "fact_retorno_diario")
+    liquidez = storage.leer_tabla("gold", "fact_liquidez_diaria")
+    if retornos is None or retornos.is_empty() or liquidez is None:
+        return None, {}
+    u = cfg["universo"]
+    panel = _indice_limpio(retornos)
+    inicio = panel.get_column("fecha").min()
+    fin = panel.get_column("fecha").max()
+    meses = fines_de_mes(inicio, fin)
+    if len(meses) < 14:
+        return None, {"meses": len(meses)}
+    sesion_idx = {d: i for i, d in enumerate(sesiones_entre(inicio, fin))}
+
+    base = _asof(panel, meses, ["indice", "n_negocios"])
+    base = base.with_columns(
+        pl.col("fecha_dato").map_elements(lambda d: sesion_idx.get(d), return_dtype=pl.Int64).alias("_i_dato"),
+        pl.col("fecha_mes").map_elements(lambda d: sesion_idx.get(d), return_dtype=pl.Int64).alias("_i_mes"),
+    ).with_columns((pl.col("_i_mes") - pl.col("_i_dato")).alias("sesiones_sin_negocio"))
+    base = base.sort(["especie", "fecha_mes"]).with_columns(
+        pl.col("indice").shift(1).over("especie").alias("i_m1"),
+        pl.col("indice").shift(6).over("especie").alias("i_m6"),
+        pl.col("indice").shift(12).over("especie").alias("i_m12"),
+        pl.col("indice").shift(-1).over("especie").alias("i_sig"),
+        pl.col("sesiones_sin_negocio").shift(-1).over("especie").alias("_sin_neg_sig"),
+    )
+
+    # Volatilidad de un año y dividendos de 12 meses, con datos hasta cada fin de mes
+    obs_min = int(cfg["factores"].get("volatilidad_1a", {}).get("observaciones_min", 100))
+    diarios = panel.filter(~pl.col("salto_atipico").fill_null(False)).select(
+        "especie", "fecha", "r",
+        (pl.col("dividendo").fill_null(0.0) / (pl.col("precio_promedio") + pl.col("dividendo").fill_null(0.0)))
+        .alias("rd"))
+    ventanas = []
+    for m in meses:
+        v = (diarios.filter((pl.col("fecha") > m - timedelta(days=365)) & (pl.col("fecha") <= m))
+             .group_by("especie").agg(
+                 pl.col("r").std().alias("_sd"), pl.len().alias("_n"), pl.col("rd").sum().alias("rendimiento_dividendo_12m"))
+             .with_columns(pl.lit(m).alias("fecha_mes")))
+        ventanas.append(v)
+    ventanas = pl.concat(ventanas).with_columns(
+        pl.when(pl.col("_n") >= obs_min).then(pl.col("_sd") * math.sqrt(DIAS_ANIO)).otherwise(None)
+        .alias("volatilidad_1a")).drop("_sd", "_n")
+
+    liq = liquidez.select("especie", "fecha", "monto_medio_60", "liquida").sort(["especie", "fecha"])
+    liq_mes = _asof(liq, meses, ["monto_medio_60", "liquida"]).drop("fecha_dato")
+
+    df = (
+        base.join(ventanas, on=["especie", "fecha_mes"], how="left")
+        .join(liq_mes, on=["especie", "fecha_mes"], how="left")
+        .with_columns(
+            (pl.col("i_m1") / pl.col("i_m12") - 1).alias("momentum_12_1"),
+            (pl.col("i_m1") / pl.col("i_m6") - 1).alias("momentum_6_1"),
+            (pl.col("indice") / pl.col("i_m1") - 1).alias("reversion_1m"),
+            pl.when(pl.col("monto_medio_60") > 0).then(pl.col("monto_medio_60").log()).otherwise(None).alias("liquidez_60"),
+            pl.when(pl.col("_sin_neg_sig") <= int(u["max_sesiones_sin_negocio"]))
+            .then(pl.col("i_sig") / pl.col("indice") - 1).otherwise(None).alias("retorno_siguiente"),
+        )
+    )
+    en_universo = (
+        pl.col("fecha_dato").is_not_null()
+        & (pl.col("sesiones_sin_negocio") <= int(u["max_sesiones_sin_negocio"]))
+        & (pl.col("n_negocios") >= int(u["sesiones_historia_min"]))
+    )
+    if u.get("requiere_liquida", True):
+        en_universo = en_universo & pl.col("liquida").fill_null(False)
+    df = df.filter(en_universo)
+
+    nombres = list(cfg["factores"])
+    largo = (
+        df.select("fecha_mes", "especie", "retorno_siguiente", *nombres)
+        .unpivot(index=["fecha_mes", "especie", "retorno_siguiente"], on=nombres, variable_name="factor", value_name="valor")
+        .filter(pl.col("valor").is_not_null() & pl.col("valor").is_finite())
+        .with_columns(
+            ((pl.col("valor").rank("average").over(["fecha_mes", "factor"]) - 0.5)
+             / pl.len().over(["fecha_mes", "factor"])).alias("percentil"),
+            pl.len().over(["fecha_mes", "factor"]).alias("acciones_mes"),
+        )
+        .rename({"fecha_mes": "fecha"})
+        .sort(["factor", "fecha", "especie"])
+    )
+    storage.escribir_completa("gold", "fact_factor_mensual", largo)
+    resumen = {
+        "meses": largo.get_column("fecha").n_unique(),
+        "acciones_por_mes_mediana": int(df.group_by("fecha_mes").len().get_column("len").median() or 0),
+        "filas": largo.height,
+    }
+    return largo, resumen
+
+
+# --------------------------------------------------------------------------- validación
+def _metricas(sub: pl.DataFrame, signo: int, minimo: int, cuantiles: int, rezagos: int) -> dict:
+    ics, spreads = [], []
+    for (_,), g in sub.filter(pl.col("retorno_siguiente").is_not_null()).group_by(["fecha"], maintain_order=True):
+        if g.height < minimo:
+            continue
+        ic = _spearman((g.get_column("valor") * signo).to_list(), g.get_column("retorno_siguiente").to_list())
+        if ic is not None:
+            ics.append(ic)
+        # Grupo de cada acción (0 = tercio con menor valor según la hipótesis, cuantiles-1 = mayor)
+        orden = (g.get_column("valor") * signo).rank("ordinal").to_list()
+        grupos = [(o - 1) * cuantiles // g.height for o in orden]
+        rets = g.get_column("retorno_siguiente").to_list()
+        alto = [r for r, k in zip(rets, grupos) if k == cuantiles - 1]
+        bajo = [r for r, k in zip(rets, grupos) if k == 0]
+        if alto and bajo:
+            spreads.append(sum(alto) / len(alto) - sum(bajo) / len(bajo))
+    ic_m, ic_t, ic_p = newey_west(ics, rezagos)
+    sp_m, sp_t, _ = newey_west(spreads, rezagos)
+    sd = (sum((s - sp_m) ** 2 for s in spreads) / (len(spreads) - 1)) ** 0.5 if len(spreads) > 1 else float("nan")
+    return {
+        "meses": len(ics), "ic_medio": ic_m, "ic_t": ic_t, "ic_p": ic_p,
+        "ic_positivo": (sum(1 for i in ics if i > 0) / len(ics)) if ics else float("nan"),
+        "spread_mensual": sp_m, "spread_t": sp_t,
+        "spread_sharpe_anual": (sp_m / sd * math.sqrt(12)) if sd and sd == sd and sd > 0 else float("nan"),
+    }
+
+
+def validar(factores: pl.DataFrame | None = None) -> tuple[pl.DataFrame | None, dict]:
+    cfg = config()
+    factores = factores if factores is not None else storage.leer_tabla("gold", "fact_factor_mensual")
+    if factores is None or factores.is_empty():
+        return None, {}
+    v = cfg["validacion"]
+    inicio = date.fromisoformat(str(v["inicio"]))
+    corte = date.fromisoformat(str(v["inicio_fuera_de_muestra"]))
+    minimo = int(cfg["universo"]["minimo_acciones_por_mes"])
+    q, L = int(v["cuantiles"]), int(v["rezagos_newey_west"])
+    filas = []
+    for nombre, f in cfg["factores"].items():
+        sub = factores.filter((pl.col("factor") == nombre) & (pl.col("fecha") >= inicio))
+        signo = int(f.get("signo", 1))
+        total = _metricas(sub, signo, minimo, q, L)
+        dentro = _metricas(sub.filter(pl.col("fecha") < corte), signo, minimo, q, L)
+        fuera = _metricas(sub.filter(pl.col("fecha") >= corte), signo, minimo, q, L)
+        filas.append({"factor": nombre, "signo_hipotesis": signo, **total,
+                      "ic_medio_descubrimiento": dentro["ic_medio"], "meses_descubrimiento": dentro["meses"],
+                      "ic_medio_fuera_muestra": fuera["ic_medio"], "meses_fuera_muestra": fuera["meses"],
+                      "spread_fuera_muestra": fuera["spread_mensual"]})
+    ajustados = holm({r["factor"]: r["ic_p"] for r in filas})
+    for r in filas:
+        r["ic_p_holm"] = ajustados[r["factor"]]
+        mismo_signo = (r["ic_medio_descubrimiento"] or 0) > 0 and (r["ic_medio_fuera_muestra"] or 0) > 0
+        if r["ic_p_holm"] == r["ic_p_holm"] and r["ic_p_holm"] < float(v["nivel"]) and mismo_signo:
+            r["veredicto"] = "validado"
+        elif r["ic_p"] == r["ic_p"] and r["ic_p"] < float(v["nivel_debil"]) and mismo_signo:
+            r["veredicto"] = "debil"
+        else:
+            r["veredicto"] = "no_validado"
+    tabla = pl.DataFrame(filas).with_columns(pl.lit(date.today()).alias("fecha_calculo"))
+    storage.escribir_completa("gold", "fact_validacion_factor", tabla)
+    resumen = {k: tabla.filter(pl.col("veredicto") == k).height for k in ("validado", "debil", "no_validado")}
+    return tabla, resumen

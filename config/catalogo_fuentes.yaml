@@ -1,0 +1,403 @@
+# Catálogo de fuentes de datos (documentación viva).
+# Cada conector lee su entrada de aquí. Al agregar una fuente nueva, se registra primero en este archivo.
+#
+# Campos:
+#   acceso:      api_socrata | api_rest | descarga_xlsx | html_estatico | navegador (Playwright) | manual
+#   frecuencia:  intradia | diaria | semanal | mensual | trimestral | semestral | anual
+#   recarga_dias: días hacia atrás que se re-descargan para captar correcciones
+#   ejecuta_en:  actions (GitHub Actions, repo público) | pc (Programador de tareas de Windows) | manual
+#   redistribuible: si los datos se pueden publicar. Si es false, solo van al repo privado invest-data
+#   estado:      implementado | pendiente | fuera_de_alcance
+#   fase:        fase de la hoja de ruta en que se implementa
+
+fuentes:
+
+  # ---------------------------------------------------------------- Divisas
+  - id: trm_datos_gov
+    nombre: TRM (Superintendencia Financiera en datos.gov.co)
+    tipo_dato: divisas
+    url: https://www.datos.gov.co/resource/32sa-8pi3.json
+    acceso: api_socrata
+    frecuencia: diaria
+    ventana_publicacion: "tarde del día hábil anterior a su vigencia; cubre fines de semana y festivos"
+    recarga_dias: 10
+    ejecuta_en: actions
+    licencia: datos abiertos del Estado colombiano
+    redistribuible: true
+    estado: implementado
+    fase: 0
+    historico_desde: "1991-11-27"
+    tabla_destino: fact_fx_diaria
+
+  # ------------------------------------------------------------ Renta variable
+  - id: bvc_web
+    nombre: Bolsa de Colombia, página web (cierre, máximo, mínimo, volumen)
+    tipo_dato: precios_acciones
+    url: https://www.bvc.com.co
+    acceso: navegador
+    frecuencia: diaria
+    ventana_publicacion: "15 minutos de retraso; extraer unas 2 horas después del cierre"
+    recarga_dias: 5
+    ejecuta_en: manual   # la BVC bloquea (403) los navegadores sin ventana; se lanza a mano, nunca programado
+    licencia: términos de uso de la Bolsa de Colombia; uso personal
+    redistribuible: false
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_precio_bvc
+    requiere: "extra pc (uv sync --extra pc) y una vez: uv run playwright install chromium"
+    nota: "La API rest.bvc.com.co exige un token de sesión (/api/handshake) que la web entrega a su propio sitio; no se replica. Su CDN responde 403 a los navegadores sin ventana y no se esquiva: es lectura manual. Esteban la lanza y se abre una ventana de Chromium con la página 'Mercado local en línea', de la que se lee la tabla del día (cierre, apertura, máximo, mínimo, promedio, volumen, cantidad). Solo después de las 16:15 de un día bursátil. Equivalencias nemotécnico → especie en config/nemotecnicos.yaml"
+
+  - id: bvc_indices
+    nombre: Bolsa de Colombia, índices (MSCI COLCAP y MSCI NUAM USD)
+    tipo_dato: indices
+    url: https://www.bvc.com.co/mercado-local-en-linea?tab=indices_accionarios
+    acceso: navegador
+    frecuencia: diaria
+    ventana_publicacion: "15 minutos de retraso; extraer después del cierre"
+    recarga_dias: 0
+    ejecuta_en: manual   # la BVC bloquea (403) los navegadores sin ventana; se lanza a mano, nunca programado
+    licencia: términos de uso de la Bolsa de Colombia; uso personal
+    redistribuible: false
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_serie_macro
+    requiere: "extra pc (uv sync --extra pc) y una vez: uv run playwright install chromium"
+    nota: "Valor de hoy y de la sesión anterior (recupera un día si el PC estuvo apagado). serie_id msci_colcap y msci_nuam_usd. Sin histórico anterior al inicio de la extracción"
+
+  - id: sfc_especies
+    nombre: SFC, índice de especies (acciones inscritas, incluidas las que ya no cotizan)
+    tipo_dato: catalogo_activos
+    url: https://www.superfinanciera.gov.co/info/superfinancierav8/media/MercadoAccionario/Precios/Diarios/ppal_promedios.htm
+    acceso: html_estatico
+    frecuencia: diaria
+    ventana_publicacion: "1 a 2 días hábiles de rezago"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    tabla_destino: dim_especie_sfc
+    columna_fecha: fecha_reporte
+    nota: "Una foto del índice por fecha de reporte; las especies que desaparecen evitan el sesgo de supervivencia"
+
+  - id: sfc_ficha_especie
+    nombre: SFC, ficha diaria por acción (sector, máx./mín. 2 meses, Q de Tobin, RPG, liquidez, IBA vigente)
+    tipo_dato: liquidez
+    url: https://www.superfinanciera.gov.co/info/superfinancierav8/media/MercadoAccionario/Precios/Diarios/ppal_promedios.htm
+    acceso: html_estatico
+    frecuencia: diaria
+    ventana_publicacion: "1 a 2 días hábiles de rezago; el IBA cambia una vez al mes"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_indicadores_sfc
+    columna_fecha: fecha_reporte
+    bronze_en_repositorio: false
+    nota: "Páginas d_<especie>.htm"
+
+  - id: sfc_precios_promedio
+    nombre: SFC, precio promedio ponderado y valor transado diarios por acción
+    tipo_dato: precios_acciones
+    url: https://www.superfinanciera.gov.co/info/superfinancierav8/media/MercadoAccionario/Precios/Diarios/ppal_promedios.htm
+    acceso: descarga_xls
+    frecuencia: diaria
+    ventana_publicacion: "1 a 2 días hábiles de rezago"
+    recarga_dias: 5
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    historico_desde: "1990-01-01"
+    tabla_destino: fact_precio_sfc
+    bronze_en_repositorio: false
+    nota: "Archivos <especie>_<año>.xls (año en curso) y <especie>_ant.xls (años anteriores), formato BIFF2"
+
+  - id: sfc_iba
+    nombre: SFC, Índice de Bursatilidad Accionaria (IBA), publicación mensual
+    tipo_dato: liquidez
+    url: https://www.superfinanciera.gov.co/publicaciones/38565
+    acceso: html_estatico
+    frecuencia: mensual
+    ventana_publicacion: "mensual"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: pendiente
+    fase: 1
+    nota: "La ficha diaria (sfc_ficha_especie) ya trae el IBA vigente; esta publicación queda como contraste"
+
+  - id: yahoo_cl
+    nombre: Yahoo Finance, sufijo .CL (solo histórico antiguo)
+    tipo_dato: precios_acciones
+    url: https://finance.yahoo.com
+    acceso: api_rest
+    frecuencia: manual
+    ventana_publicacion: "rezago de hasta dos semanas"
+    recarga_dias: 0
+    ejecuta_en: manual
+    licencia: solo uso personal
+    redistribuible: false
+    estado: pendiente
+    fase: 1
+
+  - id: oanor_bvc_api
+    nombre: API de terceros "BVC API" (oanor), por probar
+    tipo_dato: precios_acciones
+    url: https://oanor.com/api/colombia-stock-api
+    acceso: api_rest
+    frecuencia: diaria
+    ventana_publicacion: "anuncia tiempo real; origen de datos no verificado"
+    recarga_dias: 2
+    ejecuta_en: pc
+    licencia: por verificar
+    redistribuible: false
+    estado: pendiente
+    fase: 1
+
+  - id: sfc_informacion_relevante
+    nombre: SFC, información relevante (dividendos, asambleas, OPA, readquisiciones, fusiones, calificaciones)
+    tipo_dato: eventos_corporativos
+    url: https://www.superfinanciera.gov.co/ReportesInformacionRelevante/faces/A_rnviRelevantes/consultas/consultaEntidades/consulta.xhtml
+    acceso: formulario_jsf
+    frecuencia: diaria
+    ventana_publicacion: "inmediata por norma; se publica también de noche"
+    recarga_dias: 3
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    historico_desde: "2007-01-01"
+    tabla_destino: fact_evento_sfc
+    bronze_en_repositorio: false
+    nota: "Consulta mes a mes con tema Todos. Anexos (PDF) solo de dividendos y cambios de capital de emisores con acciones, últimos 400 días, en invest-data/anexos/. Categoría y emisor se asignan en gold/fact_evento_corporativo"
+
+  - id: sfc_rnve_niif
+    nombre: SFC, estados financieros NIIF de emisores (SIMEV / RNVE), XBRL
+    tipo_dato: fundamentales
+    url: https://www.superfinanciera.gov.co/SIMEV2/rnve
+    acceso: navegador
+    frecuencia: trimestral
+    ventana_publicacion: "45 días tras el corte (60 para el cierre anual)"
+    recarga_dias: 0
+    ejecuta_en: pc
+    licencia: información pública
+    redistribuible: true
+    bronze_en_repositorio: false   # unos 5 MB de XBRL por informe: no van al repositorio
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_anexo_sfc   # el XBRL, donde exista, va a fact_xbrl_sfc
+    columna_fecha: fecha_corte
+    historico_desde: "2015-03-31"
+    dias_tras_corte: 30
+    max_informes_por_corrida: 80    # unos 60 minutos por corrida
+    requiere: "extra pc (uv sync --extra pc) y una vez: uv run playwright install chromium"
+    nota: "La página del SIMEV pide los archivos a un servicio con clave propia del sitio: no se replica. Playwright elige año, tipo de informe y periodo en la página de cada emisor y guarda el XBRL que la página recibe. Consolidado si existe, si no separado. Anexos (141 información económica general: valor patrimonial y utilidad por acción, dividendos, ventas, empleados; 211 acciones y accionistas; 529 principales accionistas; 058 subordinadas) de todos los emisores en fact_anexo_sfc. XBRL solo donde el SIMEV lo publica (Ecopetrol sí; Celsia, Cementos Argos y Grupo Argos no, nov-2026): hechos sin dimensiones, del periodo y del comparativo, con corte y fecha de transmisión, en fact_xbrl_sfc; montos en miles de pesos, por acción en pesos. Emisores y sus códigos SIMEV en config/emisores_rnve.yaml. La carga inicial (36 emisores × 43 cortes, unas 17 horas de navegador) se completa en varias corridas de 80: primero el último año, luego los cierres anuales desde 2015 y al final los demás trimestres"
+
+  - id: sec_edgar
+    nombre: SEC EDGAR (emisores con ADR)
+    tipo_dato: fundamentales
+    url: https://data.sec.gov/api/xbrl/companyfacts/
+    acceso: api_rest
+    frecuencia: anual
+    ventana_publicacion: "20-F hasta 4 meses tras el cierre"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: dominio público (EE. UU.)
+    redistribuible: true
+    bronze_en_repositorio: false   # JSON de varios MB por emisor: va como artefacto de 30 días
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_xbrl_sec
+    columna_fecha: fecha_fin
+    requiere: "variable SEC_USER_AGENT con nombre y correo de contacto"
+    emisores:
+      - nombre: Bancolombia / Grupo Cibest
+        cik: [1071371, 2058897]   # Bancolombia S.A. hasta ago-2025; Grupo Cibest S.A. desde 2025
+      - nombre: Ecopetrol
+        cik: [1444406]
+      - nombre: Grupo Aval
+        cik: [1504764]
+
+  - id: cuif_datos_gov
+    nombre: SFC, CUIF mensual de entidades vigiladas (bancos)
+    tipo_dato: fundamentales
+    url: https://www.datos.gov.co/resource/mxk5-ce6w.json
+    acceso: api_socrata
+    frecuencia: mensual
+    ventana_publicacion: "45 a 50 días tras el corte"
+    recarga_dias: 100              # vuelve a bajar los últimos meses por si la SFC corrige
+    ejecuta_en: actions
+    licencia: datos abiertos del Estado colombiano
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    historico_desde: "2015-01-01"
+    tabla_destino: fact_cuif_mensual
+    columna_fecha: fecha_corte
+    nota: "Primer nivel de cuentas (XX0000), moneda total, bancos con acciones inscritas. La API tarda unos 40 s por consulta"
+    entidades:                     # código de entidad en el CUIF (tipo de entidad 1 = establecimientos bancarios)
+      - {codigo: "1", nombre: Banco de Bogotá}
+      - {codigo: "2", nombre: Banco Popular}
+      - {codigo: "7", nombre: Bancolombia}
+      - {codigo: "13", nombre: BBVA Colombia}
+      - {codigo: "23", nombre: Banco de Occidente}
+      - {codigo: "39", nombre: Davivienda}
+      - {codigo: "49", nombre: Banco AV Villas}
+      - {codigo: "12", nombre: Banco GNB Sudameris}
+    cuentas_extra: []
+
+  # -------------------------------------------------------------- Renta fija
+  - id: banrep_curva_tes
+    nombre: Banco de la República, curvas cero cupón TES (pesos y UVR)
+    tipo_dato: renta_fija
+    url: https://suameca.banrep.gov.co/estadisticas-economicas/informacionSerie/640001/deuda_publica_tasas_cero_cupon_tes
+    acceso: navegador
+    frecuencia: diaria
+    ventana_publicacion: "diaria"
+    recarga_dias: 5
+    ejecuta_en: pc
+    licencia: información pública
+    redistribuible: true
+    estado: pendiente
+    fase: 3
+
+  - id: cdt_datos_gov
+    nombre: SFC, tasas de captación y CDT
+    tipo_dato: renta_fija
+    url: https://www.datos.gov.co/resource/axk9-g2nh.json
+    acceso: api_socrata
+    frecuencia: diaria
+    ventana_publicacion: "diaria"
+    recarga_dias: 5
+    ejecuta_en: actions
+    licencia: datos abiertos del Estado colombiano
+    redistribuible: true
+    estado: pendiente
+    fase: 3
+
+  - id: fic_datos_gov
+    nombre: SFC, fondos de inversión colectiva (formato F-523)
+    tipo_dato: fondos
+    url: https://www.datos.gov.co/resource/qhpu-8ixx.json
+    acceso: api_socrata
+    frecuencia: diaria
+    ventana_publicacion: "2 a 3 días hábiles de rezago"
+    recarga_dias: 10
+    ejecuta_en: actions
+    licencia: datos abiertos del Estado colombiano
+    redistribuible: true
+    estado: pendiente
+    fase: 3
+
+  # -------------------------------------------------------------------- Macro
+  - id: dane_ipc
+    nombre: DANE, IPC
+    tipo_dato: macro
+    url: https://www.dane.gov.co/index.php/estadisticas-por-tema/precios-y-costos/indice-de-precios-al-consumidor-ipc
+    acceso: descarga_xlsx
+    frecuencia: mensual
+    ventana_publicacion: "primera quincena del mes siguiente"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    historico_desde: "2003-01-01"
+    tabla_destino: fact_serie_macro
+    nota: "Índice total nacional, serie de empalme desde 2003 (base dic-2018 = 100), del anexo mensual anex-IPC-Indices-<mes><año>.xlsx enlazado en la página"
+
+  - id: dane_ise
+    nombre: DANE, Indicador de Seguimiento a la Economía (ISE)
+    tipo_dato: macro
+    url: https://www.dane.gov.co/index.php/estadisticas-por-tema/cuentas-nacionales/indicador-de-seguimiento-a-la-economia-ise
+    acceso: descarga_xlsx
+    frecuencia: mensual
+    ventana_publicacion: "45 a 50 días tras el mes"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: información pública
+    redistribuible: true
+    estado: pendiente
+    fase: 1
+
+  - id: banrep_tasas
+    nombre: Banco de la República, tasa de política e IBR
+    tipo_dato: macro
+    url: https://suameca.banrep.gov.co/estadisticas-economicas/
+    acceso: navegador
+    frecuencia: diaria
+    ventana_publicacion: "diaria"
+    recarga_dias: 5
+    ejecuta_en: pc
+    licencia: información pública
+    redistribuible: true
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_serie_macro
+    requiere: "extra pc (uv sync --extra pc) y una vez: uv run playwright install chromium"
+    nota: "Chromium abre cada página de SUAMECA y se toma la respuesta de datos que la propia página recibe (consultaInformacionSerie); serie completa en cada corrida. serie_id banrep_<id>: 59 tasa de política; 241, 242, 243, 16560, 16562 IBR nominal overnight, 1, 3, 6 y 12 meses (y sus efectivas)"
+    paginas:
+      - {id: 59, nombre: "Tasa de política monetaria", url: "https://suameca.banrep.gov.co/estadisticas-economicas/informacionSerie/59/tasas_interes_politica_monetaria"}
+      - {id: 241, nombre: "IBR (todos los plazos)", url: "https://suameca.banrep.gov.co/estadisticas-economicas/informacionSerie/241/tasas_interes_indicador_bancario_referencia_ibr"}
+
+  - id: fred
+    nombre: FRED (respaldo de tasas largas y series internacionales)
+    tipo_dato: macro
+    url: https://fred.stlouisfed.org/graph/fredgraph.csv
+    acceso: api_rest
+    frecuencia: diaria
+    ventana_publicacion: "diaria (Tesoro, VIX) y mensual (IPC de EE. UU., tasa larga de Colombia)"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: términos de FRED
+    redistribuible: false
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_serie_macro
+    nota: "La serie del IPC de Colombia en FRED (OCDE) se cortó en nov-2023: el IPC viene del DANE"
+    series:
+      - {id: DGS10, nombre: "Tesoro EE. UU. 10 años", unidad: pct, frecuencia: diaria}
+      - {id: DGS3MO, nombre: "Tesoro EE. UU. 3 meses", unidad: pct, frecuencia: diaria}
+      - {id: DFII10, nombre: "Tesoro EE. UU. 10 años real (TIPS)", unidad: pct, frecuencia: diaria}
+      - {id: T10YIE, nombre: "Inflación implícita EE. UU. 10 años", unidad: pct, frecuencia: diaria}
+      - {id: CPIAUCSL, nombre: "IPC de EE. UU.", unidad: indice_1982_84_100, frecuencia: mensual}
+      - {id: COLIRLTLT01STM, nombre: "Tasa larga de Colombia (OCDE)", unidad: pct, frecuencia: mensual}
+      - {id: VIXCLS, nombre: "VIX", unidad: puntos, frecuencia: diaria}
+      - {id: BAMLEMCBPIOAS, nombre: "Diferencial corporativo emergentes (ICE BofA)", unidad: pct, frecuencia: diaria}
+
+  - id: damodaran
+    nombre: Damodaran (prima de riesgo país, spread de default, betas y múltiplos sectoriales)
+    tipo_dato: macro
+    url: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html
+    acceso: descarga_xlsx
+    frecuencia: semestral
+    ventana_publicacion: "país: enero y julio; sectores: enero"
+    recarga_dias: 0
+    ejecuta_en: actions
+    licencia: uso libre con atribución
+    redistribuible: false
+    estado: pendiente
+    fase: 2
+
+  # ------------------------------------------------------------ Fuera de alcance
+  - id: derivados_bvc
+    nombre: Derivados (futuros TES, TRM, COLCAP, acciones)
+    tipo_dato: derivados
+    url: https://www.bvc.com.co
+    acceso: manual
+    frecuencia: diaria
+    ventana_publicacion: "sin fuente gratuita verificada"
+    recarga_dias: 0
+    ejecuta_en: manual
+    licencia: pago
+    redistribuible: false
+    estado: fuera_de_alcance
+    fase: null

@@ -1,0 +1,64 @@
+# Dimensiones de referencia (filas de catálogo). Agregar un país = agregar filas aquí, sin cambiar código.
+
+paises:
+  - pais_id: CO
+    nombre: Colombia
+    bolsa: Bolsa de Colombia (nuam)
+    mic: XBOG
+    zona_horaria: America/Bogota
+    moneda_local_id: COP
+    benchmark_id: MSCI_COLCAP
+    curva_rf_id: TES_COP
+    activo: true
+  - pais_id: CL
+    nombre: Chile
+    bolsa: Bolsa de Santiago (nuam)
+    mic: XSGO
+    zona_horaria: America/Santiago
+    moneda_local_id: CLP
+    benchmark_id: SP_IPSA
+    curva_rf_id: BCP_CLP
+    activo: false
+  - pais_id: PE
+    nombre: Perú
+    bolsa: Bolsa de Valores de Lima (nuam)
+    mic: XLIM
+    zona_horaria: America/Lima
+    moneda_local_id: PEN
+    benchmark_id: SP_BVL
+    curva_rf_id: BONO_SOBERANO_PEN
+    activo: false
+  - pais_id: US
+    nombre: Estados Unidos
+    bolsa: NYSE / Nasdaq
+    mic: XNYS
+    zona_horaria: America/New_York
+    moneda_local_id: USD
+    benchmark_id: SP500
+    curva_rf_id: UST
+    activo: false
+
+monedas:
+  - {moneda_id: COP, nombre: Peso colombiano}
+  - {moneda_id: USD, nombre: Dólar estadounidense}
+  - {moneda_id: CLP, nombre: Peso chileno}
+  - {moneda_id: PEN, nombre: Sol peruano}
+  - {moneda_id: UVR, nombre: Unidad de Valor Real}
+
+clases_activo:
+  - {clase_activo_id: ACCION, clase: Acción, es_renta_fija: false, es_extranjero: false}
+  - {clase_activo_id: ETF, clase: ETF local, es_renta_fija: false, es_extranjero: false}
+  - {clase_activo_id: MGC, clase: Mercado Global Colombiano, es_renta_fija: false, es_extranjero: true}
+  - {clase_activo_id: TES_TF, clase: TES tasa fija, es_renta_fija: true, es_extranjero: false}
+  - {clase_activo_id: TES_UVR, clase: TES UVR, es_renta_fija: true, es_extranjero: false}
+  - {clase_activo_id: BONO_CORP, clase: Bono corporativo, es_renta_fija: true, es_extranjero: false}
+  - {clase_activo_id: CDT, clase: CDT, es_renta_fija: true, es_extranjero: false}
+  - {clase_activo_id: FIC, clase: Fondo de inversión colectiva, es_renta_fija: false, es_extranjero: false}
+  - {clase_activo_id: INMOBILIARIO, clase: Títulos participativos y fondos inmobiliarios, es_renta_fija: false, es_extranjero: false}
+  - {clase_activo_id: DIVISA, clase: Divisa, es_renta_fija: false, es_extranjero: true}
+
+indices:
+  - {indice_id: MSCI_COLCAP, nombre: MSCI COLCAP, pais_id: CO}
+  - {indice_id: SP_IPSA, nombre: S&P IPSA, pais_id: CL}
+  - {indice_id: SP_BVL, nombre: S&P/BVL Peru General, pais_id: PE}
+  - {indice_id: SP500, nombre: S&P 500, pais_id: US}

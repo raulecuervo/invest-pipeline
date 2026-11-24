@@ -1,0 +1,110 @@
+# Ingesta diaria de las fuentes que corren en GitHub Actions (ejecuta_en: actions).
+# Corre en este repo público (minutos gratis) y escribe los datos en el repo privado invest-data.
+#
+# Requiere (ver docs/configurar_github.md):
+#   - Variable del repositorio DATA_REPO   = "<usuario>/invest-data"
+#   - Secreto  del repositorio DATA_REPO_TOKEN = token de acceso de grano fino con Contents: read/write
+#     solo sobre invest-data
+#
+# Los registros de un repo público los ve cualquiera: este workflow imprime solo conteos y estados,
+# nunca datos.
+
+name: Ingesta diaria
+
+on:
+  schedule:
+    - cron: "17 0 * * *"   # 19:17 en Bogotá (UTC-5). Minuto poco usado para evitar retrasos
+  workflow_dispatch:
+    inputs:
+      desde:
+        description: "Recargar desde (AAAA-MM-DD, opcional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingesta-diaria
+  cancel-in-progress: false
+
+jobs:
+  ingesta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45   # la primera carga histórica de la SFC baja unos 350 archivos
+    steps:
+      - name: Código
+        uses: actions/checkout@v4
+        with:
+          path: invest-pipeline
+
+      - name: Datos (repo privado)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: invest-data
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependencias
+        working-directory: invest-pipeline
+        run: |
+          python -m pip install --quiet uv
+          uv sync --quiet
+
+      - name: Ingesta
+        working-directory: invest-pipeline
+        env:
+          INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}   # "Nombre correo@dominio" (lo exige la SEC)
+        run: |
+          if [ -n "${{ inputs.desde }}" ]; then
+            uv run invest ingest --todas-actions --desde "${{ inputs.desde }}"
+          else
+            uv run invest ingest --todas-actions
+          fi
+          uv run invest dims
+
+      - name: Dividendos (dos agentes leen cada PDF y llegan a un consenso)
+        # Solo procesa PDF nuevos. Sin el secreto ANTHROPIC_API_KEY se omite sin fallar.
+        # Imprime solo conteos: los registros de este repo son públicos.
+        working-directory: invest-pipeline
+        env:
+          INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run invest dividendos
+
+      - name: Crudos de alto volumen (artefacto, 30 días)
+        # Fuentes con bronze_en_repositorio: false (p. ej. los 117 .xls diarios de la SFC) no se
+        # versionan en invest-data; se guardan aquí. Solo se permite para fuentes redistribuibles.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bronze-efimero-${{ github.run_id }}
+          path: invest-data/bronze/_efimero/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Guardar datos
+        working-directory: invest-data
+        run: |
+          git config user.name "invest-bot"
+          git config user.email "invest-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Sin cambios en los datos"
+          else
+            git commit --quiet -m "Ingesta diaria $(date -u +%F)"
+            git push --quiet
+          fi
+
+      - name: Salud de datos
+        working-directory: invest-pipeline
+        env:
+          INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
+        run: uv run invest salud

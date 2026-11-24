@@ -1,0 +1,24 @@
+# Extracción de dividendos desde los PDF de información relevante (invest dividendos).
+#
+# Dos agentes independientes leen cada PDF con modelos e instrucciones distintos. Si sus resultados
+# difieren, cada uno ve la respuesta del otro y la lista de diferencias, vuelve a leer el documento
+# y corrige o sostiene su lectura, hasta llegar a un consenso. Si no lo logran en las rondas
+# permitidas, el documento queda "en_disputa" y no entra a los cálculos hasta que se revise a mano.
+# Todo queda en invest-data/revision/dividendos.csv para revisión, también lo que tuvo consenso.
+#
+# Requiere la variable de entorno ANTHROPIC_API_KEY (en GitHub: secreto del repositorio).
+# Sin ella, el paso se omite y los documentos quedan pendientes.
+
+agentes:
+  a:
+    nombre: analista
+    modelo: claude-sonnet-5-5
+  b:
+    nombre: auditor
+    modelo: claude-opus-5-5
+
+rondas_maximas: 2              # rondas de revisión cruzada después de la lectura independiente
+max_documentos_por_corrida: 25
+max_tokens: 16000            # incluye el razonamiento previo del modelo; solo se cobra lo usado
+tolerancia_valor: 0.01         # diferencia máxima en pesos por acción para considerar dos valores iguales
+tamano_maximo_mb: 25

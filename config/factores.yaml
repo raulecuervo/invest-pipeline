@@ -1,0 +1,40 @@
+# Factores y su validación estadística (src/invest/factores.py).
+#
+# Cada factor declara el signo de su hipótesis: +1 si se espera que un valor más alto anticipe un
+# retorno mayor el mes siguiente, -1 si se espera lo contrario. La validación mide si eso se cumple.
+# Ningún factor se usa para señales de compra o venta si no queda "validado".
+
+universo:
+  requiere_liquida: true          # marca de gold/fact_liquidez_diaria al fin de mes
+  sesiones_historia_min: 250      # días con negocios antes del fin de mes
+  max_sesiones_sin_negocio: 10    # el último negocio debe estar a 10 sesiones o menos del fin de mes
+  minimo_acciones_por_mes: 8      # meses con menos acciones no entran en la validación
+
+factores:
+  momentum_12_1:
+    signo: 1
+    descripcion: "Retorno total de los meses -12 a -1 (se salta el último mes)"
+  momentum_6_1:
+    signo: 1
+    descripcion: "Retorno total de los meses -6 a -1"
+  reversion_1m:
+    signo: -1
+    descripcion: "Retorno total del último mes (hipótesis: se revierte)"
+  volatilidad_1a:
+    signo: -1
+    descripcion: "Desviación estándar anualizada de los retornos diarios del último año (hipótesis: baja volatilidad rinde más por unidad de riesgo)"
+    observaciones_min: 100
+  liquidez_60:
+    signo: -1
+    descripcion: "Logaritmo del monto medio negociado en 60 días (hipótesis: prima por iliquidez)"
+  rendimiento_dividendo_12m:
+    signo: 1
+    descripcion: "Suma de dividendos en efectivo de los últimos 12 meses sobre el precio de cada fecha ex"
+
+validacion:
+  inicio: "2008-01-31"            # antes hay muy pocas acciones líquidas
+  inicio_fuera_de_muestra: "2018-01-01"
+  rezagos_newey_west: 3
+  nivel: 0.05                     # sobre el valor p ajustado por Holm (varios factores a la vez)
+  nivel_debil: 0.10
+  cuantiles: 3                    # spread entre el tercio superior y el inferior

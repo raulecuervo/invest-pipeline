@@ -1,0 +1,58 @@
+# Dividendos en efectivo tomados de páginas públicas (ver src/invest/dividendos_web.py).
+#
+# Los historiales se copian a mano (navegador) en invest-data/fuentes_web/dividendos/<fuente>/
+# y NO se redistribuyen: invest-data es privado. Investing.com publica el historial completo;
+# stockanalysis.com solo los últimos 20 pagos y parece usar el mismo proveedor, así que sirve para
+# descartar duplicados y repartos que no son en efectivo, no como fuente independiente. Las
+# verificaciones independientes son la regla del periodo ex-dividendo de la BVC, el precio de la
+# SFC y los avisos de información relevante de la SFC.
+desde: 2007-01-01            # el histórico de eventos de la SFC empieza en 2007
+rendimiento_maximo: 0.15     # un pago mayor que 15 % del precio anterior se revisa a mano
+veces_mediana: 8             # un pago 8 veces mayor o menor que la mediana del año se revisa
+tolerancia_valor: 0.01
+dias_duplicado: 5            # mismo valor en la misma acción a 5 días o menos: es el mismo pago
+dias_evento_antes: 450       # el aviso de la SFC sobre el dividendo debe estar en esta ventana
+dias_evento_despues: 15
+fuentes:
+  investing: {carpeta: fuentes_web/dividendos/investing, ajustado_por_splits: true}
+  stockanalysis: {carpeta: fuentes_web/dividendos/stockanalysis, ajustado_por_splits: true}
+activos:
+  - {especie: cot13paao004, investing: gruposura, stockanalysis: GRUPOSURA}
+  - {especie: cot13paad031, investing: pfgrupsura, stockanalysis: PFGRUPSURA}
+  - {especie: coc04paao008, investing: ecopetrol-cn, stockanalysis: ECOPETROL}
+  - {especie: cod38paao005, investing: cemargos, stockanalysis: CEMARGOS}
+  - {especie: cod38paad115, investing: pfcemargos, stockanalysis: PFCEMARGOS}
+  - {especie: coe15paao001, investing: isa, stockanalysis: ISA}
+  - {especie: cot09paao003, investing: grupoargos, stockanalysis: GRUPOARGOS}
+  - {especie: cot09paad006, investing: pfgrupoarg, stockanalysis: PFGRUPOARG}
+  - {especie: cog31paao003, investing: exito, stockanalysis: EXITO}
+  - {especie: cot29paad012, investing: pfaval, stockanalysis: PFAVAL}
+  - {especie: cot29paao001, investing: grupoaval, stockanalysis: GRUPOAVAL}
+  - {especie: cob51paad096, investing: pfdavvnda, stockanalysis: PFDAVVNDA}
+  - {especie: cot04paao003, investing: nutresa, stockanalysis: NUTRESA}
+  - especie: coe01paao018
+    investing: eeb
+    stockanalysis: GEB
+    excluir:
+      - {desde: 2007-01-01, hasta: 2012-05-31, motivo: "Investing mezcla mal el split 1:100 de 2011 en estos valores"}
+  - {especie: cot60paao005, investing: celsia, stockanalysis: CELSIA}
+  - especie: cob01paao006
+    investing: bogota
+    stockanalysis: BOGOTA
+    excluir:
+      - {desde: 2010-12-01, hasta: 2011-08-31, motivo: "Investing ajusta estos meses por dividendos en acciones"}
+  - {especie: coi13paao007, investing: etb}
+  - {especie: cor01paao011, investing: bvc, stockanalysis: BVC}
+  - especie: coi04paao006
+    investing: promigas
+    stockanalysis: PROMIGAS
+    excluir:
+      - {desde: 2007-01-01, hasta: 2014-09-30, motivo: "Investing mezcla el split 7:1 de 2013 y los dividendos en acciones"}
+  - {especie: cog20paao006, investing: organizacion-terpel-sa}
+  - {especie: cot23paao003, investing: grupo-bolivar-sa}
+  - {especie: cob23paao000, investing: banco-de-occidente-sa}
+  # Mineros paga en dólares; Investing mezcla filas en USD con filas ya pasadas a pesos, así que en el
+  # archivo cada fila en dólares lleva un quinto campo "USD" (se marcan las de valor menor que 1).
+  - {especie: coc07paao002, investing: mineros-sa}
+# Pendientes, sin copiar: Corficolombiana (paga parte en acciones; Investing mezcla ambos),
+# Conconcreto (no aparece en Investing) y las acciones poco líquidas.

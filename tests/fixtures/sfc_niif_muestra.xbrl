@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xbrli:xbrl xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:co-sfc-core="http://www.superfinanciera.gov.co/xbrl/ifrs/core/2016-04-01" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:ifrs="http://xbrl.ifrs.org/taxonomy/2013-03-28/ifrs" xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
+  <!-- Muestra recortada con la estructura del XBRL consolidado de cierre 2025 de un emisor (cifras de prueba) -->
+  <xbrli:context id="Context_Duration_P1202512A"><xbrli:entity><xbrli:identifier scheme="http://www.superfinanciera.gov.co">260-36</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="Context_Duration_P2202412A"><xbrli:entity><xbrli:identifier scheme="http://www.superfinanciera.gov.co">260-36</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2024-01-01</xbrli:startDate><xbrli:endDate>2024-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="Context_Instant_Final_P1202512A"><xbrli:entity><xbrli:identifier scheme="http://www.superfinanciera.gov.co">260-36</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2025-12-31</xbrli:instant></xbrli:period></xbrli:context>
+  <xbrli:context id="Context_Instant_Final_P2202412A"><xbrli:entity><xbrli:identifier scheme="http://www.superfinanciera.gov.co">260-36</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2024-12-31</xbrli:instant></xbrli:period></xbrli:context>
+  <xbrli:context id="Context_Instant_Final_SegmentsMember_P1202512A"><xbrli:entity><xbrli:identifier scheme="http://www.superfinanciera.gov.co">260-36</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2025-12-31</xbrli:instant></xbrli:period><xbrli:scenario><xbrldi:explicitMember dimension="ifrs:SegmentsAxis">ifrs:SegmentsMember</xbrldi:explicitMember></xbrli:scenario></xbrli:context>
+  <xbrli:unit id="peso"><xbrli:measure>iso4217:COP</xbrli:measure></xbrli:unit>
+  <ifrs:Assets decimals="0" contextRef="Context_Instant_Final_P1202512A" unitRef="peso">284136657544.00</ifrs:Assets>
+  <ifrs:Assets decimals="0" contextRef="Context_Instant_Final_P2202412A" unitRef="peso">301345177424.00</ifrs:Assets>
+  <ifrs:Assets decimals="0" contextRef="Context_Instant_Final_SegmentsMember_P1202512A" unitRef="peso">1.00</ifrs:Assets>
+  <ifrs:CashAndCashEquivalents decimals="0" contextRef="Context_Instant_Final_P1202512A" unitRef="peso">10694387457.00</ifrs:CashAndCashEquivalents>
+  <ifrs:CashAndCashEquivalents decimals="0" contextRef="Context_Instant_Final_P1202512A" unitRef="peso">0.00</ifrs:CashAndCashEquivalents>
+  <ifrs:ProfitLossAttributableToOwnersOfParent decimals="0" contextRef="Context_Duration_P1202512A" unitRef="peso">9028764858.00</ifrs:ProfitLossAttributableToOwnersOfParent>
+  <ifrs:BasicEarningsLossPerShare decimals="0" contextRef="Context_Duration_P1202512A" unitRef="peso">220</ifrs:BasicEarningsLossPerShare>
+  <co-sfc-core:NombreEntidad contextRef="Context_Duration_P1202512A">ECOPETROL S.A.</co-sfc-core:NombreEntidad>
+</xbrli:xbrl>

@@ -1,0 +1,19 @@
+# Entorno
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secretos y configuración local
+.env
+*.local.yaml
+
+# Datos: nunca en este repo público (van en invest-data)
+*.parquet
+*.duckdb
+*.jsonl
+bronze/
+silver/
+gold/
+cuarentena/
+meta/

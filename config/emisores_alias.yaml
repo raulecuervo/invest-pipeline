@@ -1,0 +1,12 @@
+# Correcciones manuales del enlace entre la entidad que publica información relevante en la SFC
+# y el emisor de la acción (código de 5 caracteres de la especie: coc04 = Ecopetrol).
+#
+# El enlace automático solo acepta nombres idénticos tras normalizarlos. Cuando una entidad que sí
+# tiene acciones inscritas queda sin emisor_id en gold/fact_evento_corporativo, se agrega aquí:
+#
+#   - entidad: "BANCOLOMBIA S.A."
+#     emisor: cotk7        # sus eventos quedan con el emisor de Grupo Cibest
+#
+# Una entidad con emisor vacío ("") se deja sin enlazar a propósito.
+
+alias: []
