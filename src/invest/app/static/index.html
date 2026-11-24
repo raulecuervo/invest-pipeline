@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invest</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="lateral">
+    <div class="marca">Invest<span>.</span></div>
+    <nav aria-label="Secciones" id="menu">
+      <a href="#/mercado" data-ruta="mercado">Mercado</a>
+      <a href="#/screener" data-ruta="screener">Screener</a>
+      <a href="#/matriz" data-ruta="matriz">Matriz</a>
+      <a href="#/ficha" data-ruta="ficha">Ficha</a>
+      <a href="#/cartera" data-ruta="cartera">Mi cartera</a>
+      <a href="#/carteras" data-ruta="carteras">Carteras y transacciones</a>
+      <a href="#/perfiles" data-ruta="perfiles">Perfiles</a>
+      <a href="#/tesis" data-ruta="tesis">Tesis</a>
+      <a href="#/salud" data-ruta="salud">Salud de datos</a>
+      <a href="#/aprender" data-ruta="aprender" class="separado">Aprender</a>
+    </nav>
+    <div class="pie-lateral" id="pie-lateral">Cargando…</div>
+  </aside>
+  <main class="principal">
+    <div class="barra">
+      <label for="buscar" class="oculto">Buscar acción</label>
+      <input id="buscar" type="search" list="lista-activos" placeholder="Buscar acción o nemotécnico" autocomplete="off">
+      <datalist id="lista-activos"></datalist>
+      <span class="nota" id="nota-datos"></span>
+      <button type="button" class="interruptor" id="modo-aprendizaje" role="switch" aria-checked="true">
+        <span class="pista" aria-hidden="true"><span class="perilla"></span></span>Modo aprendizaje</button>
+    </div>
+    <div id="vista" tabindex="-1"></div>
+  </main>
+</div>
+<div id="tip" role="status"></div>
+<div id="popover" role="dialog" aria-modal="false" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

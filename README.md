@@ -29,7 +29,8 @@ Proyectos/
 | 1 · Factores y validación | Factores mensuales con validación estadística; dos validados (momentum 12-1 y rendimiento por dividendo) | Hecho |
 | 1 · Matriz de factores | Puntaje por acción con los factores validados, ficha mensual y tablero local en HTML (`invest ficha`) | Hecho (24-nov-2026) |
 | 1 · Modelo de datos del aplicativo | Emisores, precio diario con capitalización, macro, técnico, riesgo, métricas fundamentales, valoración, puntajes de 1 a 10, matriz, screeners, calendario, perfiles, carteras y desempeño; base `modelo.duckdb` con contrato verificado (`invest modelo`) | Hecho (24-nov-2026) |
-| 1 · Resto del MVP | NIIF histórico de la SFC (carga en curso), el aplicativo (pantallas), plantilla de bancos con el CUIF | Pendiente |
+| 1 · Aplicativo local | Web local (FastAPI + HTML/JS propio, estilo B): Mercado y país, Screener, Matriz, Ficha, Mi cartera, Carteras y transacciones, Perfiles, Tesis, Salud de datos y Aprender (`invest app`, `scripts\abrir_app.cmd`) | Hecho (24-nov-2026) |
+| 1 · Resto del MVP | NIIF histórico de la SFC (carga en curso), plantilla de bancos con el CUIF, calculadora de rebalanceo, alertas | Pendiente |
 | Opcional, al final | Modelo de Power BI sobre los mismos Parquet | Opcional |
 
 ## Puesta en marcha (Windows)
@@ -81,6 +82,7 @@ Opcional: un *app token* gratuito de datos.gov.co en la variable `SOCRATA_APP_TO
 | `invest inspeccionar [especie]` | Descarga índice, ficha y serie de una especie de la SFC y muestra lo que entiende, sin guardar |
 | `invest factores` | Factores mensuales y su validación estadística |
 | `invest modelo [--sin-calcular]` | Tablas del aplicativo, base `invest-data/modelo.duckdb` y verificación del contrato (código 1 si hay problemas) |
+| `invest app [--puerto 8765] [--no-abrir]` | Aplicativo local en el navegador (doble clic: `scripts\abrir_app.cmd`) |
 | `invest usuario --plantillas` / `--importar TABLA ARCHIVO.csv` | Tablas vacías y CSV de ejemplo para perfiles, carteras y transacciones; carga validada desde Excel |
 | `invest ficha [--abrir]` | Puntaje de los factores validados por acción y tablero `invest-data/tableros/matriz_factores.html` (`scripts\abrir_tablero.cmd` lo hace con doble clic) |
 
@@ -254,6 +256,21 @@ El aplicativo lee una sola base, `invest-data/modelo.duckdb`, con una vista por 
 | Variables | `dim_variable`: fórmula, origen y explicación breve de 42 variables (`config/variables/`, borradores por revisar) | `variables.py` |
 
 Pendiente de datos, no de código: la historia de la tasa BanRep (la primera carga quedó recortada; el conector la completa solo en su próxima corrida), la utilidad de 12 meses y el ROE (cuando la carga histórica de NIIF traiga los cierres anuales), la historia del MSCI COLCAP (mientras tanto la beta es contra el universo líquido) y las métricas propias de bancos con el CUIF.
+
+## Aplicativo local (`src/invest/app/`, `invest app`)
+
+Doble clic en `scripts\abrir_app.cmd` (o `uv run --extra app invest app`): abre el navegador en `http://127.0.0.1:8765/`. Solo escucha en este computador. Lee de `modelo.duckdb` (una conexión de solo lectura por consulta) y escribe únicamente en `invest-data/usuario/`, validando antes de guardar; tras cada cambio de carteras o transacciones recalcula posiciones y desempeño.
+
+| Página | Qué muestra |
+| --- | --- |
+| Mercado y país | TRM, tasa BanRep, inflación, COLCAP, Tesoro; mapa del mercado por capitalización (color: retorno de 1 o 12 meses o puntaje; filtro de acciones líquidas); movimientos del último día con su información relevante ("¿por qué se mueve?"); índice del universo; series macro de 10 años; próximos 45 días del calendario |
+| Screener | Los 7 screeners con lo que entró y salió frente a la corrida anterior, filtros por sector, universo y puntaje, tabla ordenable y exportación a CSV |
+| Matriz | Fundamental × técnico de 1 a 10 (informativa mientras no esté validada), coloreada por el tercio de los factores validados, con la evidencia de cada factor y enlace al tablero de factores validados |
+| Ficha | Resumen (precio, puntaje global, cuadrante, avisos), puntaje por factor, técnico, precio ajustado con su media de 200 (6M a 5A), métricas del puntaje con su z y pares, riesgo a 1, 3 y 5 años en pesos y dólares, información relevante, dividendos y comparación con su sector |
+| Mi cartera | Valor, ganancia no realizada, TWR, XIRR, dividendos por cobrar; mapa de posiciones, desvío frente a las bandas del perfil, próximos dividendos, valor diario y posiciones |
+| Carteras y transacciones, Perfiles, Tesis | Formularios validados (perfiles con versiones y asignación objetivo) |
+| Salud de datos | Estado de las fuentes, últimas corridas, validación de factores, tamaño de las tablas y botones para leer la Bolsa de Colombia (abre la ventana de Chromium), actualizar el modelo y verificar el contrato |
+| Aprender | La explicación breve de cada variable; el ícono ⓘ de cada página abre la misma explicación ("Modo aprendizaje" lo muestra u oculta) |
 
 ## Agregar una fuente
 
