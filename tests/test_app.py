@@ -40,9 +40,11 @@ def test_guardar_valida_y_recalcula(cliente):
     assert r["ok"]
     r = cliente.post("/api/usuario/fact_transaccion", json={"filas": [
         {"cartera_id": "c", "fecha_operacion": "2025-01-02", "tipo": "aporte", "monto": "1000", "moneda": "COP"},
-        {"cartera_id": "c", "fecha_operacion": "2025-01-02", "tipo": "compra", "especie": "coa01paao001", "cantidad": "5",
+        {"cartera_id": "c", "fecha_operacion": "2025-01-02", "tipo": "compra", "especie": "aaa", "cantidad": "5",
          "precio": "100", "moneda": "COP"}]}).json()
     assert r["ok"] and usuario.leer("fact_transaccion").height == 2
+    # El nemotécnico escrito en el formulario se guarda como la especie de la SFC
+    assert "coa01paao001" in usuario.leer("fact_transaccion").get_column("especie").to_list()
     tid = usuario.leer("fact_transaccion").get_column("transaccion_id")[0]
     assert cliente.post("/api/usuario/fact_transaccion", json={"borrar": [{"transaccion_id": tid}]}).json()["filas"] == 1
     assert cliente.get("/api/estado").json()["carteras"][0]["cartera_id"] == "c"

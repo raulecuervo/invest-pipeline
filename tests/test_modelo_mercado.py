@@ -123,3 +123,18 @@ def test_doce_meses_y_payout():
     assert val[("roe_12m", date(2025, 9, 30))]["valor"] == 0.1
     assert val[("payout", date(2025, 6, 30))]["valor"] == 0.5  # 50 decretados sobre 100 de 2024
     assert math.isclose(val[("crecimiento_upa_12m", date(2025, 12, 31))]["valor"], 0.2)
+
+
+def test_retornos_por_dias_calendario_en_accion_poco_liquida():
+    """Una acción que negocia unas pocas veces al año: el retorno de 12 meses compara con el último
+    negocio de hace un año, no con el de 252 negocios atrás (que sería de hace décadas)."""
+    fechas = [date(2010 + i // 4, 1 + 3 * (i % 4), 15) for i in range(64)]  # un negocio por trimestre
+    x = [100.0 * 1.1 ** i for i in range(len(fechas))]
+    p = pl.DataFrame({"fecha": fechas, "especie": ["cor02paao019"] * len(fechas), "x": x})
+    r = tecnico._retornos_calendario(p).filter(pl.col("fecha") == fechas[-1]).row(0, named=True)
+    # Hace 365 días hubo negocio (4 trimestres atrás): 1,1^4 − 1; hace 30 días no hay negocio cercano
+    assert math.isclose(r["retorno_12m"], 1.1 ** 4 - 1)
+    assert r["retorno_1m"] is None
+    # Si el último negocio antes de la fecha objetivo es muy viejo, no hay retorno
+    lejos = pl.DataFrame({"fecha": [date(2020, 1, 2), date(2023, 1, 2)], "especie": ["a", "a"], "x": [1.0, 2.0]})
+    assert tecnico._retornos_calendario(lejos).get_column("retorno_12m").null_count() == 2

@@ -164,11 +164,14 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
     df = (df.with_columns(prioridad.alias("_p")).sort(["emisor_id", "fecha_corte", "concepto", "_p"])
           .unique(subset=["emisor_id", "fecha_corte", "concepto", "base"], keep="first", maintain_order=True)
           .drop("_p"))
-    df = descartar_upa_imposible(descartar_saltos(df))
+    df = descartar_upa_imposible(descartar_punto_aislado(descartar_saltos(df)))
     return _a_dolares(_fecha_disponible_anexo(df)).select(list(ESQUEMA))
 
 
 SALTO_MAXIMO = 20.0   # veces; un split de verdad queda en gold/fact_split y no se descarta
+SALTO_PUNTUAL = 1.5   # veces: un solo corte que se aparta así de dos vecinos que coinciden
+VECINOS_COINCIDEN = 1.10
+VECINOS_DIAS = 200
 # Solo el valor patrimonial: es un saldo y se mueve poco. La utilidad por acción es acumulada en el año y
 # puede pasar de 0,2 a 13 sin error (o cambiar de signo), así que se controla contra el valor patrimonial.
 POR_ACCION = ("valor_patrimonial_accion",)
@@ -255,6 +258,35 @@ def descartar_saltos(df: pl.DataFrame, tramo_maximo: int = 4) -> pl.DataFrame:
     marca = pl.struct(["emisor_id", "concepto", "base", "fecha_corte"]).map_elements(
         lambda r: (r["emisor_id"], r["concepto"], r["base"], r["fecha_corte"]) in descartar, return_dtype=pl.Boolean)
     return df.filter(~marca)
+
+def descartar_punto_aislado(df: pl.DataFrame) -> pl.DataFrame:
+    """Quita un único corte de valor patrimonial por acción que se aparta ``SALTO_PUNTUAL`` veces o más de
+    los dos cortes vecinos cuando esos dos coinciden (a menos de 10 %), están a menos de ``VECINOS_DIAS``
+    días entre sí y no hay un split entre medio. El patrimonio no se duplica ni se parte en dos en un
+    trimestre para volver al nivel anterior al siguiente: Grupo Sura mar-2026 dice 87.310 entre 42.455
+    (dic-2025) y 42.453 (jun-2026)."""
+    if df.is_empty():
+        return df
+    con_split = _fechas_split()
+    descartar = set()
+    for (emisor, concepto, base), g in (df.filter(pl.col("concepto").is_in(POR_ACCION))
+                                        .group_by(["emisor_id", "concepto", "base"])):
+        filas = sorted((f, v) for f, v in g.select("fecha_corte", "valor").iter_rows() if v and v > 0)
+        splits = con_split.get(emisor, [])
+        for i in range(1, len(filas) - 1):
+            (fa, a), (f, v), (fd, d) = filas[i - 1], filas[i], filas[i + 1]
+            if (fd - fa).days > VECINOS_DIAS or max(a, d) / min(a, d) > VECINOS_COINCIDEN:
+                continue
+            if any(fa <= x <= fd for x in splits):
+                continue
+            if min(max(v, a) / min(v, a), max(v, d) / min(v, d)) >= SALTO_PUNTUAL:
+                descartar.add((emisor, concepto, base, f))
+    if not descartar:
+        return df
+    marca = pl.struct(["emisor_id", "concepto", "base", "fecha_corte"]).map_elements(
+        lambda r: (r["emisor_id"], r["concepto"], r["base"], r["fecha_corte"]) in descartar, return_dtype=pl.Boolean)
+    return df.filter(~marca)
+
 
 def descartar_upa_imposible(df: pl.DataFrame, dias: int = 200) -> pl.DataFrame:
     """Quita una utilidad por acción mayor (en valor absoluto) que ``UPA_SOBRE_VPA_MAXIMO`` veces el valor

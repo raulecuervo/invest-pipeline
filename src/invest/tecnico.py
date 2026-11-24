@@ -15,8 +15,11 @@
   acción no es líquida ese día: sus medias se calculan sobre negocios esporádicos y el diseño pide
   mostrarlas como N/A.
 
-Las ventanas cuentan sesiones con negocios de cada acción, no días calendario; en las acciones
-líquidas es lo mismo.
+Las medias, el RSI, el MACD, Bollinger y la volatilidad cuentan sesiones con negocios de cada acción; en
+las acciones líquidas es lo mismo que días de bolsa. Los retornos de 1, 3, 6 y 12 meses, el máximo y
+el mínimo de 52 semanas y la fuerza relativa usan días calendario: el índice de hace 30, 91, 182 o 365
+días (el último día con negocios antes, si no es más viejo que ``TOLERANCIA_RETORNO``). Así una acción
+que negocia diez veces al año no reporta como "12 meses" un retorno de varios años.
 """
 
 from __future__ import annotations
@@ -29,6 +32,21 @@ from invest import storage
 
 SESIONES_ANIO = 252
 MINIMO_ACCIONES = 5
+# Retornos por días calendario: (nombre, días atrás, antigüedad máxima del precio de referencia)
+VENTANAS_RETORNO = (("1m", 30, 10), ("3m", 91, 20), ("6m", 182, 30), ("12m", 365, 45))
+MINIMO_NEGOCIOS_52S = 5
+
+
+def _retornos_calendario(p: pl.DataFrame, valor: str = "x", por: str | None = "especie") -> pl.DataFrame:
+    """Agrega ``retorno_<ventana>``: valor de hoy / valor del último día con dato hasta hace N días − 1."""
+    claves = [por] if por else []
+    hist = p.select(*claves, pl.col("fecha").alias("_f_ref"), pl.col(valor).alias("_v_ref")).sort("_f_ref")
+    for nombre, dias, tolerancia in VENTANAS_RETORNO:
+        objetivo = p.with_columns((pl.col("fecha") - pl.duration(days=dias)).alias("_obj")).sort("_obj")
+        r = objetivo.join_asof(hist, left_on="_obj", right_on="_f_ref", by=por, strategy="backward",
+                               check_sortedness=False, tolerance=f"{tolerancia}d")
+        p = r.with_columns((pl.col(valor) / pl.col("_v_ref") - 1).alias(f"retorno_{nombre}")).drop("_obj", "_f_ref", "_v_ref")
+    return p.sort([*claves, "fecha"])
 
 
 def _trm() -> pl.DataFrame:
@@ -109,17 +127,16 @@ def fact_tecnico_diario(indices: pl.DataFrame | None = None) -> pl.DataFrame | N
         sobre(o.rolling_mean(200)).alias("_sma200"),
         sobre(o.rolling_mean(20)).alias("_bb_m"),
         sobre(o.rolling_std(20)).alias("_bb_s"),
-        sobre(o.rolling_max(SESIONES_ANIO, min_samples=20)).alias("_max52"),
-        sobre(o.rolling_min(SESIONES_ANIO, min_samples=20)).alias("_min52"),
+        sobre(o.rolling_max_by("fecha", window_size="365d", min_samples=MINIMO_NEGOCIOS_52S)).alias("_max52"),
+        sobre(o.rolling_min_by("fecha", window_size="365d", min_samples=MINIMO_NEGOCIOS_52S)).alias("_min52"),
         sobre(_rsi(o.diff())).alias("rsi_14"),
         sobre(o.ewm_mean(span=12, adjust=False) - o.ewm_mean(span=26, adjust=False)).alias("_macd"),
         sobre(pl.col("r").rolling_std(60)).alias("_vol60"),
         sobre(pl.int_range(1, pl.len() + 1)).alias("_n"),
-        *[sobre(o / o.shift(k) - 1).alias(f"retorno_{nombre}")
-          for nombre, k in (("1m", 21), ("3m", 63), ("6m", 126), ("12m", SESIONES_ANIO))],
     ).with_columns(
         sobre(pl.col("_macd").ewm_mean(span=9, adjust=False)).alias("_senal"),
     )
+    t = _retornos_calendario(t)
     t = t.with_columns(
         (o / pl.col("_sma50") - 1).alias("distancia_sma50"),
         (o / pl.col("_sma200") - 1).alias("distancia_sma200"),
@@ -141,9 +158,10 @@ def fact_tecnico_diario(indices: pl.DataFrame | None = None) -> pl.DataFrame | N
     # Fuerza relativa de 12 meses frente al universo con pesos iguales (mismo día)
     indices = indices if indices is not None else fact_indice_mercado()
     if indices is not None and not indices.is_empty():
-        ref = (indices.filter((pl.col("indice_id") == "universo_igual") & (pl.col("moneda") == "COP"))
-               .sort("fecha").with_columns((pl.col("valor") / pl.col("valor").shift(SESIONES_ANIO) - 1)
-                                           .alias("_ref12")).select("fecha", "_ref12"))
+        ref = _retornos_calendario(
+            indices.filter((pl.col("indice_id") == "universo_igual") & (pl.col("moneda") == "COP"))
+            .select("fecha", "valor").sort("fecha"), valor="valor", por=None
+        ).select("fecha", pl.col("retorno_12m").alias("_ref12"))
         t = t.join(ref, on="fecha", how="left").with_columns(
             ((1 + pl.col("retorno_12m")) / (1 + pl.col("_ref12")) - 1).alias("fuerza_relativa_12m"))
     else:

@@ -167,7 +167,12 @@ def panel(cfg: dict | None = None) -> pl.DataFrame | None:
                  ("tercio_validado", pl.Utf8), *COLUMNAS_BANDAS, *_columnas_banco(cfg)):
         if c not in base.columns:
             base = base.with_columns(pl.lit(None, t).alias(c))
-    base = base.with_columns(_es_banco(cfg).alias("es_banco"))
+    # Una acción que no es líquida ese día no tiene un técnico confiable (sus medias abarcan negocios
+    # esporádicos de meses o años): su distancia a la media de 200 no entra al momentum ni al global
+    base = base.with_columns(
+        pl.when(pl.col("tecnico_valido").fill_null(False)).then(pl.col("distancia_sma200")).otherwise(None)
+        .alias("distancia_sma200"),
+        _es_banco(cfg).alias("es_banco"))
     # Universo líquido del mes: las acciones que tienen momentum ese mes (mismas reglas de factores.py)
     return base.with_columns(pl.col("momentum_12_1").is_not_null().alias("en_universo")).sort(["fecha", "especie"])
 
@@ -296,8 +301,12 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
 
     pesos = {f: float(d.get("peso", 1)) for f, d in cfg["factores"].items()}
     ejes = cfg["matriz"]
+    # El global necesita un mínimo de factores con dato: una acción con un solo factor (p. ej. solo el
+    # rendimiento por dividendo de una acción que casi no negocia) no se compara con las que tienen cinco
+    minimo_factores = int(e.get("minimo_factores_global", 1))
+    con_dato = pl.sum_horizontal(*[pl.col(f).is_not_null().cast(pl.Int32) for f in cfg["factores"]])
     m = m.with_columns(
-        combinar(list(cfg["factores"]), pesos).alias("global"),
+        pl.when(con_dato >= minimo_factores).then(combinar(list(cfg["factores"]), pesos)).otherwise(None).alias("global"),
         combinar(ejes["fundamental"], pesos).alias("fundamental"),
         pl.when(pl.col("tecnico_valido").fill_null(False)).then(combinar(ejes["tecnico"], pesos)).otherwise(None)
         .alias("tecnico"),

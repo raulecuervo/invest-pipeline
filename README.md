@@ -405,6 +405,17 @@ El aplicativo lee una sola base, `invest-data/modelo.duckdb`, con una vista por 
 | Cartera | `fact_posicion` (costo fiscal promedio, valor, peso), `fact_asignacion` (desvío frente a las bandas) y `fact_desempeno` (Dietz modificado, TWR, XIRR, benchmark) | `cartera.py` |
 | Variables | `dim_variable`: fórmula, origen y explicación breve de 61 variables (`config/variables/`, borradores por revisar) | `variables.py` |
 
+**Revisión de páginas y salidas (24-nov-2026).** Correcciones tras revisar cada página con los datos reales:
+
+- *Técnico en acciones poco líquidas.* Los retornos de 1, 3, 6 y 12 meses, el máximo y mínimo de 52 semanas y la fuerza relativa usan días calendario (el último negocio de hace 30, 91, 182 o 365 días, si no es más viejo que 10, 20, 30 o 45 días); antes contaban 252 negocios, que en una acción que negocia pocas veces abarcan años (la Bolsa Mercantil salía con +898 % "a 12 meses"; es +64 %). Las medias de 50 y 200, el RSI y el MACD siguen contando negocios, pero si la acción no es líquida ese día la distancia a la media de 200 no entra al factor momentum ni al global, y la ficha no la muestra ni dibuja la media.
+- *Mínimo de factores para el global* (`escala.minimo_factores_global: 3`): con menos factores con dato el global queda N/D. Una acción con solo el rendimiento por dividendo ya no queda primera del aplicativo.
+- *Valor patrimonial por acción aislado* (`descartar_punto_aislado`): un solo corte que se aparta 1,5 veces o más de dos vecinos que coinciden (a menos de 10 %, a menos de 200 días) y sin split entre medio se descarta. Grupo Sura mar-2026: 87.310 entre 42.455 y 42.453.
+- *Salud de datos* se evalúa dentro de `invest modelo`, antes de armar la base: la página ya no queda una corrida atrás ni le faltan fuentes (NIIF, Supersociedades, estados de compañías).
+- *Calendario.* La ficha muestra solo los eventos de su especie (y los del emisor sin especie), no los de su otra clase; "Próximos 45 días" agrega el nemotécnico y la moneda cuando no es COP (Mineros paga en dólares).
+- *Aprender:* las variables relacionadas salen con su nombre y enlace (antes, la dirección cruda).
+- *Carteras y tesis:* el historial y las tesis muestran nemotécnico y nombre; los formularios aceptan el nemotécnico o el nombre (el servidor lo convierte a la especie).
+- *Tablas anchas:* la primera columna queda fija al desplazarse a la derecha. *Mi cartera* sin perfil muestra la composición en vez de un "desvío" sin objetivo. `/tablero` sin generar explica cómo generarlo.
+
 Pendiente de datos, no de código: la historia de la tasa BanRep (la primera carga quedó recortada; el conector la completa solo en su próxima corrida), la utilidad de 12 meses y el ROE (cuando la carga histórica de NIIF traiga los cierres anuales), la historia del MSCI COLCAP (mientras tanto la beta es contra el universo líquido) y las métricas de bancos que usan las cuentas nuevas del CUIF (ROTE, NIM, eficiencia, costo del riesgo, cartera: llegan con la próxima corrida del conector).
 
 ## Aplicativo local (`src/invest/app/`, `invest app`)

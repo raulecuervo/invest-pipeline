@@ -17,7 +17,7 @@ def _panel():
                 "crecimiento_upa_12m": None, "crecimiento_ingresos_12m": None,
                 "momentum_12_1": 0.1 * k if fecha.month == 1 else -0.1 * k, "momentum_12_1_percentil": k / 10,
                 "distancia_sma200": None, "tendencia_alcista": True, "caida_desde_max_52s": -0.1, "rsi_14": 50.0,
-                "tecnico_valido": k != 0, "volatilidad_anual": None, "drawdown_maximo": None, "beta": None,
+                "tecnico_valido": k != 0, "volatilidad_anual": 0.2 + 0.01 * k, "drawdown_maximo": None, "beta": None,
                 "percentil_validado": None, "tercio_validado": None,
             })
     return pl.DataFrame(filas)
@@ -45,6 +45,14 @@ def test_escala_z_robusta_y_faltantes():
     assert fila["z"] == 0 and fila["pares"] == 9 and fila["grupo_comparacion"] == "X"  # 9 pares del sector: alcanza el mínimo de 8
 
 
+def test_global_necesita_un_minimo_de_factores():
+    # Solo valor y momentum (sin riesgo): con el mínimo de 3 factores el global queda vacío
+    p = _panel().with_columns(pl.lit(None, pl.Float64).alias("volatilidad_anual"))
+    _, matriz = puntajes.calcular(p, validados=set())
+    assert matriz.get_column("puntaje_global").is_null().all()
+    assert matriz.get_column("puntaje_valor").is_not_null().all()
+
+
 def test_screener_marca_entradas():
     _, matriz = puntajes.calcular(_panel(), validados=set())
     matriz = matriz.with_columns(pl.lit(None, pl.Utf8).alias("tercio_validado"))
@@ -55,3 +63,21 @@ def test_screener_marca_entradas():
     assert enero == {"e7", "e8"}  # percentil >= 2/3 y en el universo
     assert mom.filter(pl.col("fecha") == date(2025, 1, 31)).get_column("nueva").all()
     assert febrero.filter(pl.col("especie") == "e7").get_column("nueva").to_list() == [False]
+
+
+def test_distancia_sma200_no_cuenta_si_la_accion_no_es_liquida(carpeta_datos):
+    """El momentum de una acción poco líquida no usa la media de 200 negocios (abarca años)."""
+    from invest import storage
+    fecha = date(2026, 11, 23)
+    especies = ["coa01paao001", "coa02paao002"]
+    (carpeta_datos / "gold" / "dims").mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({"especie": especies, "nombre": ["A", "B"], "sector_sfc": ["X", "X"], "clase_accion": ["ordinaria"] * 2,
+                  "emisor_id": ["CO-COA01", "CO-COA02"], "activo_id": ["A", "B"]}).write_parquet(
+        carpeta_datos / "gold" / "dims" / "dim_activo.parquet")
+    storage.escribir_completa("gold", "fact_valoracion", pl.DataFrame({
+        "fecha": [fecha, fecha], "especie": especies, "emisor_id": ["CO-COA01", "CO-COA02"], "p_vl": [1.0, 1.0]}))
+    storage.escribir_por_anio("gold", "fact_tecnico_diario", pl.DataFrame({
+        "fecha": [fecha, fecha], "especie": especies, "distancia_sma200": [4.18, 0.05], "tendencia_alcista": [True, True],
+        "caida_desde_max_52s": [0.0, -0.1], "rsi_14": [84.0, 50.0], "tecnico_valido": [False, True]}), "fecha")
+    p = puntajes.panel().sort("especie")
+    assert p.get_column("distancia_sma200").to_list() == [None, 0.05]

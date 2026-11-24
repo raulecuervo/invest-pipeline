@@ -37,7 +37,7 @@ import polars as pl
 from urllib.parse import urlsplit
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from invest import modelo, usuario
@@ -213,8 +213,9 @@ def mercado():
             WHERE p.fecha = ? AND p.retorno_total IS NOT NULL AND NOT coalesce(p.salto_atipico, false)
             ORDER BY abs(p.retorno_total) DESC LIMIT 8""", [hoy["f"]])
     eventos = q("""
-        SELECT c.fecha, c.tipo, c.descripcion, c.valor, c.estimada, coalesce(e.nombre_corto, '') AS emisor
-        FROM fact_evento_calendario c LEFT JOIN dim_emisor e USING (emisor_id)
+        SELECT c.fecha, c.tipo, c.descripcion, c.valor, c.moneda, c.estimada, coalesce(e.nombre_corto, '') AS emisor,
+               c.especie, a.nemotecnico, a.clase_accion
+        FROM fact_evento_calendario c LEFT JOIN dim_emisor e USING (emisor_id) LEFT JOIN dim_activo a ON a.especie = c.especie
         WHERE c.fecha >= current_date AND c.fecha <= current_date + INTERVAL 45 DAY
           AND c.tipo IN ('dividendo_ex', 'dividendo_pago', 'banrep_decision', 'dane_ipc')
         ORDER BY c.fecha LIMIT 40""")
@@ -310,9 +311,11 @@ def ficha(especie: str):
                   ORDER BY ventana, moneda""", [especie, especie])
     eventos = q("""SELECT fecha, categoria, tema, resumen FROM fact_evento_corporativo
                    WHERE emisor_id = ? ORDER BY fecha DESC, hora DESC LIMIT 12""", [cab["emisor_id"]])
+    # Los eventos del emisor (asambleas, avisos sin especie) y los de esta especie, no los de sus otras clases
     calendario = q("""SELECT fecha, tipo, descripcion, valor, moneda, estimada FROM fact_evento_calendario
-                      WHERE emisor_id = ? AND fecha >= current_date - INTERVAL 400 DAY ORDER BY fecha DESC LIMIT 20""",
-                   [cab["emisor_id"]])
+                      WHERE emisor_id = ? AND (especie IS NULL OR especie = ?)
+                        AND fecha >= current_date - INTERVAL 400 DAY ORDER BY fecha DESC LIMIT 20""",
+                   [cab["emisor_id"], especie])
     metricas = q("""SELECT metrica, base, fecha_corte, fecha_disponible, valor, unidad FROM fact_metrica_fundamental
                     WHERE emisor_id = ? ORDER BY fecha_corte DESC""", [cab["emisor_id"]])
     ev = "ev_ebitda, deuda_neta_ebitda" if _graf_tabla_existe("v_ficha_actual", ("ev_ebitda", "deuda_neta_ebitda")) \
@@ -551,8 +554,13 @@ def usuario_guardar(tabla: str, cuerpo: dict = Body(...)):
     if tabla not in usuario.TABLAS:
         raise HTTPException(404, "Tabla desconocida")
     claves = usuario.TABLAS[tabla]["claves"]
+    filas = cuerpo.get("filas") or []
+    if "especie" in usuario.TABLAS[tabla]["columnas"]:
+        # Se puede escribir el nemotécnico (ECOPETROL) o el nombre corto en vez del código SFC de la especie
+        filas = [{**f, "especie": resolver_especie(str(f["especie"]).strip())} if f.get("especie") not in (None, "") else f
+                 for f in filas]
     try:
-        nuevas = _tipar(tabla, cuerpo.get("filas") or [])
+        nuevas = _tipar(tabla, filas)
     except (ValueError, TypeError) as e:
         return responder({"ok": False, "problemas": [f"dato inválido: {e}"]})
     if tabla == "fact_transaccion" and nuevas.height:
@@ -933,7 +941,13 @@ def tablero_validado():
     """El tablero de la matriz de factores validados (invest ficha)."""
     archivo = data_dir() / "tableros" / "matriz_factores.html"
     if not archivo.exists():
-        raise HTTPException(404, "Corra invest ficha para generarlo")
+        return HTMLResponse(
+            "<!doctype html><meta charset='utf-8'><title>Tablero de factores</title>"
+            "<body style='font-family:system-ui;background:#0B1220;color:#E6EAF2;padding:40px'>"
+            "<h1 style='font-size:20px'>El tablero de los factores validados aún no existe</h1>"
+            "<p>Se genera con <code>uv run invest ficha</code> (la tarea diaria del PC lo corre después de "
+            "<code>invest factores</code>). Luego vuelva a abrir este enlace.</p><p><a style='color:#6E9BFF' href='/#/matriz'>"
+            "Volver a la matriz</a></p></body>", status_code=404)
     return FileResponse(archivo)
 
 

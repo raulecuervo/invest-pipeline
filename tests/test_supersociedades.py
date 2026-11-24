@@ -133,6 +133,20 @@ def test_cifra_por_accion_absurda_se_descarta():
     assert fundamentales.descartar_saltos(df3).get_column("valor").to_list() == [20.61, 19.24]
 
 
+def test_corte_aislado_que_duplica_el_valor_patrimonial_se_descarta():
+    # Grupo Sura mar-2026: el 141 dice 87.310 entre 42.455 (dic-2025) y 42.453 (jun-2026)
+    def fila(corte, valor):
+        return {"emisor_id": "CO-COT13", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",
+                "valor": valor, "unidad": "pesos_por_accion", "base": "separado", "fuente": "anexo_141"}
+    df = pl.DataFrame([fila(date(2025, 12, 31), 42455.0), fila(date(2026, 3, 31), 87310.0), fila(date(2026, 6, 30), 42453.0),
+                       fila(date(2026, 9, 30), 40211.0)], schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_punto_aislado(df).get_column("valor").to_list() == [42455.0, 42453.0, 40211.0]
+    # Un cambio de 15 % (Grupo Bolívar, 141 contra 211) o vecinos que no coinciden: se conserva
+    df2 = pl.DataFrame([fila(date(2025, 12, 31), 178331.0), fila(date(2026, 3, 31), 152583.0), fila(date(2026, 6, 30), 181027.0),
+                        fila(date(2026, 9, 30), 60000.0), fila(date(2026, 12, 31), 90000.0)], schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_punto_aislado(df2).height == 5
+
+
 def test_anexo_de_menor_prioridad_en_otra_escala_se_descarta():
     def fila(corte, valor, fuente):
         return {"emisor_id": "CO-PAT07", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",

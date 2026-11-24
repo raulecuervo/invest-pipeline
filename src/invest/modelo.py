@@ -396,6 +396,13 @@ def resumen_tablas() -> pl.DataFrame:
 def construir(recalcular: bool = True, todo: bool = False, informar=None) -> dict:
     """Tablas derivadas (solo los pasos con insumos nuevos, o todos con ``todo=True``), base y contrato."""
     resumen = calcular(todo=todo, informar=informar) if recalcular else {}
+    # La salud de datos va en la base: se evalúa aquí (segundos) para que la página no quede una corrida atrás
+    try:
+        from invest import salud
+
+        salud.evaluar()
+    except Exception as e:  # noqa: BLE001 — la salud es informativa; la base se construye igual
+        resumen["salud"] = {"error": f"{type(e).__name__}: {e}"}
     destino, vistas = construir_duckdb()
     problemas = verificar()
     return {"calculo": resumen, "saltados": [n for n, r in resumen.items() if r.get("saltado")],

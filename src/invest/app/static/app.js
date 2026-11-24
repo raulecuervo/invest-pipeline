@@ -15,7 +15,7 @@ function el(tag, attrs = {}, ...hijos) {
     else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
     else e.setAttribute(k, v === true ? "" : v);
   }
-  for (const h of hijos.flat()) if (h != null && h !== false) e.append(h instanceof Node ? h : String(h));
+  for (const h of hijos.flat(Infinity)) if (h != null && h !== false) e.append(h instanceof Node ? h : String(h));
   return e;
 }
 function sv(tag, attrs = {}, texto) {
@@ -399,9 +399,9 @@ paginas.mercado = async (v) => {
   v.append(panel("Próximos 45 días", d.eventos.length ? tabla([
     { k: "fecha", t: "Fecha", izq: true, f: (r) => fecha(r.fecha) + (r.estimada ? " (estimada)" : "") },
     { k: "tipo", t: "Evento", izq: true, f: (r) => TIPOS[r.tipo] || r.tipo },
-    { k: "emisor", t: "Emisor", izq: true },
+    { k: "emisor", t: "Emisor", izq: true, f: (r) => r.emisor + (r.nemotecnico ? " · " + r.nemotecnico : r.clase_accion && r.clase_accion !== "ordinaria" ? " · " + r.clase_accion : "") },
     { k: "descripcion", t: "Detalle", izq: true },
-    { k: "valor", t: "Valor", f: (r) => r.tipo.startsWith("dividendo") ? num(r.valor, 2) : "" },
+    { k: "valor", t: "Valor", f: (r) => r.tipo.startsWith("dividendo") ? num(r.valor, 2) + (r.moneda && r.moneda !== "COP" ? " " + r.moneda : "") : "" },
   ], d.eventos) : el("div", { class: "vacio" }, "Nada programado.")));
 };
 
@@ -520,27 +520,29 @@ paginas.ficha = async (v, especie) => {
   const cajaPrecio = el("div");
   let dias = 365;
   const periodos = el("div", { class: "grupo", role: "group", "aria-label": "Periodo" });
+  const t = d.tecnico || {};
+  // En una acción poco líquida la media de 200 abarca negocios de meses o años: no se dibuja ni se usa
+  const tecnicoValido = t.tecnico_valido !== false;
   const pintarPrecio = async () => {
     periodos.replaceChildren(...[[182, "6M"], [365, "1A"], [1095, "3A"], [1825, "5A"]].map(([n, t]) => el("button", { type: "button", "aria-pressed": String(dias === n), onclick: () => { dias = n; pintarPrecio(); } }, t)));
     const serie = await api(`/api/ficha/${encodeURIComponent(especie)}/precio?dias=${dias}`);
     lineas(cajaPrecio, [
       { nombre: "Precio ajustado", color: "#E6EAF2", puntos: serie.map((r) => ({ x: r.fecha, y: r.precio_ajustado })), grosor: 2.25 },
-      { nombre: "Media de 200", color: "#5B6B8C", discontinua: true, puntos: serie.map((r) => ({ x: r.fecha, y: r.sma200 })) },
+      ...(tecnicoValido ? [{ nombre: "Media de 200", color: "#5B6B8C", discontinua: true, puntos: serie.map((r) => ({ x: r.fecha, y: r.sma200 })) }] : []),
     ], { alto: 280, titulo: "Precio ajustado por dividendos y su media de 200 sesiones", fy: (x) => num(x, x < 100 ? 2 : 0) });
   };
-  const t = d.tecnico || {};
   v.append(el("div", { class: "fila" },
     el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } },
       panel("Puntaje por factor · 1 a 10", ...barras,
         leyenda([["#3DD68C", "8–10 Fuerte"], ["#6E9BFF", "6–7,9 Bueno"], ["#F5B54A", "4–5,9 Neutral"], ["#FF7A6B", "1–3,9 Débil"]]),
         el("p", { class: "desc" }, "Un factor sin datos queda en N/D y no cuenta en el global.")),
-      panel("Técnico", ...[["Distancia a la media de 200", pct(t.distancia_sma200), "distancia_sma200"], ["RSI 14", num(t.rsi_14, 0), "rsi_14"],
+      panel("Técnico", ...[["Distancia a la media de 200", tecnicoValido ? pct(t.distancia_sma200) : "N/A", "distancia_sma200"], ["RSI 14", tecnicoValido ? num(t.rsi_14, 0) : "N/A", "rsi_14"],
         ["Caída desde máx. 52 sem.", pct(t.caida_desde_max_52s), "caida_desde_max_52s"], ["Retorno 12 meses", pct(t.retorno_12m), "retorno_12m"],
         ["Fuerza relativa 12 meses", pct(t.fuerza_relativa_12m), "fuerza_relativa_12m"]].map(([n, val, id]) =>
         el("div", { class: "evento", style: { justifyContent: "space-between" } }, el("span", {}, n, info(id, val)), el("strong", {}, val))),
-        t.tecnico_valido === false ? el("p", { class: "desc" }, "Acción poco líquida: el técnico es informativo (N/A en la matriz).") : null)),
+        tecnicoValido ? null : el("p", { class: "desc" }, "Acción poco líquida: la media de 200 y el RSI se calcularían con negocios esporádicos (N/A). Los retornos usan el último negocio de hace 12 meses, si lo hubo."))),
     el("section", { class: "panel ancho" }, el("div", { class: "encabezado" }, el("h2", {}, "Precio"), periodos), cajaPrecio,
-      leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ["#5B6B8C", "Media de 200 sesiones", "linea"]]))));
+      leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ...(tecnicoValido ? [["#5B6B8C", "Media de 200 sesiones", "linea"]] : [])]))));
   requestAnimationFrame(pintarPrecio);
 
   const cajaBandas = el("div");  // Valoración (bandas): panel "Valoración frente a su historia"
@@ -696,8 +698,11 @@ paginas.cartera = async (v, pedida) => {
   v.append(el("div", { class: "fila" },
     el("section", { class: "panel ancho" }, el("h2", {}, "Posiciones · tamaño = peso, color = retorno 12 meses"), cajaMapa),
     el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } },
-      panel("Desvío frente al objetivo (puntos)", filasDesvio.length ? filasDesvio : el("div", { class: "vacio" }, "El perfil de esta cartera no tiene asignación objetivo."),
-        el("p", { class: "desc" }, "Rojo = fuera de banda.")),
+      (() => {
+        const conObjetivo = d.asignacion.some((a) => a.peso_objetivo != null);
+        return panel(conObjetivo ? "Desvío frente al objetivo (puntos)" : "Composición (sin objetivo)", filasDesvio.length ? filasDesvio : el("div", { class: "vacio" }, "Sin posiciones."),
+          el("p", { class: "desc" }, conObjetivo ? "Rojo = fuera de banda." : "Esta cartera no tiene un perfil con asignación objetivo: se muestra el peso de cada clase. Asígnele un perfil en Carteras y transacciones para ver el desvío."));
+      })(),
       panel("Próximos dividendos", d.dividendos.length ? d.dividendos.slice(0, 8).map((x) => el("div", { class: "evento" }, el("span", { class: "f" }, fecha(x.fecha)), el("span", {}, `${x.nombre_corto}: ${pesos(x.total)}`))) : el("div", { class: "vacio" }, "Sin pagos anunciados.")))));
   v.append(panel("Valor de la cartera", cajaValor));
   v.append(panel("Posiciones", tabla([
@@ -746,6 +751,19 @@ function formulario(campos, alGuardar, inicial = {}) {
 }
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 const listaActivos = "lista-activos";
+// Nemotécnico y nombre de una especie guardada por su código SFC (para mostrarla en historiales y tesis)
+const etiquetaEspecie = (e) => {
+  const a = (estado.activos || []).find((x) => x.especie === e);
+  return a ? [a.nemotecnico, a.nombre_corto].filter(Boolean).join(" · ") || e : (e || "—");
+};
+// Lo escrito en el campo de acción: el código de la lista de sugerencias ("coc04paao008 ECOPETROL …") o, si no,
+// el texto completo (nemotécnico o nombre), que el servidor convierte a la especie
+const especieDe = (texto) => {
+  const t = (texto || "").trim();
+  if (!t) return null;
+  const primero = t.split(" ")[0];
+  return (estado.activos || []).some((x) => x.especie === primero) ? primero : t;
+};
 
 paginas.carteras = async (v) => {
   v.append(el("div", {}, el("h1", {}, "Carteras y transacciones"), el("div", { class: "sub" }, "Se guarda en invest-data/usuario/ (repositorio privado) y se valida antes de escribir")));
@@ -769,13 +787,13 @@ paginas.carteras = async (v) => {
   v.append(panel("Registrar transacción", formulario([
     { k: "fecha_operacion", t: "Fecha de operación", tipo: "date", obligatorio: true }, { k: "fecha_liquidacion", t: "Fecha de liquidación", tipo: "date" },
     { k: "tipo", t: "Tipo", opciones: [["compra", "Compra"], ["venta", "Venta"], ["dividendo", "Dividendo en efectivo"], ["dividendo_acciones", "Dividendo en acciones"], ["aporte", "Aporte"], ["retiro", "Retiro"], ["comision", "Comisión"], ["impuesto", "Impuesto"]] },
-    { k: "especie", t: "Especie (si aplica)", lista: listaActivos, ayuda: "p. ej. coc04paao008" }, { k: "cantidad", t: "Cantidad", tipo: "number" },
+    { k: "especie", t: "Acción (si aplica)", lista: listaActivos, ayuda: "p. ej. ECOPETROL" }, { k: "cantidad", t: "Cantidad", tipo: "number" },
     { k: "precio", t: "Precio", tipo: "number" }, { k: "monto", t: "Monto (si no es cantidad × precio)", tipo: "number" },
     { k: "comision", t: "Comisión", tipo: "number" }, { k: "gmf", t: "GMF (4 × 1.000)", tipo: "number" }, { k: "retencion", t: "Retención", tipo: "number" },
     { k: "moneda", t: "Moneda", opciones: ["COP", "USD"] }, { k: "trm", t: "TRM aplicada (si es USD)", tipo: "number" }, { k: "notas", t: "Notas" },
-  ], (d) => postear("/api/usuario/fact_transaccion", { filas: [{ ...d, especie: (d.especie || "").split(" ")[0] || null, cartera_id: eleccion.actual }] }), { fecha_operacion: hoyIso() })));
+  ], (d) => postear("/api/usuario/fact_transaccion", { filas: [{ ...d, especie: especieDe(d.especie), cartera_id: eleccion.actual }] }), { fecha_operacion: hoyIso() })));
   v.append(panel("Historial", mias.length ? tabla([
-    { k: "fecha_operacion", t: "Fecha", izq: true, f: (r) => fecha(r.fecha_operacion) }, { k: "tipo", t: "Tipo", izq: true }, { k: "especie", t: "Especie", izq: true },
+    { k: "fecha_operacion", t: "Fecha", izq: true, f: (r) => fecha(r.fecha_operacion) }, { k: "tipo", t: "Tipo", izq: true }, { k: "especie", t: "Activo", izq: true, f: (r) => r.especie ? etiquetaEspecie(r.especie) : "—" },
     { k: "cantidad", t: "Cantidad", f: (r) => num(r.cantidad, 0) }, { k: "precio", t: "Precio", f: (r) => num(r.precio, 2) },
     { k: "monto", t: "Monto", f: (r) => pesos(r.monto ?? (r.cantidad && r.precio ? r.cantidad * r.precio : null)) },
     { k: "comision", t: "Comisión", f: (r) => pesos(r.comision) },
@@ -845,16 +863,16 @@ paginas.tesis = async (v) => {
   const mias = t.filas.filter((x) => x.cartera_id === eleccion.actual);
   v.append(el("div", { class: "encabezado" }, el("span"), eleccion.sel));
   v.append(panel("Tesis registradas", mias.length ? mias.map((x) => el("div", { class: "panel", style: { background: "var(--panel2)" } },
-    el("div", { class: "encabezado" }, el("a", { href: "#/ficha/" + x.especie, style: { fontWeight: 700 } }, x.especie),
+    el("div", { class: "encabezado" }, el("a", { href: "#/ficha/" + x.especie, style: { fontWeight: 700 } }, etiquetaEspecie(x.especie)),
       el("span", { class: "nota" }, "Revisar el " + fecha(x.fecha_revision) + (x.fecha_revision && x.fecha_revision < hoyIso() ? " · vencida" : ""))),
     el("p", { style: { margin: 0 } }, x.tesis),
     el("div", { class: "nota" }, `Catalizador: ${x.catalizador || "—"} · Precio objetivo: ${num(x.precio_objetivo, 0)} · Se invalida si: ${x.condicion_invalidacion || "—"} · Retorno esperado: ${pct(x.expectativa_retorno)} en ${x.horizonte_meses ?? "—"} meses`))) : el("div", { class: "vacio" }, "Sin tesis.")));
   v.append(panel("Nueva tesis o actualizar una", formulario([
-    { k: "especie", t: "Especie", lista: listaActivos, obligatorio: true }, { k: "tesis", t: "Tesis", tipo: "textarea", obligatorio: true },
+    { k: "especie", t: "Acción", lista: listaActivos, obligatorio: true, ayuda: "nemotécnico o nombre" }, { k: "tesis", t: "Tesis", tipo: "textarea", obligatorio: true },
     { k: "catalizador", t: "Catalizador" }, { k: "precio_objetivo", t: "Precio objetivo", tipo: "number" },
     { k: "condicion_invalidacion", t: "Condición que la invalida" }, { k: "fecha_revision", t: "Fecha de revisión", tipo: "date" },
     { k: "expectativa_retorno", t: "Retorno esperado (0,15 = 15 %)", tipo: "number" }, { k: "horizonte_meses", t: "Horizonte (meses)", tipo: "number" },
-  ], (d) => postear("/api/usuario/dim_tesis", { filas: [{ ...d, especie: (d.especie || "").split(" ")[0], cartera_id: eleccion.actual, creada: hoyIso(), actualizada: hoyIso() }] }))));
+  ], (d) => postear("/api/usuario/dim_tesis", { filas: [{ ...d, especie: especieDe(d.especie), cartera_id: eleccion.actual, creada: hoyIso(), actualizada: hoyIso() }] }))));
 };
 
 paginas.salud = async (v) => {

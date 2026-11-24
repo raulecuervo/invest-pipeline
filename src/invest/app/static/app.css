@@ -72,6 +72,11 @@ th { padding: 8px 8px; font-weight: 500; font-size: 12px; color: var(--tenue); t
 th.izq, td.izq { text-align: left; }
 td { padding: 8px 8px; border-top: 1px solid var(--linea); text-align: right; white-space: nowrap; }
 tbody tr:hover { background: #14203A; }
+/* Tablas anchas: la primera columna (la acción) queda fija al desplazarse a la derecha */
+.tabla-caja td:first-child, .tabla-caja th:first-child { position: sticky; left: 0; background: var(--panel); z-index: 1; }
+.tabla-caja th:first-child { z-index: 2; }
+.tabla-caja tbody tr:hover td:first-child { background: #14203A; }
+.tabla-caja { scrollbar-width: thin; scrollbar-color: var(--borde) transparent; }
 tr.clic { cursor: pointer; }
 .nota-puntaje { display: inline-block; min-width: 40px; padding: 2px 6px; border-radius: 6px; font-weight: 700; text-align: center; }
 .b-fuerte { background: var(--fuerte-fondo); color: var(--fuerte-texto); }

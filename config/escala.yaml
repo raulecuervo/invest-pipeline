@@ -15,6 +15,7 @@ escala:
   pendiente: 1.5       # puntos por cada desviación
   z_max: 3             # z se limita a ±3 → puntaje entre 1 y 10
   minimo_pares: 8
+  minimo_factores_global: 3   # con menos factores con dato, el global queda vacío (N/D)
   bandas:              # para colorear (mínimo de cada banda)
     - {desde: 8.0, nombre: Fuerte}
     - {desde: 6.0, nombre: Bueno}
