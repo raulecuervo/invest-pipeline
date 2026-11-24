@@ -72,7 +72,9 @@ def quinto_dia_habil(anio: int, mes: int) -> date:
 
 class ConectorDANEIPC(Conector):
     fuente_id = "dane_ipc"
-    tabla = "fact_serie_macro"
+    # Una carpeta por fuente dentro de la tabla: así GitHub Actions y el PC nunca escriben el mismo
+    # archivo (leer_tabla("silver", "fact_serie_macro") las une)
+    tabla = "fact_serie_macro/fuente=dane_ipc"
     claves = ("fecha", "serie_id")
 
     def descargar(self, desde: date, hasta: date) -> list[dict]:

@@ -97,7 +97,9 @@ def aplanar(series: list[dict]) -> list[dict]:
 
 class ConectorBanRep(Conector):
     fuente_id = "banrep_tasas"
-    tabla = "fact_serie_macro"
+    # Una carpeta por fuente dentro de la tabla: así GitHub Actions y el PC nunca escriben el mismo
+    # archivo (leer_tabla("silver", "fact_serie_macro") las une)
+    tabla = "fact_serie_macro/fuente=banrep_tasas"
     claves = ("fecha", "serie_id")
 
     def descargar(self, desde: date, hasta: date) -> list[dict]:

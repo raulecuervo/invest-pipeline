@@ -37,7 +37,9 @@ def leer_csv(contenido: bytes, serie: str) -> list[dict]:
 
 class ConectorFRED(Conector):
     fuente_id = "fred"
-    tabla = "fact_serie_macro"
+    # Una carpeta por fuente dentro de la tabla: así GitHub Actions y el PC nunca escriben el mismo
+    # archivo (leer_tabla("silver", "fact_serie_macro") las une)
+    tabla = "fact_serie_macro/fuente=fred"
     claves = ("fecha", "serie_id")
 
     def descargar(self, desde: date, hasta: date) -> list[dict]:

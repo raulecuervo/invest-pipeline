@@ -235,7 +235,9 @@ class ConectorBVCIndices(Conector):
     """
 
     fuente_id = "bvc_indices"
-    tabla = "fact_serie_macro"
+    # Una carpeta por fuente dentro de la tabla: así GitHub Actions y el PC nunca escriben el mismo
+    # archivo (leer_tabla("silver", "fact_serie_macro") las une)
+    tabla = "fact_serie_macro/fuente=bvc_indices"
     claves = ("fecha", "serie_id")
 
     def __init__(self, ahora: datetime | None = None) -> None:

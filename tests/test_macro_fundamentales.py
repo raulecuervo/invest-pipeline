@@ -92,6 +92,9 @@ def test_fred(carpeta_datos, monkeypatch):
     df = storage.leer_tabla("silver", "fact_serie_macro")
     assert df.get_column("valor").to_list() == [5.01, 5.04]  # el "." de FRED se omite
     assert df.get_column("serie_id").unique().to_list() == ["fred_dgs10"]
+    # Cada fuente macro escribe en su propia carpeta (Actions y el PC nunca tocan el mismo archivo)
+    assert (carpeta_datos / "silver" / "fact_serie_macro" / "fuente=fred" / "anio=2026" / "parte.parquet").exists()
+    assert not list((carpeta_datos / "silver" / "fact_serie_macro").glob("anio=*"))
     with pytest.raises(ValueError):
         fred.leer_csv(b"<html>", "X")
 

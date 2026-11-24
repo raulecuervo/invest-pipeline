@@ -24,10 +24,21 @@ function Registrar($texto) {
 New-Item -ItemType Directory -Force -Path (Split-Path $Log) | Out-Null
 Registrar "Inicio"
 
+function GuardarCambios($mensaje) {
+    git -C $Datos add -A
+    git -C $Datos diff --cached --quiet
+    if ($LASTEXITCODE -ne 0) {
+        git -C $Datos commit --quiet -m $mensaje
+        Registrar "commit: $mensaje"
+    }
+}
+
 $script:HuboPull = $false
 if (Test-Path (Join-Path $Datos ".git")) {
+    # Lo que quedó de corridas manuales (BVC, carga del SIMEV) se guarda antes de traer lo de GitHub
+    GuardarCambios ("Cambios locales {0:yyyy-MM-dd HH:mm}" -f (Get-Date))
     $antes = git -C $Datos rev-parse HEAD
-    git -C $Datos pull --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
+    git -C $Datos pull --rebase --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
     $script:HuboPull = ($antes -ne (git -C $Datos rev-parse HEAD))
 }
 
@@ -51,10 +62,11 @@ try {
 }
 
 if (Test-Path (Join-Path $Datos ".git")) {
-    git -C $Datos add -A
-    git -C $Datos diff --cached --quiet
+    GuardarCambios ("Ingesta PC {0:yyyy-MM-dd}" -f (Get-Date))
+    git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
     if ($LASTEXITCODE -ne 0) {
-        git -C $Datos commit --quiet -m ("Ingesta PC {0:yyyy-MM-dd}" -f (Get-Date))
+        # GitHub Actions subió algo mientras tanto: se rebasa y se intenta de nuevo
+        git -C $Datos pull --rebase --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
         git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
     }
 }

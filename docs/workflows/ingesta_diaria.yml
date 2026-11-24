@@ -70,7 +70,8 @@ jobs:
           else
             uv run invest ingest --todas-actions
           fi
-          uv run invest dims
+          # Las tablas derivadas (gold) las reconstruye solo el PC, para que los dos lados nunca
+          # escriban el mismo archivo (Git no puede fusionar Parquet)
 
       - name: Dividendos (dos agentes leen cada PDF y llegan a un consenso)
         # Solo procesa PDF nuevos. Sin el secreto ANTHROPIC_API_KEY se omite sin fallar.
@@ -102,7 +103,8 @@ jobs:
             echo "Sin cambios en los datos"
           else
             git commit --quiet -m "Ingesta diaria $(date -u +%F)"
-            git push --quiet
+            # Si el PC subió algo mientras tanto, se rebasa (la bitácora se une línea a línea)
+            git push --quiet || { git pull --rebase --quiet && git push --quiet; }
           fi
 
       - name: Salud de datos
