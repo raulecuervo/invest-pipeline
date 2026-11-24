@@ -141,3 +141,11 @@ def test_anexos_con_textos_vacios():
     filas = sfc_niif.filas_anexos(respuesta, True)
     assert filas == [{"grupo": "trimestrales", "consolidado": True, "formato": "110000", "nombre_formato": "", "fila": 1,
                       "concepto": "", "columna": "", "valor_texto": "", "valor": None}]
+
+
+def test_error_del_servidor_no_es_un_xbrl():
+    error_500 = b'{"timestamp":"2026-11-24T04:45:19.785+00:00","status":500,"error":"Internal Server Error","path":"/descarga"}'
+    assert not sfc_niif.es_xbrl(200, error_500)
+    assert not sfc_niif.es_xbrl(500, b"<html>error</html>")
+    assert sfc_niif.es_xbrl(200, b'<?xml version="1.0"?><xbrli:xbrl/>')
+    assert sfc_niif.es_xbrl(200, b'\xef\xbb\xbf<?xml version="1.0"?>')

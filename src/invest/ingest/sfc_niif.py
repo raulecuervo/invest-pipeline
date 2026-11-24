@@ -155,6 +155,14 @@ def numero(texto: str | None) -> float | None:
         return None
 
 
+def es_xbrl(estado_http: int, cuerpo: bytes) -> bool:
+    """La respuesta de la descarga es un documento XML y no un error del servidor (p. ej. un JSON 500)."""
+    if estado_http >= 400:
+        return False
+    inicio = cuerpo.lstrip()[:5]
+    return inicio.startswith(b"<") or inicio.startswith(b"\xef\xbb\xbf<")
+
+
 def filas_anexos(respuesta: dict, consolidado: bool) -> list[dict]:
     """Aplana la respuesta de anexos del SIMEV: una fila por celda (formato, fila, columna, valor).
 
@@ -373,6 +381,11 @@ class PaginaSIMEV:
         nombre = re.search(r"nombreArchivo=([^&]+)", respuesta.url)
         cuerpo = respuesta.body()
         p.keyboard.press("Escape")
+        if not es_xbrl(respuesta.status, cuerpo):
+            # El SIMEV a veces responde un error 500 en JSON en vez del archivo: es una descarga fallida,
+            # no un XBRL ilegible (queda pendiente y se vuelve a pedir)
+            self._log(f"la descarga del XBRL falló (HTTP {respuesta.status}, {len(cuerpo)} bytes)")
+            return None
         return (nombre.group(1) if nombre else f"{tipo}_{codigo}_{corte}.xbrl"), cuerpo, envio
 
 
