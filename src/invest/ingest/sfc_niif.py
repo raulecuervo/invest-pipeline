@@ -459,7 +459,7 @@ class ConectorNIIF(Conector):
                 try:
                     for a in encontrado["anexos"]:
                         anexos.append({**a, "emisor_id": em["emisor_id"], "entidad_sfc": entidad, "fecha_corte": corte})
-                    radicado = None
+                    radicado, xbrl_ilegible = None, False
                     if encontrado["xbrl"]:
                         nombre, cuerpo, envio = encontrado["xbrl"]
                         self.crudos[nombre] = cuerpo
@@ -469,8 +469,9 @@ class ConectorNIIF(Conector):
                             lista_hechos = hechos_xbrl(cuerpo)
                             con_xbrl += 1
                         except Exception as e:  # noqa: BLE001 - un XBRL ilegible no tumba la corrida
+                            # Los anexos sí se guardan; el XBRL queda pendiente y se vuelve a bajar (hasta 3 veces)
                             errores.append(f"{em['emisor_id']} {corte} XBRL ilegible: {type(e).__name__}")
-                            lista_hechos = []
+                            lista_hechos, xbrl_ilegible = [], True
                         if em.get("moneda_informes", "COP") == "USD":
                             for h in lista_hechos:
                                 if h["escala"] == "miles_de_pesos":
@@ -485,9 +486,10 @@ class ConectorNIIF(Conector):
                                 "fecha_transmision": date.fromisoformat(envio) if envio else None,
                             })
                     previo = estado.get(clave) or {}
+                    xbrl_pendiente = bool(encontrado.get("xbrl_pendiente")) or xbrl_ilegible
                     estado[clave] = {"radicado": radicado, "anexos": len(encontrado["anexos"]), "revisado": hoy.isoformat(),
-                                     "xbrl_pendiente": bool(encontrado.get("xbrl_pendiente")),
-                                     "intentos_xbrl": int(previo.get("intentos_xbrl", 0)) + (1 if encontrado.get("xbrl_pendiente") else 0)}
+                                     "xbrl_pendiente": xbrl_pendiente, "xbrl_ilegible": xbrl_ilegible,
+                                     "intentos_xbrl": int(previo.get("intentos_xbrl", 0)) + (1 if xbrl_pendiente else 0)}
                 except Exception as e:  # noqa: BLE001 - un emisor raro no tumba la corrida
                     errores.append(f"{em['emisor_id']} {corte}: {type(e).__name__}: {str(e)[:80]}")
         if hechos:
@@ -501,7 +503,8 @@ class ConectorNIIF(Conector):
         self.notas.append(f"cortes revisados {leidos}: con anexos o XBRL {leidos - vacios}, con XBRL {con_xbrl}, "
                           f"sin nada {vacios}; pendientes para otra corrida {max(len(pendientes) - maximo, 0)}")
         if errores:
-            self.notas.append(f"errores {len(errores)} (se reintentan en la próxima corrida): " + ", ".join(errores[:5]))
+            self.notas.append(f"errores {len(errores)} (se reintentan en la próxima corrida; un XBRL ilegible, hasta 3 "
+                              "veces): " + ", ".join(errores[:5]))
         if anexos:
             self.crudos["anexos.json"] = json.dumps(anexos, ensure_ascii=False, default=str).encode("utf-8")
         return anexos

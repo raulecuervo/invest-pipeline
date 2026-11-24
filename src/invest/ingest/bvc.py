@@ -92,13 +92,30 @@ def _diagnostico(pagina, url: str) -> Path:
     return base
 
 
+class BloqueoBVC(RuntimeError):
+    """La Bolsa de Colombia (su CDN) rechazó la lectura. No se reintenta: un bloqueo no se esquiva."""
+
+
+ES_BLOQUEO_JS = """() => { const t = (document.title || '') + ' ' + (document.body ? document.body.innerText.slice(0, 600) : '');
+    return /could not be satisfied|request blocked|access denied|403 error/i.test(t) }"""
+
+
+def es_bloqueo(estado_http: int | None, titulo: str = "", texto: str = "") -> bool:
+    """La respuesta es la página de rechazo del CDN (403 o su texto), no la de la Bolsa."""
+    if estado_http in (401, 403, 429):
+        return True
+    return bool(re.search(r"could not be satisfied|request blocked|access denied|403 error", f"{titulo} {texto[:600]}", re.I))
+
+
 def leer_pagina(url: str = URL, timeout_s: int = 90, visible: bool | None = None) -> dict:
     """Abre la página en Chromium y devuelve lo que muestra.
 
     La Bolsa de Colombia responde 403 a los navegadores sin ventana (bloqueo de su CDN). Por decisión de
     Esteban (23-nov-2026) no se esquiva: estos conectores son de lectura manual, se lanzan a mano y abren
     una ventana normal, como si él abriera la página; nunca van en una tarea programada.
-    Si la tabla no aparece, deja captura y texto en ``invest-data/diagnostico/`` y repite el error.
+    Si la página es el rechazo del CDN, se detiene de inmediato con ``BloqueoBVC`` (sin reintentar).
+    Si la tabla no aparece por otra razón, deja captura y texto en ``invest-data/diagnostico/`` y repite
+    el error.
     """
     from playwright.sync_api import TimeoutError as EsperaAgotada
     from playwright.sync_api import sync_playwright
@@ -109,14 +126,22 @@ def leer_pagina(url: str = URL, timeout_s: int = 90, visible: bool | None = None
         navegador = p.chromium.launch(headless=not visible)
         try:
             pagina = navegador.new_page(locale="es-CO", viewport={"width": 1366, "height": 900})
-            pagina.goto(url, wait_until="domcontentloaded", timeout=timeout_s * 1000)
+            respuesta = pagina.goto(url, wait_until="domcontentloaded", timeout=timeout_s * 1000)
+            if es_bloqueo(respuesta.status if respuesta else None, pagina.title()):
+                base = _diagnostico(pagina, url)
+                raise BloqueoBVC(f"la Bolsa rechazó la lectura (HTTP {respuesta.status if respuesta else '?'}); "
+                                 f"no se reintenta. Vuelva a intentarlo más tarde; diagnóstico en {base.name}.png/.json")
             try:
                 pagina.wait_for_function(
-                    "() => { const t = document.querySelector('table'); return t && t.querySelectorAll('tbody tr').length > 0 }",
+                    "() => { const t = document.querySelector('table'); return (t && t.querySelectorAll('tbody tr').length > 0)"
+                    f" || ({ES_BLOQUEO_JS})() }}",
                     timeout=timeout_s * 1000)
             except EsperaAgotada as e:
                 base = _diagnostico(pagina, url)
                 raise TimeoutError(f"la tabla no apareció en {timeout_s} s; diagnóstico en {base.name}.png/.json") from e
+            if pagina.evaluate(ES_BLOQUEO_JS):
+                base = _diagnostico(pagina, url)
+                raise BloqueoBVC(f"la Bolsa rechazó la lectura; no se reintenta. Diagnóstico en {base.name}.png/.json")
             pagina.wait_for_timeout(2000)  # deja terminar de pintar la tabla
             return pagina.evaluate(JS_TABLA)
         finally:
@@ -144,8 +169,17 @@ def fecha_pagina(hoy: str | None) -> date | None:
     return date(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
+_bloqueo_previo: str | None = None  # rechazo del CDN visto en este proceso
+
+
 def hay_consola() -> bool:
-    """Hay una persona en la consola (no es una tarea programada ni un workflow)."""
+    """Hay una persona lanzando la lectura: una consola, o el botón del aplicativo local.
+
+    El aplicativo marca ``INVEST_LECTURA_MANUAL=1`` solo en la lectura que lanza su botón (y su servidor
+    rechaza pedidos de otras páginas). Una tarea programada o un workflow no tienen ninguna de las dos.
+    """
+    if os.environ.get("INVEST_LECTURA_MANUAL") == "1":
+        return True
     return bool(sys.stdin) and sys.stdin.isatty()
 
 
@@ -159,7 +193,15 @@ def _leer_si_cerro(con: Conector, url: str) -> tuple[dict | None, date | None]:
     if not hay_consola():
         # Sin consola no hay una persona lanzándolo: no se abre la página
         raise RuntimeError("lectura manual: correr a mano desde PowerShell (uv run invest ingest bvc_web bvc_indices)")
-    datos = leer_pagina(url, visible=True)
+    global _bloqueo_previo
+    if _bloqueo_previo:
+        # Si la Bolsa ya rechazó una lectura en esta misma corrida, no se pide otra página
+        raise BloqueoBVC(f"no se lee: la Bolsa rechazó la lectura anterior de esta corrida ({_bloqueo_previo})")
+    try:
+        datos = leer_pagina(url, visible=True)
+    except BloqueoBVC as e:
+        _bloqueo_previo = str(e)[:80]
+        raise
     fecha = fecha_pagina(datos.get("hoy"))
     if fecha != ahora.date():
         con.sin_novedades = True

@@ -106,3 +106,38 @@ def test_escala_segun_concepto_y_unidad():
     assert sfc_niif._escala("DividendosDecretados", "PesoxAccion") == "pesos"
     assert sfc_niif._escala("Assets", "COP") == "miles_de_pesos"
     assert sfc_niif._escala("NumberOfSharesOutstanding", "shares") == "unidades"
+
+
+class PaginaXBRLRoto(PaginaFalsa):
+    def informe(self, tipo, codigo, corte, nombre=""):
+        PaginaFalsa.pedidos.append((tipo, codigo, corte))
+        if corte == date(2025, 12, 31):
+            return {"anexos": sfc_niif.filas_anexos(ANEXOS, False), "xbrl": (NOMBRE, b"<xbrl><sin cerrar", "2026-03-25")}
+        return {"anexos": [], "xbrl": None}
+
+
+def test_xbrl_ilegible_guarda_anexos_y_se_reintenta_tres_veces(carpeta_datos, monkeypatch):
+    monkeypatch.setattr(sfc_niif, "emisores", lambda: [
+        {"emisor_id": "CO-COC04", "nit": "8999990681", "nombre": "Ecopetrol", "codigos": [{"tipo": 260, "codigo": 36}]}])
+    monkeypatch.setattr(sfc_niif, "INICIO", date(2025, 12, 31))
+    monkeypatch.setattr(sfc_niif, "date", type("D", (date,), {"today": staticmethod(lambda: date(2026, 9, 30))}))
+    pedidos_por_corrida = []
+    for _ in range(4):
+        PaginaFalsa.pedidos = []
+        res = sfc_niif.ConectorNIIF(pagina_factory=PaginaXBRLRoto).ejecutar()
+        pedidos_por_corrida.append(sum(c == date(2025, 12, 31) for _, _, c in PaginaFalsa.pedidos))
+    # Los anexos quedan guardados desde la primera corrida
+    assert storage.leer_tabla("silver", "fact_anexo_sfc").height > 0
+    # Se vuelve a pedir el corte hasta completar 3 intentos y luego se deja
+    assert pedidos_por_corrida == [1, 1, 1, 0]
+
+
+def test_anexos_con_textos_vacios():
+    # Celdas, columnas o formatos sin texto (None) no rompen la lectura
+    respuesta = {"trimestrales": {"formatos": [{"codigoFormato": "110000", "nombre": None}],
+                                  "columnasFormatos": [{"codigoFormato": "110000", "codigoColumna": 1, "nombreColumna": None}],
+                                  "detalleFormatos": [{"codigoFormato": "110000", "numColumna": 0, "valorColumna": None},
+                                                      {"codigoFormato": "110000", "numColumna": 1, "valorColumna": None}]}}
+    filas = sfc_niif.filas_anexos(respuesta, True)
+    assert filas == [{"grupo": "trimestrales", "consolidado": True, "formato": "110000", "nombre_formato": "", "fila": 1,
+                      "concepto": "", "columna": "", "valor_texto": "", "valor": None}]

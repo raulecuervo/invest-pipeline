@@ -91,3 +91,36 @@ def test_sin_consola_no_abre_la_pagina(carpeta_datos, monkeypatch):
     monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None: abierta.append(url))
     res = bvc.ConectorBVC(ahora=datetime(2026, 11, 23, 19, 0, tzinfo=BOG)).ejecutar()
     assert res.estado == "error" and "manual" in res.detalle and not abierta
+
+
+def test_reconoce_el_rechazo_del_cdn():
+    assert bvc.es_bloqueo(403)
+    assert bvc.es_bloqueo(200, "ERROR: The request could not be satisfied")
+    assert not bvc.es_bloqueo(200, "Mercado local en línea | bvc", "Acciones Renta variable")
+
+
+def test_bloqueo_no_se_reintenta_ni_se_pide_otra_pagina(carpeta_datos, monkeypatch):
+    # Un rechazo de la Bolsa detiene la corrida: el segundo conector no vuelve a pedir la página
+    monkeypatch.setattr(bvc, "_bloqueo_previo", None)
+    pedidas = []
+
+    def rechazo(url=None, visible=None):
+        pedidas.append(url)
+        raise bvc.BloqueoBVC("la Bolsa rechazó la lectura (HTTP 403); no se reintenta")
+
+    monkeypatch.setattr(bvc, "leer_pagina", rechazo)
+    ahora = datetime(2026, 11, 23, 19, 0, tzinfo=BOG)
+    r1 = bvc.ConectorBVC(ahora=ahora).ejecutar()
+    r2 = bvc.ConectorBVCIndices(ahora=ahora).ejecutar()
+    assert r1.estado == "error" and "403" in r1.detalle
+    assert r2.estado == "error" and "rechazó la lectura anterior" in r2.detalle
+    assert len(pedidas) == 1
+
+
+def test_boton_del_aplicativo_cuenta_como_lectura_manual(monkeypatch):
+    monkeypatch.undo()  # sin el arreglo automático de consola
+    monkeypatch.setattr(bvc.sys, "stdin", None)
+    monkeypatch.delenv("INVEST_LECTURA_MANUAL", raising=False)
+    assert not bvc.hay_consola()
+    monkeypatch.setenv("INVEST_LECTURA_MANUAL", "1")
+    assert bvc.hay_consola()

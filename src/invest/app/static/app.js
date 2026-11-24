@@ -29,7 +29,7 @@ async function api(ruta, opciones) {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
 }
-const postear = (ruta, cuerpo) => api(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo || {}) });
+const postear = (ruta, cuerpo) => api(ruta, { method: "POST", headers: { "Content-Type": "application/json", "X-Invest": "1" }, body: JSON.stringify(cuerpo || {}) });
 
 const NF = (d) => new Intl.NumberFormat("es-CO", { minimumFractionDigits: d, maximumFractionDigits: d });
 const num = (x, d = 1) => x == null ? "—" : NF(d).format(x);

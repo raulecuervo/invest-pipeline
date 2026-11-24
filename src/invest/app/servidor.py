@@ -7,12 +7,22 @@ Las acciones largas (leer la Bolsa de Colombia, actualizar el modelo) corren com
 la página consulta su estado.
 
 Las páginas están en ``static/`` (HTML, CSS y JavaScript sin librerías externas).
+
+Protección frente a otras páginas abiertas en el mismo navegador (``proteger_local``):
+
+- Solo se atienden pedidos dirigidos a ``127.0.0.1`` o ``localhost`` (encabezado Host). Así una
+  página externa no puede leer los datos con un cambio de DNS que apunte su dominio a este equipo.
+- Todo lo que no sea lectura (POST) exige el encabezado ``X-Invest`` y, si el navegador indica el
+  origen, que sea este mismo servidor. Un formulario o un ``fetch`` desde otro sitio no puede poner
+  ese encabezado sin una consulta previa (CORS) que este servidor no autoriza.
+- El navegador marca con ``Sec-Fetch-Site`` si el pedido viene de otro sitio; esos se rechazan.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import sys
 import threading
@@ -24,8 +34,10 @@ from typing import Any
 
 import duckdb
 import polars as pl
-from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from urllib.parse import urlsplit
+
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from invest import modelo, usuario
@@ -34,6 +46,42 @@ from invest.config import data_dir
 ESTATICOS = Path(__file__).parent / "static"
 app = FastAPI(title="Invest", docs_url=None, redoc_url=None, openapi_url=None)
 _bloqueo = threading.Lock()
+
+HOSTS_LOCALES = {"127.0.0.1", "localhost", "[::1]"}
+ENCABEZADO_PROPIO = "x-invest"
+
+
+def _host(valor: str | None) -> str:
+    """Nombre del equipo sin puerto: '127.0.0.1:8765' → '127.0.0.1'; '[::1]:80' → '[::1]'."""
+    if not valor:
+        return ""
+    valor = valor.strip().lower()
+    if valor.startswith("["):
+        return valor.split("]")[0] + "]"
+    return valor.split(":")[0]
+
+
+def motivo_rechazo(metodo: str, encabezados) -> str | None:
+    """Por qué no atender un pedido, o None si es de este mismo equipo y aplicativo."""
+    if _host(encabezados.get("host")) not in HOSTS_LOCALES:
+        return "host no permitido"
+    sitio = encabezados.get("sec-fetch-site")
+    if sitio and sitio not in ("same-origin", "none"):
+        return "pedido desde otro sitio"
+    origen = encabezados.get("origin")
+    if origen and _host(urlsplit(origen).netloc) not in HOSTS_LOCALES:
+        return "origen no permitido"
+    if metodo not in ("GET", "HEAD", "OPTIONS") and encabezados.get(ENCABEZADO_PROPIO) != "1":
+        return "falta el encabezado X-Invest"
+    return None
+
+
+@app.middleware("http")
+async def proteger_local(request: Request, siguiente):
+    motivo = motivo_rechazo(request.method, request.headers)
+    if motivo:
+        return JSONResponse({"detail": f"Rechazado: {motivo}"}, status_code=403)
+    return await siguiente(request)
 
 
 # --------------------------------------------------------------------------- utilidades
@@ -372,7 +420,7 @@ def contrato():
 
 
 ACCIONES = {
-    "leer_bvc": ["ingest", "bvc_web", "bvc_indices"],
+    "leer_bvc": ["ingest", "bvc_web", "bvc_indices"],  # lectura manual: la lanza Esteban con el botón
     "actualizar_modelo": ["modelo"],
     "rehacer_base": ["modelo", "--sin-calcular"],
 }
@@ -382,8 +430,12 @@ _trabajos: dict[str, dict] = {}
 def _correr(trabajo_id: str, argumentos: list[str]) -> None:
     t = _trabajos[trabajo_id]
     try:
+        entorno = dict(os.environ)
+        if t["accion"] == "leer_bvc":
+            entorno["INVEST_LECTURA_MANUAL"] = "1"  # la pidió una persona desde el aplicativo
         proceso = subprocess.Popen([sys.executable, "-m", "invest", *argumentos], stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+                                   stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                                   stdin=subprocess.DEVNULL, env=entorno)
         for linea in proceso.stdout:  # type: ignore[union-attr]
             t["salida"].append(linea.rstrip())
         t["codigo"] = proceso.wait()

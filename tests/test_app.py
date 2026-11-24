@@ -21,7 +21,7 @@ def cliente(carpeta_datos):
         carpeta_datos / "gold" / "dims" / "dim_emisor.parquet")
     storage.escribir_por_anio("gold", "fact_precio_diario", pl.DataFrame(
         [{"fecha": date(2025, 1, 2), "especie": "coa01paao001", "precio": 100.0, "precio_promedio": 100.0}]), "fecha")
-    return TestClient(servidor.app)
+    return TestClient(servidor.app, base_url="http://127.0.0.1:8765", headers={"X-Invest": "1"})
 
 
 def test_paginas_y_estado(cliente):
@@ -50,3 +50,20 @@ def test_guardar_valida_y_recalcula(cliente):
 
 def test_accion_desconocida(cliente):
     assert cliente.post("/api/acciones/borrar_todo").status_code == 404
+
+
+def test_rechaza_pedidos_de_otros_sitios(cliente):
+    from invest.app.servidor import motivo_rechazo
+
+    # Cambio de DNS: el navegador manda el dominio del atacante en Host
+    assert cliente.get("/api/estado", headers={"host": "malo.example:8765"}).status_code == 403
+    # Formulario o fetch desde otra página: sin el encabezado propio, o con otro origen
+    assert cliente.post("/api/acciones/actualizar_modelo", headers={"X-Invest": ""}).status_code == 403
+    assert cliente.post("/api/acciones/actualizar_modelo", headers={"origin": "https://malo.example"}).status_code == 403
+    assert cliente.get("/api/estado", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    # Lo que manda el propio aplicativo pasa
+    assert motivo_rechazo("POST", {"host": "127.0.0.1:8765", "origin": "http://127.0.0.1:8765", "x-invest": "1",
+                                   "sec-fetch-site": "same-origin"}) is None
+    assert motivo_rechazo("GET", {"host": "localhost:8765"}) is None
+    assert motivo_rechazo("GET", {"host": "[::1]:8765"}) is None
+    assert motivo_rechazo("GET", {"host": "127.0.0.1.malo.example"}) == "host no permitido"
