@@ -29,6 +29,10 @@ activos:
   - {especie: cot29paad012, investing: pfaval, stockanalysis: PFAVAL}
   - {especie: cot29paao001, investing: grupoaval, stockanalysis: GRUPOAVAL}
   - {especie: cob51paad096, investing: pfdavvnda, stockanalysis: PFDAVVNDA}
+  # Grupo Cibest: Investing conserva el historial de Bancolombia en sus páginas de siempre (bcolombia y
+  # pfbcolom, hoy con los pagos de Cibest); la serie de precios viene pegada por config/sucesiones.yaml.
+  - {especie: cotk7paao003, investing: bcolombia}
+  - {especie: cotk7paad014, investing: pfbcolom}
   - {especie: cot04paao003, investing: nutresa, stockanalysis: NUTRESA}
   - especie: coe01paao018
     investing: eeb
