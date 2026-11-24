@@ -254,7 +254,9 @@ def _metricas(sub: pl.DataFrame, signo: int, minimo: int, cuantiles: int, rezago
     que entra y sale del tercio cada mes)."""
     ics, spreads, excesos, netos, rotaciones = [], [], [], [], []
     anterior: set | None = None
-    for (_,), g in (sub.filter(pl.col("retorno_siguiente").is_not_null()).sort("fecha")
+    # Orden fijo (fecha, especie): los empates del factor (p. ej. rendimiento por dividendo 0) se
+    # desempatan siempre igual y el resultado no depende del orden en que llegan las filas
+    for (_,), g in (sub.filter(pl.col("retorno_siguiente").is_not_null()).sort(["fecha", "especie"])
                     .group_by(["fecha"], maintain_order=True)):
         if g.height < minimo:
             continue

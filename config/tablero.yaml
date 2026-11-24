@@ -1,0 +1,42 @@
+# Tablero local de la matriz de factores (src/invest/tablero.py → invest-data/tableros/).
+#
+# Nombres cortos para las gráficas, por código de emisor de la especie (los 5 primeros caracteres).
+# Los que no están aquí se arman del nombre de la SFC (sin "AO", "ADP", "S.A.", "ANTES ...").
+nombres_cortos:
+  coc04: Ecopetrol
+  cog20: Terpel
+  cot09: Grupo Argos
+  cotk7: Cibest
+  cot13: Grupo Sura
+  coe01: GEB
+  cot60: Celsia
+  cob01: Banco de Bogotá
+  cod38: Cementos Argos
+  coc07: Mineros
+  coe15: ISA
+  cog31: Éxito
+  coj12: Corficolombiana
+  cot29: Grupo Aval
+  pat07: BAC Holding
+  cob51: Davivienda
+  pak01: Davivienda Group
+  cod12: Paz del Río
+  cow19: Protección
+  cob52: AV Villas
+  cob13: BBVA Colombia
+  cob23: Banco de Occidente
+  cob02: Banco Popular
+  cor01: BVC
+  cor02: Bolsa Mercantil
+  cac13: Canacol
+  cof02: Conconcreto
+  cof20: El Cóndor
+  coi13: ETB
+  cod05: Enka
+  cod04: Fabricato
+  cot23: Grupo Bolívar
+  cot04: Nutresa
+  coi04: Promigas
+
+# Meses de historia por acción en el detalle
+meses_detalle: 36

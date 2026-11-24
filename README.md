@@ -26,7 +26,9 @@ Proyectos/
 | 1 · Macro y mercado | IPC del DANE (desde 2003) y FRED (Tesoro de EE. UU., inflación implícita, tasa larga de Colombia, VIX, diferencial emergente) en `silver/fact_serie_macro` (una carpeta por fuente) | Hecho |
 | 1 · Fundamentales | CUIF mensual de 8 bancos (`silver/fact_cuif_mensual`) y XBRL de la SEC de Bancolombia/Cibest, Ecopetrol y Aval (`silver/fact_xbrl_sec`) | Hecho (SEC requiere `SEC_USER_AGENT`) |
 | 1 · Bolsa de Colombia y BanRep | Cierre, máximo y mínimo diarios de la BVC (`fact_precio_bvc`), MSCI COLCAP y MSCI NUAM USD, tasa de política monetaria e IBR en `fact_serie_macro`; con Playwright en el PC | Hecho (BanRep automático; BVC de lectura manual, primera lectura 23-nov-2026) |
-| 1 · Resto del MVP | NIIF de la SFC para el resto de emisores, perfiles y cartera, plantillas y puntaje con validación estadística | Pendiente |
+| 1 · Factores y validación | Factores mensuales con validación estadística; dos validados (momentum 12-1 y rendimiento por dividendo) | Hecho |
+| 1 · Matriz de factores | Puntaje por acción con los factores validados, ficha mensual y tablero local en HTML (`invest ficha`) | Hecho (24-nov-2026) |
+| 1 · Resto del MVP | NIIF histórico de la SFC (carga en curso), perfiles y cartera, modelo de Power BI | Pendiente |
 
 ## Puesta en marcha (Windows)
 
@@ -75,6 +77,8 @@ Opcional: un *app token* gratuito de datos.gov.co en la variable `SOCRATA_APP_TO
 | `invest dividendos` | Lee con dos agentes los PDF de dividendos nuevos y actualiza el archivo de revisión y `fact_dividendo` |
 | `invest dividendos --revision` | Solo vuelve a leer `revision/dividendos.csv` (después de revisarlo) y reconstruye `fact_dividendo` |
 | `invest inspeccionar [especie]` | Descarga índice, ficha y serie de una especie de la SFC y muestra lo que entiende, sin guardar |
+| `invest factores` | Factores mensuales y su validación estadística |
+| `invest ficha [--abrir]` | Puntaje de los factores validados por acción y tablero `invest-data/tableros/matriz_factores.html` (`scripts\abrir_tablero.cmd` lo hace con doble clic) |
 
 ## Solo lo nuevo en cada corrida
 
@@ -213,9 +217,20 @@ El reporte de salud mide el rezago según la frecuencia de cada fuente (diaria 3
 
 Cada fin de mes (última sesión XBOG), con lo que se sabía a esa fecha: universo de acciones líquidas con al menos 250 días de negocios y un negocio en las últimas 10 sesiones; factores de `config/factores.yaml` sobre un índice de retorno total que no cuenta los saltos atípicos. Salidas: `gold/fact_factor_mensual` y `gold/fact_validacion_factor`.
 
-Validación por factor, con el signo de su hipótesis: IC de Spearman mensual contra el retorno del mes siguiente, t de Newey-West, corrección de Holm por probar varios factores, spread entre el tercio superior y el inferior, y muestra de descubrimiento (2008-2017) contra fuera de muestra (2018 en adelante). Solo un factor `validado` puede alimentar la matriz de decisión.
+Validación por factor, con el signo de su hipótesis: IC de Spearman mensual contra el retorno del mes siguiente, t de Newey-West, corrección de Holm por probar varios factores, spread entre el tercio superior y el inferior, y muestra de descubrimiento (2008-2017) contra fuera de muestra (2018 en adelante). Solo un factor `validado` entra en la matriz de factores (`invest ficha`).
 
 Primera corrida (23-nov-2026, 223 meses, mediana de 16 acciones por mes): **validados** momentum 12-1 (IC 0,061, t 3,2, positivo en 15 de 19 años) y rendimiento por dividendo de 12 meses (IC 0,064, t 3,8, positivo en 14 de 19 años); se sostienen con 6 rezagos de Newey-West, desde 2010 y con un mínimo de 12 acciones por mes. No validados: momentum 6-1, reversión de un mes, baja volatilidad y liquidez. El spread de tercios es de unos 0,6 % mensual (Sharpe anual cercano a 0,4) antes de costos de transacción. **Con costos** (0,5 % por compra o venta, `costo_ida` en `config/factores.yaml`) y solo comprando, que es lo realista en la BVC: el tercio superior le gana al promedio del universo por 0,4 % mensual bruto y 0,1 % neto en momentum (rota 27 % al mes) y 0,2 % bruto y casi 0 neto en dividendo (rota 18 %). Los dos factores casi no se solapan (correlación media 0,15); su combinación tiene IC 0,077 (t 4,2) y 0,2 % mensual neto, pero es informativa porque se armó después de ver los resultados. La correlación entre factores queda en `gold/fact_correlacion_factor`. Conclusión: los factores ordenan, pero la ventaja que queda después de costos es pequeña.
+
+## Matriz de factores (`src/invest/ficha.py`, `src/invest/tablero.py`, `invest ficha`)
+
+Herramienta educativa: ordena las acciones del universo con los factores que quedaron `validado`; no emite señales de compra o venta. Si un factor deja de validarse (la validación se rehace cada día), sale del puntaje solo.
+
+- **Puntaje** (`gold/fact_puntaje_mensual`): promedio de los percentiles de los factores validados, cada uno orientado según su hipótesis; posición y tercio dentro del mes. Es exactamente el `combinado_validados` de la validación (mismo orden de desempate), así que la evidencia que acompaña al tablero corresponde a lo que se muestra.
+- **Historia** (`gold/fact_puntaje_tercio`): por mes, el retorno siguiente del tercio superior y del universo con pesos iguales, la rotación del tercio y el exceso neto de costos. Su promedio coincide con `exceso_superior` y `exceso_superior_neto` de la validación (lo verifica una prueba).
+- **Ficha** (`gold/fact_ficha_accion`): al último fin de mes (o la última sesión del mes en curso), una fila por acción activa con puntaje, cambio frente a 1 y 3 meses, meses seguidos en el tercio superior, valor y percentil de cada factor (los no validados quedan como contexto), retorno de 12 meses, volatilidad, monto negociado, P/VL (último valor patrimonial publicado) y P/U (utilidad por acción del último cierre anual, solo si es positiva), los avisos de calidad de datos y, para las que están fuera del universo, el motivo.
+- **Tablero** (`invest-data/tableros/matriz_factores.html`): un solo archivo, sin conexión a internet ni librerías externas; los datos van dentro y no salen del computador. Matriz de los dos factores validados, detalle por acción (percentil del puntaje y retorno acumulado de los últimos 36 meses), tabla ordenable, historia del tercio superior contra el universo (bruto y neto), evidencia de cada factor y acciones fuera del universo. Modo claro y oscuro según Windows. No se versiona (`.gitignore` de `invest-data`): la tarea diaria lo regenera después de `invest factores`. Nombres cortos en `config/tablero.yaml`.
+
+Con los datos al 18-nov-2026: 18 acciones con puntaje; desde 2008 el tercio superior le gana al universo por 0,47 % mensual bruto y 0,21 % neto de costos, con t de Newey-West de 1,0 en el neto, así que esa ventaja todavía no se distingue del azar.
 
 ## Agregar una fuente
 

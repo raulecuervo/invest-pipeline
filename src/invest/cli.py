@@ -11,6 +11,7 @@
     invest dividendos --revision        solo regenera el archivo de revisión y la tabla de dividendos
     invest dividendos --reevaluar       vuelve a juzgar las disputas con las lecturas guardadas (sin API)
     invest factores                     calcula los factores mensuales y su validación estadística
+    invest ficha [--abrir]              puntaje de los factores validados por acción y tablero local (HTML)
     invest probar-niif 260 36 2025-09-30 [--visible]   prueba la página del SIMEV con un emisor (no guarda)
 """
 
@@ -66,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="vuelve a juzgar los documentos en disputa con las lecturas guardadas, sin llamar a la API")
 
     sub.add_parser("factores", help="Factores mensuales y su validación estadística")
+
+    pf = sub.add_parser("ficha", help="Puntaje de los factores validados por acción y tablero local")
+    pf.add_argument("--abrir", action="store_true", help="abre el tablero en el navegador")
 
     pn = sub.add_parser("probar-niif", help="Prueba la página de informes NIIF del SIMEV con un emisor (no guarda)")
     pn.add_argument("tipo", type=int)
@@ -162,6 +166,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(val.select("factor", "meses", "ic_medio", "ic_t", "ic_p_holm", "ic_medio_descubrimiento",
                                  "ic_medio_fuera_muestra", "exceso_superior", "exceso_superior_neto",
                                  "rotacion_superior", "veredicto"))
+        return 0
+
+    if a.comando == "ficha":
+        from invest import ficha, tablero
+
+        tablas, resumen = ficha.construir()
+        if not tablas:
+            print("Sin factores validados o sin gold/fact_factor_mensual: corra invest factores primero.")
+            return 1
+        print("Ficha: " + ", ".join(f"{k} {v}" for k, v in resumen.items()))
+        destino = tablero.escribir()
+        print(f"Tablero: {destino}")
+        if a.abrir and destino:
+            import webbrowser
+
+            webbrowser.open(destino.resolve().as_uri())
         return 0
 
     if a.comando == "salud":

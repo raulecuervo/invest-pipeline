@@ -2,7 +2,7 @@
 #
 # 1. Trae los datos que GitHub Actions guardó en invest-data.
 # 2. Corre los conectores que deben ejecutarse desde el PC (sitios que bloquean IP de centros de datos).
-# 3. Si llegó algo nuevo, reconstruye las tablas derivadas y los factores; siempre, la salud de datos.
+# 3. Si llegó algo nuevo, reconstruye las tablas derivadas, los factores y el tablero; siempre, la salud de datos.
 # 4. Sube los cambios de datos al repo privado.
 #
 # Uso manual:  powershell -ExecutionPolicy Bypass -File scripts\windows\ejecutar_pc.ps1
@@ -52,6 +52,8 @@ try {
     if ($nuevo) {
         uv run invest dims 2>&1 | Out-Null
         uv run invest factores 2>&1 | Out-Null
+        # Puntaje de los factores validados y tablero local (invest-data\tableros\matriz_factores.html)
+        uv run invest ficha 2>&1 | Out-Null
         Registrar "Tablas derivadas reconstruidas"
     } else {
         Registrar "Sin datos nuevos: no se reconstruye"
