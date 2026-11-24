@@ -522,3 +522,10 @@ def test_documento_leido_con_version_anterior_se_vuelve_a_leer(cfg, carpeta_dato
     otra = ClienteFalso({MA: [], MB: []})
     correr(web, otra, monkeypatch)
     assert otra.llamadas == []
+
+
+def test_separados_se_aceptan_solo_si_el_emisor_no_tiene_consolidados():
+    emisor = {"emisor_id": "CO-COD12", "moneda": "COP", "unidades_esperadas": ["millones"]}
+    r = registro(es_consolidado=False)
+    assert "no_consolidado" in set(ec.controles(r, emisor, {})[0].values())
+    assert "no_consolidado" not in set(ec.controles(r, {**emisor, "acepta_separados": True}, {})[0].values())

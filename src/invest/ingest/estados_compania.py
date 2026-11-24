@@ -524,7 +524,7 @@ def controles(r: dict, emisor: dict, cfg: dict) -> tuple[dict[str, str], list[st
             if v.get(c) is not None:
                 motivos.setdefault(c, motivo)
 
-    if not r.get("es_consolidado"):
+    if not r.get("es_consolidado") and not emisor.get("acepta_separados"):
         marcar(presentes, "no_consolidado")
     corte = _fecha(r.get("fecha_corte"))
     if corte is None or (corte.month, corte.day) not in ((3, 31), (6, 30), (9, 30), (12, 31)):
@@ -707,6 +707,9 @@ class ConectorEstadosCompania(Conector):
             lista += encontrados
         lista += urls_plantilla(emisor, hoy, int(lim.get("trimestres_plantilla", 4)),
                                 int(lim.get("dias_tras_corte_plantilla", 25)))
+        # Direcciones verificadas a mano cuando el sitio no tiene una página índice legible ni una plantilla
+        lista += [{"url": d["url"], "texto": "", "prioridad": 0, "corte": _fecha(str(d.get("corte")))}
+                  for d in emisor.get("directas") or []]
         return lista
 
     def _fallo(self, emisor: dict, error: Exception) -> None:

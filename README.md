@@ -245,6 +245,16 @@ Cotejo de los consolidados del XBRL contra los estados publicados por las compa�
 
 El SIMEV no publica anexos de diciembre de Banco de Bogotá, Davivienda, Occidente, BBVA, Popular y AV Villas (ni de Corficolombiana, la BVC y Protección), 2016–2025. `fundamentales.desde_cuif` llena esos cortes con patrimonio (300000) o utilidad acumulada (590000) del CUIF del mismo mes sobre las acciones en circulación del anexo 211 más cercano, solo para bancos que no son holding y solo si en los cortes con anexo la cifra derivada repite la del anexo (mediana dentro de 2 %; Banco de Bogotá sep-2025: 47.021,41 en los dos). La utilidad por acción de Davivienda no pasa ese cotejo y no se deriva. `fuente = cuif_derivado`, disponible 50 días después del corte.
 
+### Diciembres en el SIMEV como «Intermedios»
+
+Los bancos, Corficolombiana, la BVC y Protección publican su informe de diciembre en el SIMEV como «Intermedios / Diciembre», no como «Cierre» (Banco de Bogotá dic-2024: «Cierre» devuelve la lista vacía, «Intermedios» trae los anexos; 24-nov-2026). `sfc_niif` prueba en diciembre primero «Cierre» y, si no trae anexos ni XBRL, «Intermedios». Los 112 diciembres marcados sin informe volvieron a la cola de la carga histórica. El CUIF sigue de respaldo para los bancos.
+
+### Más dividendos web y estados de compañías (24-nov-2026)
+
+Historiales de Investing para BBVA (ordinaria y preferencial), Popular, AV Villas (ordinaria y preferencial), Protección, Corferias, Paz del Río, El Cóndor, Bolsa Mercantil, Enka, Manufacturas de Cemento y Canacol: 401 pagos, 383 verificados solos y 18 decididos en la revisión (17 aprobados y la bonificación de 2008 de la Bolsa Mercantil rechazada). Fabricato no tiene dividendos en Investing. AV Villas, Protección, Corferias, El Cóndor y Bolsa Mercantil solo muestran los últimos 20 pagos. Canacol pagaba en dólares canadienses en Toronto: `src/invest/fx.py` pasa CAD a pesos con la TRM y la serie DEXCAUS de FRED (nueva), y retornos y dividendos web la usan también para los dólares. Canacol está en reestructuración (CCAA) con la negociación suspendida desde el 17-nov-2025 (`suspendida_desde` en `config/emisores_rnve.yaml`).
+
+`config/estados_compania.yaml` suma Corferias (plantilla mensual), Paz del Río (cinco direcciones verificadas, `acepta_separados: true` porque no publica consolidados), Conconcreto (informe de gestión 2025) y El Cóndor (cierre 2023), con la nueva lista `directas` para sitios sin página índice legible. Enka, Fabricato y Manufacturas de Cemento quedan `pendiente`, a la espera de PDF puestos a mano.
+
 ### Cobertura de documentos (`invest cobertura`)
 
 Escribe `revision/cobertura_documentos.csv`: por emisor, cortes NIIF con informe, sin informe publicado, de antes de cotizar y aún sin revisar; XBRL, PDF de la compañía, años de Supersociedades, dividendos (PDF e historiales web), inicio de la historia de precios, un diagnóstico y la fuente alterna propuesta. Solo conteos y fechas.

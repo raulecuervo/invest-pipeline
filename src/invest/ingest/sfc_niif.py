@@ -282,6 +282,20 @@ class PaginaSIMEV:
             self.pagina.wait_for_timeout(300)
 
     def informe(self, tipo: int, codigo: int, corte: date, nombre: str = "", intentos: int = 3) -> dict | None:
+        """Informe del corte. En diciembre prueba primero «Cierre» y, si no trae anexos ni XBRL,
+        «Intermedios»: los bancos, Corficolombiana, la BVC y Protección publican su diciembre como
+        informe intermedio (Banco de Bogotá dic-2024: «Cierre» sin informes, «Intermedios» con los
+        anexos; 24-nov-2026)."""
+        if corte.month != 12:
+            return self._informe(tipo, codigo, corte, nombre, intentos, "Intermedios")
+        r = self._informe(tipo, codigo, corte, nombre, intentos, "Cierre")
+        if r is not None and (r["anexos"] or r["xbrl"]):
+            return r
+        otro = self._informe(tipo, codigo, corte, nombre, intentos, "Intermedios")
+        return otro if otro is not None and (otro["anexos"] or otro["xbrl"]) else r
+
+    def _informe(self, tipo: int, codigo: int, corte: date, nombre: str, intentos: int,
+                 tipo_rep: str) -> dict | None:
         """{'anexos': [...], 'xbrl': (nombre, bytes, fecha de envío) o None}; None si la página no carga.
 
         La página no siempre pide los datos en orden (a veces pide los del periodo anterior o no pide
@@ -296,7 +310,6 @@ class PaginaSIMEV:
             "consolidados": f"getReporteAnexosConsolidados?tipoEntidad={tipo}&codigoEntidad={codigo}&periodo={dmy}",
             "lista": f"reporte?fechaCorte={ymd}",
         }
-        tipo_rep = "Cierre" if corte.month == 12 else "Intermedios"
         halladas: dict = {}
         xbrl, lista_vacia = None, None
         for intento in range(1, intentos + 1):

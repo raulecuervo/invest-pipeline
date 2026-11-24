@@ -211,3 +211,81 @@ emisores:
       - {url: "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/balance-gee2q2026.pdf", corte: 2026-06-30, unidades: miles_de_millones, nota: "activos 284.099; controladora 84.938"}
       - {url: "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/pyg-gee-2q2026.pdf", corte: 2026-06-30, unidades: miles_de_millones, nota: "6 meses: ingresos 68.823; controladora 8.951; UPA 217,7"}
     otros_formatos: "Los nombres cambian entre trimestres (2q y 1t, con o sin guion), por eso hay cuatro plantillas; notas en notas-gee<t>q<año>.pdf."
+
+  # ------------------------------------------------------------------ Emisores poco líquidos (24-nov-2026)
+  # Direcciones encontradas con búsqueda web (los sitios no tienen una página índice verificada). Sin
+  # páginas índice ni patrones: solo se bajan las `directas` y las `plantillas`. Cada documento nuevo
+  # cuesta unos USD 0,15–1 y entra dentro del tope de 6 por corrida.
+  - emisor_id: CO-COO08
+    nombre: Corferias
+    descarga: automatica
+    moneda: COP
+    unidades_esperadas: [miles]
+    paginas_indice: []
+    plantillas:
+      - "https://corferias.com/pdf/estados-financieros-consolidados-{mes_es}-{anio}.pdf"
+    directas:
+      - {url: "https://corferias.com/pdf/actions/2024/asamblea/estados-financieros-consolidados-con-notas-e-informe-de-revisor-fiscal.pdf", corte: 2023-12-31}
+    verificadas:
+      - {url: "https://corferias.com/pdf/estados-financieros-consolidados-septiembre-2025.pdf", corte: 2025-09-30, unidades: miles, nota: "intermedios condensados consolidados con informe del revisor"}
+      - {url: "https://corferias.com/pdf/estados-financieros-consolidados-junio-2026.pdf", corte: 2026-06-30, unidades: miles}
+    otros_formatos: "Versión en inglés consolidate-financial-statements-<month>-<año>.pdf (miles de pesos); separados y flujos por aparte (estados-flujo-efectivo-separado-<mes>-<año>.pdf); informe periódico en /pdf/relevant/<año>/."
+
+  - emisor_id: CO-COD12
+    nombre: Acerías Paz del Río
+    descarga: automatica
+    acepta_separados: true   # publica estados de la sola compañía (sin consolidados)
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    directas:
+      - {url: "https://www.pazdelrio.com.co/wp-content/uploads/2026/05/Inf_Estados_Financieros_2Q_APDR.pdf", corte: 2026-06-30}
+      - {url: "https://www.pazdelrio.com.co/wp-content/uploads/2026/05/Inf_Estados_Financieros_1Q_APDR.pdf", corte: 2026-03-31}
+      - {url: "https://www.pazdelrio.com.co/wp-content/uploads/2026/03/estados_financieros_APDR_2025.pdf", corte: 2025-12-31}
+      - {url: "https://www.pazdelrio.com.co/wp-content/uploads/Accionistas_2025/EEFF_IIIQ_2025.pdf", corte: 2025-09-30}
+      - {url: "https://www.pazdelrio.com.co/wp-content/uploads/Accionistas_2025/EEFF_IIQ_2025_Firmados.pdf", corte: 2025-06-30}
+    otros_formatos: "Los nombres cambian de un trimestre a otro (Inf_Estados_Financieros_<n>Q_APDR, EEFF_<romano>Q_<año>): sin plantilla. Revisor Deloitte con énfasis por incertidumbre material (Nota 2)."
+
+  - emisor_id: CO-COF02
+    nombre: Conconcreto
+    descarga: automatica
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    directas:
+      - {url: "https://conconcreto.com/wp-content/uploads/2026/03/Informe-de-Gestion-2025.pdf", corte: 2025-12-31}
+    otros_formatos: "El informe de gestión anual trae separados y consolidados (el lector toma los consolidados). Trimestral: INFORME-PERIODICO-TRIMESTRAL-<año>-<n>.pdf y comunicados en conconcreto.com/wp-content/uploads/<año>/<mes>/ (sin verificar que traigan los estados completos)."
+
+  - emisor_id: CO-COF20
+    nombre: Construcciones El Cóndor
+    descarga: automatica
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    directas:
+      - {url: "https://elcondor.com/wp-content/uploads/2024/03/20240422-EEFF-Separados-y-Consolidados.pdf", corte: 2023-12-31}
+    otros_formatos: "Solo se encontró el cierre de 2023 (separados y consolidados en un PDF). Los trimestres de 2025-2026 se publican en elcondor.com, sin dirección verificada."
+
+  - emisor_id: CO-COD05
+    nombre: Enka de Colombia
+    descarga: pendiente
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    otros_formatos: "Sin dirección verificada de sus estados en enka.com.co (24-nov-2026). PDF a mano en invest-data/fuentes_compania/CO-COD05/."
+
+  - emisor_id: CO-COD04
+    nombre: Fabricato
+    descarga: pendiente
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    otros_formatos: "Sin dirección verificada de sus estados (24-nov-2026). PDF a mano en invest-data/fuentes_compania/CO-COD04/."
+
+  - emisor_id: CO-COD06
+    nombre: Manufacturas de Cemento (Titán)
+    descarga: pendiente
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    otros_formatos: "Sitio titancemento.com sin dirección verificada de estados (24-nov-2026). PDF a mano en invest-data/fuentes_compania/CO-COD06/."

@@ -113,12 +113,18 @@ def tabla(hoy: date | None = None) -> pl.DataFrame:
             if cfg_e is None:
                 diag.append("sin estados consolidados")
                 alterna.append("agregar su sitio a config/estados_compania.yaml")
+            elif cfg_e.get("descarga") == "pendiente":
+                diag.append("sin estados consolidados (sin dirección verificada)")
+                alterna.append(f"PDF a mano en invest-data/fuentes_compania/{i}/")
             elif cfg_e.get("ventana") or cfg_e.get("descarga") == "manual":
                 diag.append("sin estados consolidados (sitio protegido)")
                 alterna.append("botón «Leer estados de compañías (con ventana)» en Salud, o PDF en fuentes_compania/")
             else:
                 diag.append("sin estados consolidados leídos aún")
                 alterna.append("próxima corrida de estados_compania en el PC")
+        if e.get("suspendida_desde"):
+            diag.append(f"negociación suspendida desde {e['suspendida_desde']}")
+            alterna.append("sin acción: la acción no negocia; sus informes siguen en el SIMEV si los publica")
         if not div_pdf.get(i) and not div_web.get(i):
             diag.append("sin dividendos registrados")
             alterna.append("historial web (Investing, stockanalysis) o información relevante")
