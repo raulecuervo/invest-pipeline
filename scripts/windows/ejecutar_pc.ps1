@@ -2,12 +2,14 @@
 #
 # 1. Trae los datos que GitHub Actions guardó en invest-data.
 # 2. Corre los conectores que deben ejecutarse desde el PC (sitios que bloquean IP de centros de datos).
-# 3. Reconstruye dimensiones y salud de datos.
+# 3. Si llegó algo nuevo, reconstruye las tablas derivadas y los factores; siempre, la salud de datos.
 # 4. Sube los cambios de datos al repo privado.
 #
 # Uso manual:  powershell -ExecutionPolicy Bypass -File scripts\windows\ejecutar_pc.ps1
 
-$ErrorActionPreference = "Stop"
+# "Continue": en Windows PowerShell 5.1, con "Stop", cualquier línea que uv o git escriban por la
+# salida de errores (avisos incluidos) detendría el script
+$ErrorActionPreference = "Continue"
 $Pipeline = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $Datos = Resolve-Path (Join-Path $Pipeline "..\invest-data")
 $Log = Join-Path $Datos "meta\ejecucion_pc.log"
@@ -22,14 +24,27 @@ function Registrar($texto) {
 New-Item -ItemType Directory -Force -Path (Split-Path $Log) | Out-Null
 Registrar "Inicio"
 
+$script:HuboPull = $false
 if (Test-Path (Join-Path $Datos ".git")) {
+    $antes = git -C $Datos rev-parse HEAD
     git -C $Datos pull --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
+    $script:HuboPull = ($antes -ne (git -C $Datos rev-parse HEAD))
 }
 
 Push-Location $Pipeline
 try {
-    uv run invest ingest --todas-pc 2>&1 | ForEach-Object { Registrar $_ }
-    uv run invest dims 2>&1 | Out-Null
+    $salida = uv run invest ingest --todas-pc 2>&1 | ForEach-Object { Registrar $_; $_ }
+    # Solo se reconstruye si llegó algo nuevo (aquí o en lo que trajo GitHub Actions con el git pull).
+    # dims rehace las tablas derivadas (retornos, liquidez, fundamentales) y escribe solo los años que
+    # cambian; factores rehace la validación mensual. Toman unos pocos minutos.
+    $nuevo = ($salida | Where-Object { "$_" -match '^\[ok\]' -and "$_" -notmatch ' 0 filas v' }) -or $script:HuboPull
+    if ($nuevo) {
+        uv run invest dims 2>&1 | Out-Null
+        uv run invest factores 2>&1 | Out-Null
+        Registrar "Tablas derivadas reconstruidas"
+    } else {
+        Registrar "Sin datos nuevos: no se reconstruye"
+    }
     uv run invest salud 2>&1 | ForEach-Object { Registrar $_ }
 } finally {
     Pop-Location
