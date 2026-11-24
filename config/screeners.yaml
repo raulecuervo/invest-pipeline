@@ -32,3 +32,7 @@ screeners:
     nombre: Acumular en debilidad
     descripcion: "Más de 20 % por debajo de su máximo de 52 semanas, con puntaje fundamental de 6 o más"
     condicion: "caida_desde_max_52s <= -0.2 AND puntaje_fundamental >= 6 AND en_universo"
+  valoracion_historica_baja:
+    nombre: Valoración baja frente a su historia
+    descripcion: "P/VL a más de una desviación estándar por debajo de su media de 5 años, sin escisión, split ni salto del valor por acción en la ventana, en el universo líquido"
+    condicion: "z_p_vl_5a <= -1 AND quiebre_p_vl_5a IS NULL AND en_universo"

@@ -145,16 +145,45 @@ def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
         ["emisor_id", "fecha_corte", "base", "metrica"])
 
 
+def fechas_valoracion(fechas: pl.Series) -> list:
+    """Fechas de ``fact_valoracion``: la última sesión de cada mes y la última fecha con precio."""
+    fin = fechas.max()
+    meses = fines_de_mes(fechas.min(), fin)
+    if not meses or meses[-1] < fin:
+        meses.append(fin)
+    return meses
+
+
+def por_accion_asof(v: pl.DataFrame, metricas: pl.DataFrame,
+                    nombres: tuple[str, ...] = ("vpa", "upa_12m", "roe_12m")) -> pl.DataFrame:
+    """Agrega a ``v`` (columnas ``fecha``, ``emisor_id`` y ``trm``) las métricas separadas por acción
+    conocidas a cada fecha (as-of por ``fecha_disponible``), con su corte en ``_corte_<métrica>``.
+
+    Más de 15 meses (460 días) desde el corte ya no describe a la empresa: queda nulo. Las cifras por
+    acción en dólares se pasan a pesos con la TRM del día. Las preferenciales usan las del emisor."""
+    for alias in nombres:
+        m = (metricas.filter((pl.col("metrica") == alias) & (pl.col("base") == "separado"))
+             .sort("fecha_disponible")
+             .select("emisor_id", "fecha_disponible", pl.col("valor").alias(alias),
+                     pl.col("unidad").alias(f"_u_{alias}"), pl.col("fecha_corte").alias(f"_corte_{alias}")))
+        v = v.sort("fecha").join_asof(m, left_on="fecha", right_on="fecha_disponible", by="emisor_id",
+                                      strategy="backward", check_sortedness=False).drop("fecha_disponible")
+        # Más de 15 meses sin actualizar ya no describe a la empresa
+        v = v.with_columns(pl.when((pl.col("fecha") - pl.col(f"_corte_{alias}")).dt.total_days() > 460)
+                           .then(None).otherwise(pl.col(alias)).alias(alias))
+        if alias != "roe_12m":
+            v = v.with_columns(pl.when(pl.col(f"_u_{alias}") == "usd_por_accion").then(pl.col(alias) * pl.col("trm"))
+                               .otherwise(pl.col(alias)).alias(alias))
+    return v
+
+
 def fact_valoracion(metricas: pl.DataFrame | None = None) -> pl.DataFrame | None:
     precios = storage.leer_tabla("gold", "fact_precio_diario")
     if precios is None or precios.is_empty():
         return None
     metricas = metricas if metricas is not None else fact_metrica_fundamental()
     p = precios.filter(pl.col("precio").is_not_null()).sort(["especie", "fecha"])
-    fin = p.get_column("fecha").max()
-    meses = fines_de_mes(p.get_column("fecha").min(), fin)
-    if not meses or meses[-1] < fin:
-        meses.append(fin)
+    meses = fechas_valoracion(p.get_column("fecha"))
     grilla = (p.select("especie", "emisor_id").unique()
               .join(pl.DataFrame({"fecha": meses}), how="cross").sort("fecha"))
     ultimos = p.select("fecha", "especie", pl.col("fecha").alias("fecha_precio"), "precio", "capitalizacion",
@@ -169,19 +198,7 @@ def fact_valoracion(metricas: pl.DataFrame | None = None) -> pl.DataFrame | None
             .group_by("especie", "fecha").agg(pl.col("dividendo").sum().alias("_div12")))
     v = v.join(suma, on=["especie", "fecha"], how="left")
     # Métricas por acción conocidas a la fecha (separadas), as-of por fecha_disponible
-    for metrica, alias in (("vpa", "vpa"), ("upa_12m", "upa_12m"), ("roe_12m", "roe_12m")):
-        m = (metricas.filter((pl.col("metrica") == metrica) & (pl.col("base") == "separado"))
-             .sort("fecha_disponible")
-             .select("emisor_id", "fecha_disponible", pl.col("valor").alias(alias),
-                     pl.col("unidad").alias(f"_u_{alias}"), pl.col("fecha_corte").alias(f"_corte_{alias}")))
-        v = v.sort("fecha").join_asof(m, left_on="fecha", right_on="fecha_disponible", by="emisor_id",
-                                      strategy="backward", check_sortedness=False).drop("fecha_disponible")
-        # Más de 15 meses sin actualizar ya no describe a la empresa
-        v = v.with_columns(pl.when((pl.col("fecha") - pl.col(f"_corte_{alias}")).dt.total_days() > 460)
-                           .then(None).otherwise(pl.col(alias)).alias(alias))
-        if alias != "roe_12m":
-            v = v.with_columns(pl.when(pl.col(f"_u_{alias}") == "usd_por_accion").then(pl.col(alias) * pl.col("trm"))
-                               .otherwise(pl.col(alias)).alias(alias))
+    v = por_accion_asof(v, metricas)
     v = v.with_columns(
         (pl.col("precio") / pl.col("vpa")).alias("p_vl"),
         pl.when(pl.col("upa_12m") > 0).then(pl.col("precio") / pl.col("upa_12m")).otherwise(None).alias("p_u"),

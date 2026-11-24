@@ -41,7 +41,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 
 # Páginas fijas del enrutador (static/app.js); las que llevan parámetro se agregan con datos reales
 PAGINAS_FIJAS = ["mercado", "screener", "matriz", "ficha", "cartera", "carteras", "perfiles", "tesis", "salud",
-                 "aprender"]
+                 "aprender", "valoracion", "graficador"]
 
 # Respuestas >= 400 de /api/* que son parte del comportamiento esperado: (expresión sobre la ruta, código)
 PERMITIDOS: list[tuple[str, int]] = []
@@ -151,6 +151,9 @@ def rutas_con_datos(srv: Servidor, max_fichas: int = 3) -> list[str]:
         if not especies:
             especies = [a["especie"] for a in activos][:max_fichas]
         rutas += [f"ficha/{urllib.parse.quote(e)}" for e in dict.fromkeys(especies + sin_puntaje)]
+        rutas += rutas_graficador(especies)
+        if especies:  # Valoración con una especie elegida (#/valoracion/<especie>)
+            rutas.append(f"valoracion/{urllib.parse.quote(especies[0])}")
         carteras = srv.get("/api/estado").get("carteras") or []
         rutas += [f"cartera/{urllib.parse.quote(c['cartera_id'])}" for c in carteras]
         variables = srv.get("/api/variables")
@@ -160,6 +163,15 @@ def rutas_con_datos(srv: Servidor, max_fichas: int = 3) -> list[str]:
         print(f"Aviso: no se pudieron leer los datos para las páginas con parámetro ({e})")
     rutas.append(PAGINA_NEGATIVA)
     return rutas
+
+
+def rutas_graficador(especies: list[str]) -> list[str]:
+    """El graficador con acciones reales: retorno total con el índice del universo (base 100) y P/VL."""
+    if not especies:
+        return []
+    series = ",".join(urllib.parse.quote(e) for e in especies[:4])
+    return [f"graficador?series={series},universo_igual&metrica=retorno_total&periodo=5a",
+            f"graficador?series={series}&metrica=p_vl&periodo=max"]
 
 
 def _permitido(ruta_api: str, codigo: int, permitidos: list[tuple[str, int]]) -> bool:
@@ -274,7 +286,7 @@ def probar_pagina(contexto, base: str, ruta: str, tiempo: float = 20.0, capturas
         res.fallar(f"página vacía o sin título ({len(texto)} caracteres)")
     if texto == "Cargando…":
         res.fallar("se quedó en Cargando…")
-    raiz = ruta.split("/")[0]
+    raiz = ruta.split("?")[0].split("/")[0]
     if e["menu"] != raiz:
         res.fallar(f"el menú marca '{e['menu']}' en vez de '{raiz}'")
     if raiz == "cartera" and "/" in ruta:

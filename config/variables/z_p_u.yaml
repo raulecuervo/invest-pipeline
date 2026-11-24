@@ -1,0 +1,25 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/z_p_u.md
+id: z_p_u
+nombre: z del P/U frente a su historia
+categoria: valoracion
+nivel: intermedio
+formato: numero
+direccion: 0
+tabla: fact_banda_valoracion
+columna: z
+formula: (P/U actual − media del P/U diario en la ventana) / desviación estándar del P/U en la ventana (utilidad
+  por acción de 12 meses vigente cada día; los días con utilidad ≤ 0 no cuentan)
+que_es: Cuántas desviaciones estándar está el P/U de hoy por encima o por debajo de su propia media de los últimos
+  años.
+que_hace: Compara cuánto paga hoy el mercado por cada peso de utilidad con lo que pagaba antes por la misma acción.
+para_que_sirve: Para ubicar la valoración actual dentro de la historia de la empresa.
+como_leer: 'Negativo = por debajo de su media histórica; positivo = por encima. El P/U salta cuando la utilidad
+  cambia mucho (un año malo lo dispara), así que conviene leerlo junto al z del P/VL. Es descriptivo, no
+  una señal.'
+relacionadas:
+- p_u
+- bandas_valoracion
+- z_p_vl
+revisado: false
+version: 1

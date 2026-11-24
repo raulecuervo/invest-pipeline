@@ -125,3 +125,24 @@ form.formulario .acciones { grid-column: 1 / -1; display: flex; gap: 8px; align-
   max-height: 260px; overflow: auto; white-space: pre-wrap; color: var(--texto2); }
 .estado-ok { color: var(--fuerte-texto); } .estado-mal { color: var(--debil-texto); } .estado-medio { color: var(--neutral); }
 @media (max-width: 760px) { .lateral { max-width: none; height: auto; position: static; } }
+/* ===== Graficador ===== */
+.graf-controles { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.graf-controles input[type=search] { flex: 0 1 290px; height: 36px; padding: 0 12px; border: 1px solid var(--borde-boton); border-radius: 8px; background: var(--fondo); }
+.graf-controles input[type=search]:disabled { opacity: .5; }
+.graf-controles .grupo button { display: inline-flex; align-items: center; }
+.graf-controles .grupo button:disabled { opacity: .4; cursor: default; }
+.graf-select { height: 32px; padding: 0 8px; background: var(--fondo); border: 1px solid var(--borde-boton); border-radius: 6px; }
+.graf-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tenue); }
+.graf-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.graf-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 2px 2px 10px; border-radius: 999px; background: var(--activo);
+  font-size: 12.5px; font-weight: 600; color: var(--texto); }
+.graf-chip button { width: 24px; height: 24px; border: 0; border-radius: 12px; padding: 0; background: transparent; color: var(--tenue); cursor: pointer; font-size: 11px; }
+.graf-chip button:hover { background: var(--borde-boton); color: #fff; }
+.graf-caja { min-height: 120px; transition: opacity .15s; }
+.graf-caja.cargando { opacity: .5; }
+.graf-caja svg:focus { outline: none; }
+.graf-caja svg:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 4px; }
+#tip .graf-fila { display: grid; grid-template-columns: 18px minmax(56px, auto) 1fr; gap: 8px; align-items: center; }
+#tip .graf-fila strong { font-weight: 650; color: var(--texto); text-align: right; white-space: nowrap; }
+#tip .graf-fila span { color: var(--tenue); }
+#tip .graf-fila strong.graf-sin { color: var(--tenue); font-weight: 500; }

@@ -1,0 +1,35 @@
+# Bandas de valoración (src/invest/bandas.py → gold/fact_valoracion_diaria, gold/fact_banda_valoracion y
+# gold/fact_banda_valoracion_mensual).
+#
+# Para cada acción, indicador y ventana: el valor actual frente a la media y la desviación estándar de
+# sus propios valores diarios en la ventana (lo que se sabía cada día: valor patrimonial y utilidad
+# por acción por fecha_disponible). z = (actual − media) / desviación. Es descriptivo: dice si la
+# acción está por encima o por debajo de su media histórica, no si conviene comprarla o venderla.
+
+indicadores: [p_vl, p_u]
+
+# Ventana = años hacia atrás desde cada fecha (incluida)
+ventanas:
+  1a: 1
+  3a: 3
+  5a: 5
+  10a: 10
+
+# Fracción mínima de sesiones XBOG de la ventana con dato del indicador (días con negocios y cifra por
+# acción vigente). Con menos, z y percentil quedan nulos (la media y la desviación se informan igual).
+cobertura_minima: 0.6
+minimo_observaciones: 20
+
+# El "actual" es el del último día con negocios; si es de hace más de estos días, no hay actual
+dias_precio_reciente: 30
+
+# Quiebres: escisiones y repartos de acciones (config/eventos_capital.yaml) y splits o reagrupaciones
+# aplicados (gold/fact_split). Con true, la ventana empieza en el último quiebre (la cobertura se sigue
+# midiendo sobre la ventana completa, así que una ventana muy recortada se queda sin z); con false se
+# usa la ventana completa y solo se avisa.
+recortar_al_quiebre: false
+
+# Un día en que el valor patrimonial por acción vigente se multiplica o divide por más de este factor
+# (split sin registrar, cambio en el número de acciones o error de la fuente) también parte la historia
+# del P/VL. 0 lo desactiva.
+salto_vpa: 3

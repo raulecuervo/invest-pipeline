@@ -381,6 +381,88 @@ def ficha_precio(especie: str, dias: int = 365):
     return responder(filas)
 
 
+# =========================================================================== Valoración (bandas)
+# Bandas de valoración (src/invest/bandas.py): P/VL y P/U de cada acción frente a su propia historia.
+BANDAS_INDICADORES = {"p_vl": "P/VL", "p_u": "P/U"}
+
+
+def _config_bandas() -> dict:
+    from invest.config import cargar_yaml
+
+    try:
+        return cargar_yaml("bandas.yaml") or {}
+    except OSError:
+        return {}
+
+
+def _parametros_bandas(indicador: str, ventana: str) -> tuple[str, str, dict]:
+    cfg = _config_bandas()
+    ventanas = [str(v) for v in (cfg.get("ventanas") or {"1a": 1, "3a": 3, "5a": 5, "10a": 10})]
+    if indicador not in BANDAS_INDICADORES:
+        raise HTTPException(400, f"Indicador desconocido: {indicador} (use {', '.join(BANDAS_INDICADORES)})")
+    if ventana not in ventanas:
+        raise HTTPException(400, f"Ventana desconocida: {ventana} (use {', '.join(ventanas)})")
+    return indicador, ventana, {**cfg, "_ventanas": ventanas}
+
+
+def _contexto_bandas(cfg: dict) -> dict:
+    return {"indicadores": [{"id": k, "nombre": v} for k, v in BANDAS_INDICADORES.items()],
+            "ventanas": cfg["_ventanas"], "cobertura_minima": cfg.get("cobertura_minima", 0.6),
+            "recortar_al_quiebre": bool(cfg.get("recortar_al_quiebre", False))}
+
+
+@app.get("/api/valoracion/bandas")
+def valoracion_bandas(indicador: str = "p_vl", ventana: str = "5a"):
+    """Todas las especies con bandas al último día para un indicador y una ventana."""
+    indicador, ventana, cfg = _parametros_bandas(indicador, ventana)
+    filas = q("""
+        SELECT b.especie, a.nemotecnico, e.nombre_corto, a.nombre AS nombre_sfc,
+               coalesce(a.sector_sfc, e.sector_sfc) AS sector_sfc, coalesce(m.en_universo, false) AS en_universo,
+               b.fecha, b.actual, b.fecha_actual, b.media, b.desviacion, b.z, b.percentil, b.minimo, b.maximo,
+               b.n_obs, b.sesiones, b.fecha_desde, b.cobertura, b.suficiente, b.quiebre, b.tipo_quiebre,
+               b.recortada, b.aviso
+        FROM fact_banda_valoracion b
+        LEFT JOIN dim_activo a ON a.especie = b.especie
+        LEFT JOIN dim_emisor e ON e.emisor_id = b.emisor_id
+        LEFT JOIN v_ficha_actual m ON m.especie = b.especie
+        WHERE b.indicador = ? AND b.ventana = ?
+        ORDER BY b.z NULLS LAST""", [indicador, ventana])
+    if not filas:  # sin v_ficha_actual (antes de los puntajes) la consulta de arriba no corre
+        filas = q("""SELECT b.*, a.nemotecnico, e.nombre_corto, a.nombre AS nombre_sfc,
+                            coalesce(a.sector_sfc, e.sector_sfc) AS sector_sfc, false AS en_universo
+                     FROM fact_banda_valoracion b LEFT JOIN dim_activo a ON a.especie = b.especie
+                     LEFT JOIN dim_emisor e ON e.emisor_id = b.emisor_id
+                     WHERE b.indicador = ? AND b.ventana = ? ORDER BY b.z NULLS LAST""", [indicador, ventana])
+    fecha = max((f["fecha"] for f in filas), default=None)
+    return responder({"fecha": fecha, "indicador": indicador, "ventana": ventana, "filas": filas,
+                      **_contexto_bandas(cfg)})
+
+
+@app.get("/api/ficha/{especie}/bandas")
+def ficha_bandas(especie: str, indicador: str = "p_vl", ventana: str = "5a"):
+    """Serie diaria del indicador en la ventana, con la media y las bandas (constantes en la ventana) y
+    los quiebres. ``tiene: false`` si la especie no tiene bandas para esa combinación."""
+    especie = resolver_especie(especie)
+    indicador, ventana, cfg = _parametros_bandas(indicador, ventana)
+    resumen = q("""SELECT indicador, ventana, anios, z, percentil, cobertura, suficiente, quiebre
+                   FROM fact_banda_valoracion WHERE especie = ? ORDER BY indicador, anios""", [especie])
+    banda = q1("SELECT * FROM fact_banda_valoracion WHERE especie = ? AND indicador = ? AND ventana = ?",
+               [especie, indicador, ventana])
+    base = {"especie": especie, "indicador": indicador, "nombre_indicador": BANDAS_INDICADORES[indicador],
+            "ventana": ventana, "resumen": resumen, **_contexto_bandas(cfg)}
+    if banda is None:
+        return responder({**base, "tiene": False})
+    # El indicador del día de cada fila: con cifras por acción vigentes ese día (as-of)
+    serie = q(f"""SELECT fecha, {indicador} AS valor FROM fact_valoracion_diaria
+                  WHERE especie = ? AND fecha BETWEEN ? AND ? ORDER BY fecha""",
+              [especie, banda["fecha_desde"], banda["fecha"]])
+    quiebres = q("""SELECT fecha, tipo FROM fact_quiebre_valoracion
+                    WHERE especie = ? AND (indicador IS NULL OR indicador = ?) AND fecha BETWEEN ? AND ?
+                    ORDER BY fecha""", [especie, indicador, banda["fecha_desde"], banda["fecha"]])
+    return responder({**base, "tiene": True, "banda": banda, "serie": serie, "quiebres": quiebres})
+# =========================================================================== fin Valoración (bandas)
+
+
 # --------------------------------------------------------------------------- cartera
 @app.get("/api/cartera/{cartera_id}")
 def cartera_vista(cartera_id: str):
@@ -545,6 +627,283 @@ def trabajo(trabajo_id: str):
     if t is None:
         raise HTTPException(404, "Trabajo desconocido")
     return responder({**t, "salida": list(t["salida"])})
+
+
+# =========================================================================== Graficador
+# Página #/graficador: varias acciones (y los índices) en una misma gráfica. Bloque propio para que
+# integrar otras páginas no choque con este código.
+GRAF_MAX_ACCIONES = 6
+# Periodos en días hacia atrás desde la última fecha con dato de las series elegidas (None: toda la historia)
+GRAF_PERIODOS: dict[str, int | None] = {"6m": 182, "1a": 365, "3a": 1095, "5a": 1826, "10a": 3652, "max": None}
+# Métricas permitidas (lista cerrada). unidad: indice (base 100), veces, porcentaje (fracción) o puntaje.
+# variacion: relativa (final / inicial - 1) o puntos (final - inicial).
+GRAF_METRICAS: dict[str, dict] = {
+    "precio": {"nombre": "Precio (base 100)", "unidad": "indice", "base100": True, "variacion": "relativa",
+               "frecuencia": "diaria", "fuente": "fact_precio_diario",
+               "descripcion": "Precio de cada sesión, sin dividendos, igualado a 100 en la fecha base."},
+    "retorno_total": {"nombre": "Retorno total (base 100)", "unidad": "indice", "base100": True,
+                      "variacion": "relativa", "frecuencia": "diaria", "fuente": "fact_retorno_diario",
+                      "descripcion": "Índice de retorno total: precio más dividendos reinvertidos, con splits y escisiones."},
+    "retorno_usd": {"nombre": "Retorno total en dólares (base 100)", "unidad": "indice", "base100": True,
+                    "variacion": "relativa", "frecuencia": "diaria", "fuente": "fact_retorno_diario",
+                    "descripcion": "Índice de retorno total dividido por la TRM de cada día."},
+    "p_vl": {"nombre": "Precio / valor en libros", "unidad": "veces", "base100": False, "variacion": "relativa",
+             "frecuencia": "mensual", "fuente": "fact_valoracion", "variable": "p_vl",
+             "descripcion": "Cuántas veces paga el mercado el patrimonio por acción conocido a la fecha."},
+    "p_u": {"nombre": "Precio / utilidad", "unidad": "veces", "base100": False, "variacion": "relativa",
+            "frecuencia": "mensual", "fuente": "fact_valoracion", "variable": "p_u",
+            "descripcion": "Precio sobre la utilidad por acción de 12 meses; vacío si la utilidad es negativa."},
+    "rendimiento_dividendo": {"nombre": "Rendimiento del dividendo 12 meses", "unidad": "porcentaje",
+                              "base100": False, "variacion": "puntos", "frecuencia": "mensual",
+                              "fuente": "fact_valoracion", "variable": "rendimiento_dividendo_12m",
+                              "descripcion": "Dividendos de los últimos 12 meses sobre el precio, a cada fin de mes."},
+    "volatilidad_60": {"nombre": "Volatilidad 60 días (anual)", "unidad": "porcentaje", "base100": False,
+                       "variacion": "puntos", "frecuencia": "diaria", "fuente": "fact_tecnico_diario",
+                       "descripcion": "Desviación de los retornos diarios de las últimas 60 sesiones, anualizada."},
+    "puntaje_global": {"nombre": "Puntaje global (1 a 10)", "unidad": "puntaje", "base100": False,
+                       "variacion": "puntos", "frecuencia": "mensual", "fuente": "fact_matriz",
+                       "variable": "puntaje_global",
+                       "descripcion": "Puntaje global de la matriz a cada fin de mes (informativo, no es una recomendación)."},
+}
+# Índices que se pueden sumar a la gráfica (solo en las métricas en base 100)
+GRAF_INDICES: dict[str, dict] = {
+    "universo_igual": {"nombre": "Universo (pesos iguales)", "tabla": "fact_indice_mercado",
+                       "nota": "índice de retorno total del universo líquido (con dividendos)"},
+    "universo_cap": {"nombre": "Universo (por capitalización)", "tabla": "fact_indice_mercado",
+                     "nota": "índice de retorno total del universo líquido (con dividendos)"},
+    "colcap": {"nombre": "MSCI COLCAP", "tabla": "fact_macro", "serie_id": "msci_colcap",
+               "nota": "índice de precios, sin dividendos"},
+}
+
+
+def _graf_tabla_existe(tabla: str, columnas: tuple[str, ...] = ()) -> bool:
+    filas = q("SELECT column_name FROM information_schema.columns WHERE table_name = ?", [tabla])
+    nombres = {f["column_name"] for f in filas}
+    return bool(nombres) and all(c in nombres for c in columnas)
+
+
+def _graf_fuente_valoracion() -> str:
+    """``fact_valoracion_diaria`` (especie, fecha, p_vl, p_u) si ya existe en la base; si no, la mensual."""
+    if _graf_tabla_existe("fact_valoracion_diaria", ("especie", "fecha", "p_vl", "p_u")):
+        return "fact_valoracion_diaria"
+    return "fact_valoracion"
+
+
+def _graf_metrica(metrica: str) -> dict:
+    if metrica not in GRAF_METRICAS:
+        raise HTTPException(400, f"Métrica no permitida: {metrica}. Use una de: {', '.join(GRAF_METRICAS)}")
+    m = {"id": metrica, **GRAF_METRICAS[metrica]}
+    if metrica in ("p_vl", "p_u") and _graf_fuente_valoracion() == "fact_valoracion_diaria":
+        m.update(fuente="fact_valoracion_diaria", frecuencia="diaria")
+    return m
+
+
+def _graf_sql_accion(metrica: str, fuente: str) -> str:
+    """Consulta (fecha, valor) de una especie para la métrica; el único parámetro es la especie."""
+    if metrica == "precio":
+        return "SELECT fecha, precio AS valor FROM fact_precio_diario WHERE especie = ?"
+    if metrica == "retorno_total":
+        return "SELECT fecha, indice_rt AS valor FROM fact_retorno_diario WHERE especie = ?"
+    if metrica == "retorno_usd":
+        return """SELECT r.fecha, r.indice_rt / p.trm AS valor FROM fact_retorno_diario r
+                  JOIN fact_precio_diario p ON p.especie = r.especie AND p.fecha = r.fecha
+                  WHERE r.especie = ? AND p.trm > 0"""
+    if metrica in ("p_vl", "p_u"):
+        tabla = "fact_valoracion_diaria" if fuente == "fact_valoracion_diaria" else "fact_valoracion"
+        return f"SELECT fecha, {metrica} AS valor FROM {tabla} WHERE especie = ?"
+    if metrica == "rendimiento_dividendo":
+        return "SELECT fecha, rendimiento_dividendo_12m AS valor FROM fact_valoracion WHERE especie = ?"
+    if metrica == "volatilidad_60":
+        return "SELECT fecha, volatilidad_60 AS valor FROM fact_tecnico_diario WHERE especie = ?"
+    if metrica == "puntaje_global":
+        return "SELECT fecha, puntaje_global AS valor FROM fact_matriz WHERE especie = ?"
+    raise HTTPException(400, f"Métrica no permitida: {metrica}")
+
+
+def _graf_filas_indice(indice: str, metrica: str) -> list[dict]:
+    usd = metrica == "retorno_usd"
+    if indice in ("universo_igual", "universo_cap"):
+        return q("SELECT fecha, valor FROM fact_indice_mercado WHERE indice_id = ? AND moneda = ?",
+                 [indice, "USD" if usd else "COP"])
+    serie = GRAF_INDICES[indice]["serie_id"]
+    if usd:
+        return q("""SELECT m.fecha, m.valor / t.valor AS valor FROM fact_macro m
+                    JOIN fact_macro t ON t.fecha = m.fecha AND t.serie_id = 'trm_usd_cop'
+                    WHERE m.serie_id = ? AND t.valor > 0""", [serie])
+    return q("SELECT fecha, valor FROM fact_macro WHERE serie_id = ?", [serie])
+
+
+def _graf_numero(v: Any) -> float | None:
+    """El valor como float finito (también DECIMAL de DuckDB), o None."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def graf_resolver(tokens: list[str]) -> tuple[list[dict], list[str]]:
+    """Series pedidas → ([{id, tipo, especie, nemotecnico, nombre, sector}], desconocidas).
+
+    Acepta índices (``universo_igual``, ``universo_cap``, ``colcap``), código SFC, nemotécnico o nombre
+    corto (``resolver_especie``). Las repetidas cuentan una vez.
+    """
+    series, desconocidas, vistos = [], [], set()
+    for t in tokens:
+        t = t.strip()
+        if not t:
+            continue
+        if t.lower() in GRAF_INDICES:
+            i = t.lower()
+            if i not in vistos:
+                vistos.add(i)
+                series.append({"id": i, "tipo": "indice", "especie": None, "nemotecnico": None,
+                               "nombre": GRAF_INDICES[i]["nombre"], "sector": None})
+            continue
+        especie = resolver_especie(t)
+        fila = q1("""SELECT a.especie, a.nemotecnico, e.nombre_corto, a.nombre, e.sector_sfc
+                     FROM dim_activo a LEFT JOIN dim_emisor e USING (emisor_id) WHERE a.especie = ?""", [especie])
+        if fila is None:
+            desconocidas.append(t)
+            continue
+        if especie in vistos:
+            continue
+        vistos.add(especie)
+        series.append({"id": especie, "tipo": "accion", "especie": especie, "nemotecnico": fila["nemotecnico"],
+                       "nombre": fila["nombre_corto"] or fila["nemotecnico"] or fila["nombre"] or especie,
+                       "sector": fila["sector_sfc"]})
+    # Dos especies del mismo emisor (ordinaria y preferencial) se distinguen por el nemotécnico
+    repetidos = {s["nombre"] for s in series if sum(o["nombre"] == s["nombre"] for o in series) > 1}
+    for s in series:
+        if s["tipo"] == "accion" and s["nombre"] in repetidos:
+            s["nombre"] = f"{s['nombre']} ({s['nemotecnico'] or s['especie']})"
+    return series, desconocidas
+
+
+def graf_resumen(fechas: list, valores: list, variacion: str) -> dict:
+    """Valor inicial y final del periodo, variación, máximo y mínimo (con su fecha) de una serie alineada."""
+    puntos = [(f, v) for f, v in zip(fechas, valores) if v is not None]
+    if not puntos:
+        return {"observaciones": 0}
+    (fi, vi), (ff, vf) = puntos[0], puntos[-1]
+    fmax, vmax = max(puntos, key=lambda p: p[1])
+    fmin, vmin = min(puntos, key=lambda p: p[1])
+    if variacion == "relativa":
+        cambio = vf / vi - 1 if vi else None
+    else:
+        cambio = vf - vi
+    return {"observaciones": len(puntos), "inicial": vi, "fecha_inicial": fi, "final": vf, "fecha_final": ff,
+            "variacion": cambio, "maximo": vmax, "fecha_maximo": fmax, "minimo": vmin, "fecha_minimo": fmin}
+
+
+def _graf_base100(datos: dict[str, dict], fechas: list) -> tuple[date | None, bool]:
+    """Divide cada serie por su valor en el primer día común (en el lugar). (fecha_base, hubo_comun)."""
+    con_datos = [d for d in datos.values() if d]
+    if not con_datos:
+        return None, False
+    comunes = set.intersection(*[set(d) for d in con_datos])
+    fecha_base = min(comunes) if comunes else None
+    for d in con_datos:
+        base = d[fecha_base] if fecha_base else d[min(d)]
+        for f in d:
+            d[f] = d[f] / base * 100
+    return fecha_base, fecha_base is not None
+
+
+def graficar(tokens: list[str], metrica: str, periodo: str) -> dict:
+    """Series alineadas por fecha (unión de fechas, sin rellenar huecos) y metadatos de la métrica.
+
+    En base 100 cada serie se divide por su valor en la primera fecha del periodo en que todas tienen
+    dato (``fecha_base``); si no coinciden en ninguna, cada una se normaliza a su primer dato.
+    """
+    from datetime import timedelta
+
+    m = _graf_metrica(metrica)
+    if periodo not in GRAF_PERIODOS:
+        raise HTTPException(400, f"Periodo no permitido: {periodo}. Use uno de: {', '.join(GRAF_PERIODOS)}")
+    tokens = [t.strip() for t in tokens if t.strip()]
+    if not tokens:
+        raise HTTPException(400, "Indique al menos una serie (parámetro series)")
+    pedidas = {t.lower() for t in tokens if t.lower() not in GRAF_INDICES}
+    if len(pedidas) > GRAF_MAX_ACCIONES:  # antes de consultar nada
+        raise HTTPException(400, f"Máximo {GRAF_MAX_ACCIONES} acciones por gráfica (llegaron {len(pedidas)})")
+    series, desconocidas = graf_resolver(tokens)
+    if desconocidas:
+        raise HTTPException(404, f"Serie desconocida: {', '.join(desconocidas)}")
+    acciones = [s for s in series if s["tipo"] == "accion"]
+    if len(acciones) > GRAF_MAX_ACCIONES:
+        raise HTTPException(400, f"Máximo {GRAF_MAX_ACCIONES} acciones por gráfica (llegaron {len(acciones)})")
+    avisos: list[str] = []
+    if not m["base100"]:
+        fuera = [s for s in series if s["tipo"] == "indice"]
+        if fuera:
+            avisos.append("Los índices solo se grafican en base 100; " + ", ".join(s["nombre"] for s in fuera)
+                          + " no aplica en " + m["nombre"].lower() + ".")
+        series = acciones
+    positiva = m["base100"] or m["unidad"] == "veces"  # precios, índices y múltiplos solo tienen sentido > 0
+    datos: dict[str, dict] = {}
+    for s in series:
+        filas = _graf_filas_indice(s["id"], metrica) if s["tipo"] == "indice" else \
+            q(_graf_sql_accion(metrica, m["fuente"]), [s["especie"]])
+        leidos = ((f["fecha"], _graf_numero(f["valor"])) for f in filas)
+        datos[s["id"]] = {f: x for f, x in leidos if x is not None and (not positiva or x > 0)}
+    ultimas = [max(d) for d in datos.values() if d]
+    hasta = max(ultimas) if ultimas else None
+    dias = GRAF_PERIODOS[periodo]
+    desde = hasta - timedelta(days=dias) if hasta is not None and dias is not None else None
+    if desde is not None:
+        datos = {k: {f: v for f, v in d.items() if f >= desde} for k, d in datos.items()}
+    fechas = sorted(set().union(*[set(d) for d in datos.values()]))
+    fecha_base = None
+    if m["base100"] and fechas:
+        fecha_base, comun = _graf_base100(datos, fechas)
+        if not comun:
+            avisos.append("Las series no coinciden en ninguna fecha: cada una se normaliza a 100 en su primer dato.")
+        elif fecha_base > fechas[0]:
+            tardias = [s for s in series if datos[s["id"]] and min(datos[s["id"]]) == fecha_base]
+            avisos.append(f"Base 100 el {fecha_base.isoformat()}: primer día con dato de todas las series"
+                          + (" (primer dato en el periodo de " + ", ".join(s["nombre"] for s in tardias) + ")" if tardias else "")
+                          + ". Antes de esa fecha cada línea muestra su valor frente a esa base.")
+    for s in series:
+        if not datos[s["id"]]:
+            avisos.append(f"{s['nombre']} no tiene datos de {m['nombre'].lower()} en el periodo.")
+        elif s["tipo"] == "indice" and (metrica == "precio" or s["id"] == "colcap"):
+            avisos.append(f"{s['nombre']}: {GRAF_INDICES[s['id']]['nota']}.")
+    valores = {s["id"]: [round(datos[s["id"]][f], 6) if f in datos[s["id"]] else None for f in fechas] for s in series}
+    resumen = [{"id": s["id"], **graf_resumen(fechas, valores[s["id"]], m["variacion"])} for s in series]
+    for s in series:
+        d = datos[s["id"]]
+        s.update(observaciones=len(d), primera_fecha=min(d) if d else None, ultima_fecha=max(d) if d else None)
+    return {"metrica": m, "periodo": {"id": periodo, "desde": desde or (fechas[0] if fechas else None), "hasta": hasta},
+            "fecha_base": fecha_base, "series": series, "fechas": fechas, "valores": valores, "resumen": resumen,
+            "avisos": avisos}
+
+
+@app.get("/api/graficador")
+def graficador(series: str = "", metrica: str = "retorno_total", periodo: str = "1a"):
+    return responder(graficar(series.split(","), metrica, periodo))
+
+
+@app.get("/api/graficador/opciones")
+def graficador_opciones():
+    """Métricas, periodos e índices con datos (el COLCAP solo si ya tiene historia en fact_macro)."""
+    indices = []
+    for i, d in GRAF_INDICES.items():
+        if d["tabla"] == "fact_indice_mercado":
+            r = q1("""SELECT min(fecha) AS desde, max(fecha) AS hasta, count(*) AS n FROM fact_indice_mercado
+                      WHERE indice_id = ? AND moneda = 'COP'""", [i])
+        else:
+            r = q1("SELECT min(fecha) AS desde, max(fecha) AS hasta, count(*) AS n FROM fact_macro WHERE serie_id = ?",
+                   [d["serie_id"]])
+        if r and r["n"]:
+            indices.append({"id": i, "nombre": d["nombre"], "nota": d["nota"], "desde": r["desde"],
+                            "hasta": r["hasta"], "observaciones": r["n"]})
+    metricas = [_graf_metrica(k) for k in GRAF_METRICAS]
+    return responder({"metricas": metricas, "periodos": list(GRAF_PERIODOS), "indices": indices,
+                      "max_acciones": GRAF_MAX_ACCIONES})
+# =========================================================================== fin Graficador
 
 
 # --------------------------------------------------------------------------- páginas

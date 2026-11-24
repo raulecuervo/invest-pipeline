@@ -50,8 +50,8 @@ def test_cambiar_precios_recalcula_el_paso_y_sus_dependientes(datos):
                          .alias("precio"))
     storage.escribir_por_anio("gold", "fact_precio_diario", df, "fecha")
     resumen = modelo.calcular(todo=False)
-    # Leen precios: técnico, métricas y cartera; riesgo y puntajes leen lo que escribe técnico
-    assert _recalculados(resumen) == {"tecnico", "riesgo", "metricas", "puntajes", "cartera"}
+    # Leen precios: técnico, métricas, bandas y cartera; riesgo y puntajes leen lo que escribe técnico
+    assert _recalculados(resumen) == {"tecnico", "riesgo", "metricas", "bandas", "puntajes", "cartera"}
     assert resumen["calendario"] == {"saltado": True} and resumen["variables"] == {"saltado": True}
     assert _recalculados(modelo.calcular(todo=False)) == set()  # y vuelve a quedar al día
 

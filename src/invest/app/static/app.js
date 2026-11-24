@@ -540,6 +540,10 @@ paginas.ficha = async (v, especie) => {
       leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ["#5B6B8C", "Media de 200 sesiones", "linea"]]))));
   requestAnimationFrame(pintarPrecio);
 
+  const cajaBandas = el("div");  // Valoración (bandas): panel "Valoración frente a su historia"
+  v.append(cajaBandas);
+  panelBandasFicha(cajaBandas, especie);
+
   const cajaBanco = el("div");
   v.append(cajaBanco);
   api("/api/ficha/" + encodeURIComponent(especie) + "/banco").then((b) => pintarBanco(cajaBanco, b)).catch(() => cajaBanco.remove());
@@ -585,7 +589,8 @@ paginas.ficha = async (v, especie) => {
     { k: "puntaje_global", t: "Puntaje", f: (r) => notaPuntaje(r.puntaje_global) },
   ];
   v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Comparación con su sector"),
-    el("button", { type: "button", class: "boton", onclick: () => csv(`pares_${especie}.csv`, colsPares, d.pares) }, "Exportar CSV")), tabla(colsPares, d.pares)));
+    el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, grafEnlaceFicha(c.especie || especie, d.pares),
+      el("button", { type: "button", class: "boton", onclick: () => csv(`pares_${especie}.csv`, colsPares, d.pares) }, "Exportar CSV"))), tabla(colsPares, d.pares)));
 };
 
 // Sección "Banco" de la ficha: plantilla de bancos con el CUIF (gold/fact_metrica_banco)
@@ -912,6 +917,634 @@ paginas.aprender = async (v, id) => {
   if (id) requestAnimationFrame(() => document.getElementById("var-" + id)?.scrollIntoView({ block: "center" }));
 };
 
+// ===== Valoración (bandas) =====
+// Página #/valoracion[/<especie>] y panel "Valoración frente a su historia" de la Ficha: P/VL y P/U de
+// cada acción frente a su media y sus desviaciones estándar en 1, 3, 5 o 10 años (src/invest/bandas.py).
+const BANDAS_COLOR = { serie: "#E6EAF2", media: "#9AA4B8", uno: "#6E9BFF", dos: "#B48CFF", quiebre: "#F5B54A", zona: "#16264A" };
+const BANDAS_VENTANA = { "1a": "1 año", "3a": "3 años", "5a": "5 años", "10a": "10 años" };
+const BANDAS_QUIEBRE = { escision: "Escisión", reparto_acciones: "Reparto de acciones", split: "Split", salto_vpa: "Salto del valor por acción" };
+const BANDAS_QUIEBRE_CORTO = { escision: "Escisión", reparto_acciones: "Reparto", split: "Split", salto_vpa: "Salto VPA" };
+const bandasSel = { indicador: "p_vl", ventana: "5a" };  // lo último elegido (página y ficha)
+const zBanda = (z) => z == null ? "—" : (z > 0 ? "+" : z < 0 ? "−" : "") + NF(2).format(Math.abs(z));
+const varBanda = (indicador) => indicador === "p_u" ? "z_p_u" : "z_p_vl";
+function chipZ(z) {
+  if (z == null) return el("span", { class: "nota-puntaje b-nd" }, "N/D");
+  // Colores neutros: azul = por debajo de su media histórica, ámbar = por encima (no son "bueno" o "malo")
+  const fondo = z <= -1 ? "var(--acento-fondo)" : z >= 1 ? "var(--neutral-fondo)" : "var(--activo)";
+  const color = z <= -1 ? "var(--acento-suave)" : z >= 1 ? "var(--neutral)" : "var(--texto2)";
+  return el("span", { class: "nota-puntaje", style: { background: fondo, color, minWidth: "54px" } }, zBanda(z));
+}
+function gruposBandas(ventanas, alCambiar) {
+  const gi = el("div", { class: "grupo", role: "group", "aria-label": "Indicador" });
+  const gv = el("div", { class: "grupo", role: "group", "aria-label": "Ventana" });
+  const pintar = () => {
+    gi.replaceChildren(...[["p_vl", "P/VL"], ["p_u", "P/U"]].map(([k, t]) => el("button", { type: "button", "aria-pressed": String(bandasSel.indicador === k),
+      onclick: () => { bandasSel.indicador = k; pintar(); alCambiar(); } }, t)));
+    gv.replaceChildren(...ventanas.map((k) => el("button", { type: "button", "aria-pressed": String(bandasSel.ventana === k),
+      onclick: () => { bandasSel.ventana = k; pintar(); alCambiar(); } }, k.toUpperCase())));
+  };
+  pintar();
+  return el("div", { style: { display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" } }, gi, gv);
+}
+
+// Gráfica de bandas: serie diaria, media, ±1 y ±2 desviaciones (constantes en la ventana) con rótulos a la
+// derecha, quiebres como líneas verticales y crosshair con tooltip
+function graficoBandas(caja, d, op = {}) {
+  caja.replaceChildren();
+  const b = d.banda || {};
+  const serie = d.serie || [];
+  const validos = serie.filter((p) => p.valor != null && isFinite(p.valor));
+  if (!validos.length) { caja.append(el("div", { class: "vacio" }, "Sin serie diaria en la ventana.")); return; }
+  const W = Math.max(caja.clientWidth || 640, 320), H = op.alto || 300, m = { l: 52, r: 104, t: 16, b: 24 };
+  const xs = serie.map((p) => p.fecha);
+  const X = (i) => m.l + (xs.length < 2 ? 0 : i / (xs.length - 1)) * (W - m.l - m.r);
+  const hayBandas = b.media != null && b.desviacion != null && b.desviacion > 0;
+  const niveles = hayBandas ? [2, 1, 0, -1, -2].map((k) => ({ k, y: b.media + k * b.desviacion })) : [];
+  const ys = [...validos.map((p) => p.valor), ...niveles.map((n) => n.y)];
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  if (y0 === y1) { y0 -= 1; y1 += 1; }
+  const pad = (y1 - y0) * 0.06; y0 -= pad; y1 += pad;
+  const Y = (y) => H - m.b - (y - y0) / (y1 - y0) * (H - m.t - m.b);
+  const fy = op.fy || ((x) => num(x, 2));
+  const s = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": op.titulo || "Bandas de valoración" });
+  for (let i = 0; i <= 4; i++) {
+    const v = y0 + (y1 - y0) * i / 4;
+    s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "#1A2540" }), sv("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, fy(v)));
+  }
+  const paso = Math.max(1, Math.ceil(xs.length / 7));
+  let anterior = null;
+  xs.forEach((x, i) => {
+    if (i % paso !== 0) return;
+    const rotulo = fechaCorta(x);
+    if (rotulo === anterior) return;
+    anterior = rotulo;
+    s.append(sv("text", { x: X(i), y: H - 6, "text-anchor": "middle" }, rotulo));
+  });
+  if (hayBandas) {
+    // Zona entre −1 y +1 desviaciones
+    s.append(sv("rect", { x: m.l, width: W - m.l - m.r, y: Y(b.media + b.desviacion), height: Math.max(0, Y(b.media - b.desviacion) - Y(b.media + b.desviacion)), fill: BANDAS_COLOR.zona, opacity: 0.55 }));
+    const rotulos = [];
+    for (const n of niveles) {
+      const color = n.k === 0 ? BANDAS_COLOR.media : Math.abs(n.k) === 1 ? BANDAS_COLOR.uno : BANDAS_COLOR.dos;
+      s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(n.y), y2: Y(n.y), stroke: color, "stroke-width": n.k === 0 ? 1.5 : 1.2, "stroke-dasharray": n.k === 0 ? null : (Math.abs(n.k) === 1 ? "6 4" : "2 4") }));
+      rotulos.push({ y: Y(n.y), color, texto: (n.k === 0 ? "Media " : (n.k > 0 ? "+" : "−") + Math.abs(n.k) + " DE ") + fy(n.y) });
+    }
+    // Rótulos a la derecha sin encimarse (al menos 12 px entre uno y otro)
+    for (let i = 1; i < rotulos.length; i++) if (rotulos[i].y - rotulos[i - 1].y < 12) rotulos[i].y = rotulos[i - 1].y + 12;
+    const exceso = rotulos.length ? rotulos[rotulos.length - 1].y - (H - m.b + 4) : 0;
+    if (exceso > 0) rotulos.forEach((r) => { r.y -= exceso; });
+    for (const r of rotulos) s.append(sv("text", { x: W - m.r + 6, y: r.y + 4, style: `fill:${r.color}` }, r.texto));
+  }
+  // Quiebres: en la primera sesión de la serie desde la fecha del evento
+  for (const q of d.quiebres || []) {
+    const i = xs.findIndex((x) => x >= q.fecha);
+    if (i < 0) continue;
+    s.append(sv("line", { x1: X(i), x2: X(i), y1: m.t, y2: H - m.b, stroke: BANDAS_COLOR.quiebre, "stroke-dasharray": "3 3", "stroke-width": 1.25 }),
+      sv("text", { x: Math.min(X(i) + 4, W - m.r - 60), y: m.t - 4 + 10, style: `fill:${BANDAS_COLOR.quiebre}` }, BANDAS_QUIEBRE[q.tipo] || q.tipo));
+  }
+  let dPath = "", abierto = false;
+  serie.forEach((p, i) => {
+    if (p.valor == null || !isFinite(p.valor)) { abierto = false; return; }
+    dPath += (abierto ? "L" : "M") + X(i).toFixed(1) + "," + Y(p.valor).toFixed(1); abierto = true;
+  });
+  s.append(sv("path", { d: dPath, fill: "none", stroke: BANDAS_COLOR.serie, "stroke-width": 1.75, "stroke-linejoin": "round" }));
+  const ult = serie.length - 1 - [...serie].reverse().findIndex((p) => p.valor != null && isFinite(p.valor));
+  s.append(sv("circle", { cx: X(ult), cy: Y(serie[ult].valor), r: 3.5, fill: BANDAS_COLOR.serie, stroke: "#0B1220", "stroke-width": 1.5 }));
+  const cruz = sv("line", { y1: m.t, y2: H - m.b, stroke: "#5B6B8C", visibility: "hidden" });
+  const punto = sv("circle", { r: 4, fill: BANDAS_COLOR.serie, stroke: "#0B1220", "stroke-width": 1.5, visibility: "hidden" });
+  s.append(cruz, punto);
+  const zona = sv("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  const nombre = d.nombre_indicador || "Valor";
+  zona.addEventListener("pointermove", (ev) => {
+    const r = s.getBoundingClientRect();
+    const i = Math.max(0, Math.min(xs.length - 1, Math.round((ev.clientX - r.left - m.l) / (W - m.l - m.r) * (xs.length - 1))));
+    const p = serie[i];
+    cruz.setAttribute("x1", X(i)); cruz.setAttribute("x2", X(i)); cruz.setAttribute("visibility", "visible");
+    if (p.valor != null && isFinite(p.valor)) { punto.setAttribute("cx", X(i)); punto.setAttribute("cy", Y(p.valor)); punto.setAttribute("visibility", "visible"); }
+    else punto.setAttribute("visibility", "hidden");
+    const filas = [[nombre, p.valor == null ? "—" : fy(p.valor)]];
+    if (hayBandas && p.valor != null) filas.push(["Frente a la media", zBanda((p.valor - b.media) / b.desviacion) + " DE"], ["Media de la ventana", fy(b.media)]);
+    const q = (d.quiebres || []).find((x) => x.fecha === p.fecha);
+    if (q) filas.push(["Quiebre", BANDAS_QUIEBRE[q.tipo] || q.tipo]);
+    mostrarTip(ev, fecha(p.fecha), filas);
+  });
+  zona.addEventListener("pointerleave", () => { cruz.setAttribute("visibility", "hidden"); punto.setAttribute("visibility", "hidden"); ocultarTip(); });
+  s.append(zona);
+  caja.append(s);
+}
+
+// Contenido del panel de bandas de una especie (página Valoración y Ficha)
+function contenidoBandas(caja, d) {
+  const nombreV = BANDAS_VENTANA[d.ventana] || d.ventana;
+  if (!d.tiene) {
+    const otras = (d.resumen || []).filter((r) => r.indicador === d.indicador);
+    caja.replaceChildren(el("div", { class: "vacio" }, `Sin bandas de ${d.nombre_indicador} a ${nombreV}: hace falta historia con negocios y cifras por acción publicadas` +
+      (otras.length ? ` (hay para ${otras.map((r) => r.ventana.toUpperCase()).join(", ")}).` : ".")));
+    return;
+  }
+  const b = d.banda;
+  const cajaG = el("div");
+  const varId = varBanda(d.indicador);
+  caja.replaceChildren(...[  // replaceChildren escribiría "null" con un hijo nulo: se filtran
+    el("section", { class: "indicadores", "aria-label": "Bandas de valoración" },
+      kpi(d.nombre_indicador + " actual", num(b.actual, 2), "al " + fecha(b.fecha_actual), "", d.indicador),
+      kpi("Media " + nombreV, num(b.media, 2), "desviación " + num(b.desviacion, 2), "", "bandas_valoracion"),
+      kpi("z", zBanda(b.z), b.z == null ? "sin z: poca cobertura" : (b.z < 0 ? "por debajo de su media" : "por encima de su media"), "", varId),
+      kpi("Percentil en la ventana", b.percentil == null ? "—" : pct(b.percentil, 0), "mín. " + num(b.minimo, 2) + " · máx. " + num(b.maximo, 2)),
+      kpi("Cobertura", pct(b.cobertura, 0), `${num(b.n_obs, 0)} de ${num(b.sesiones, 0)} sesiones`)),
+    cajaG,
+    leyenda([[BANDAS_COLOR.serie, d.nombre_indicador + " diario", "linea"], [BANDAS_COLOR.media, "Media", "linea"], [BANDAS_COLOR.uno, "±1 DE", "linea"],
+      [BANDAS_COLOR.dos, "±2 DE", "linea"], [BANDAS_COLOR.quiebre, "Quiebre (escisión, split, salto del valor por acción)", "linea"]]),
+    b.aviso ? el("div", { class: "aviso" }, b.aviso.charAt(0).toUpperCase() + b.aviso.slice(1) + ".") : null,
+    el("p", { class: "desc" }, `Ventana del ${fecha(b.fecha_desde)} al ${fecha(b.fecha)}${b.recortada ? " (recortada al último quiebre)" : ""}. ` +
+      "Cada día usa el valor patrimonial y la utilidad por acción que ya se conocían ese día. z = (actual − media) / desviación estándar (DE). " +
+      "Es descriptivo: dice si la acción está por encima o por debajo de su media histórica, no si conviene tenerla.")].filter(Boolean));
+  requestAnimationFrame(() => graficoBandas(cajaG, d, { alto: 300, titulo: `${d.nombre_indicador} con su media y bandas de ${nombreV}` }));
+}
+
+paginas.valoracion = async (v, pedida) => {
+  let sector = "", soloUniverso = true, elegida = pedida || null, turno = 0;
+  let d = await api(`/api/valoracion/bandas?indicador=${bandasSel.indicador}&ventana=${bandasSel.ventana}`);
+  const sub = el("div", { class: "sub" });
+  v.append(el("div", { class: "encabezado" }, el("div", {}, el("h1", {}, "Valoración frente a su historia"), sub)));
+  const selSector = el("select", { "aria-label": "Sector", style: { height: "32px", background: "var(--fondo)", border: "1px solid var(--borde-boton)", borderRadius: "6px" }, onchange: (e) => { sector = e.target.value; pintar(); } });
+  const chkU = el("input", { type: "checkbox", checked: true, onchange: (e) => { soloUniverso = e.target.checked; pintar(); } });
+  const exportar = el("button", { type: "button", class: "boton" }, "Exportar CSV");
+  const tituloGrafica = el("h2", {}, "Bandas");
+  const cajaPanel = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px" } });
+  const panelGrafica = el("section", { class: "panel" }, el("div", { class: "encabezado" }, tituloGrafica, el("a", { href: "#/ficha", style: { color: "var(--acento)", fontWeight: 600, fontSize: "13px" } }, "Abrir su ficha →")), cajaPanel);
+  const cajaTabla = el("div");
+  const descTabla = el("p", { class: "desc" });
+  const recargar = async () => {
+    d = await api(`/api/valoracion/bandas?indicador=${bandasSel.indicador}&ventana=${bandasSel.ventana}`);
+    pintar();
+  };
+  const grupos = gruposBandas(d.ventanas || ["1a", "3a", "5a", "10a"], () => { recargar().catch((e) => cajaTabla.replaceChildren(el("p", { class: "mensaje error" }, String(e.message || e)))); });
+  const cols = () => {
+    const ind = d.indicadores.find((x) => x.id === d.indicador)?.nombre || d.indicador;
+    return [
+      { k: "nemotecnico", t: "Acción", izq: true, f: (r) => el("a", { href: "#/ficha/" + r.especie, style: { fontWeight: 600 }, onclick: (e) => e.stopPropagation() }, r.nemotecnico || r.nombre_corto || r.especie), v: (r) => r.nemotecnico || r.especie },
+      { k: "nombre_corto", t: "Nombre", izq: true, f: (r) => (r.nombre_corto || r.nombre_sfc || "—").slice(0, 26), v: (r) => r.nombre_corto || r.nombre_sfc || "" },
+      { k: "sector_sfc", t: "Sector", izq: true, f: (r) => (r.sector_sfc || "—").slice(0, 24), v: (r) => r.sector_sfc || "" },
+      { k: "actual", t: ind + " actual", f: (r) => num(r.actual, 2), info: d.indicador },
+      { k: "media", t: "Media", f: (r) => num(r.media, 2), info: "bandas_valoracion" },
+      { k: "desviacion", t: "Desv.", f: (r) => num(r.desviacion, 2) },
+      { k: "z", t: "z", f: (r) => chipZ(r.z), info: varBanda(d.indicador) },
+      { k: "percentil", t: "Percentil", f: (r) => r.percentil == null ? "—" : pct(r.percentil, 0) },
+      { k: "cobertura", t: "Cobertura", f: (r) => pct(r.cobertura, 0) },
+      { k: "fecha_desde", t: "Desde", f: (r) => fecha(r.fecha_desde) },
+      { k: "quiebre", t: "Quiebre", izq: true, f: (r) => r.quiebre ? el("span", { class: "aviso", title: r.aviso || "" }, (BANDAS_QUIEBRE_CORTO[r.tipo_quiebre] || r.tipo_quiebre) + " " + fechaCorta(r.quiebre)) : "—", v: (r) => r.quiebre || "" },
+    ];
+  };
+  const abrir = async (especie, desplazar) => {
+    elegida = especie;
+    const mio = ++turno;  // si se hace clic en otra fila antes de que llegue esta, manda la última
+    const fila = d.filas.find((r) => r.especie === especie);
+    tituloGrafica.replaceChildren(`${fila?.nemotecnico || fila?.nombre_corto || especie} · ${d.indicadores.find((x) => x.id === d.indicador)?.nombre || d.indicador} · ${BANDAS_VENTANA[d.ventana] || d.ventana}`, info("bandas_valoracion"));
+    panelGrafica.querySelector("a").setAttribute("href", "#/ficha/" + encodeURIComponent(especie));
+    cajaPanel.replaceChildren(cargando());
+    const datos = await api(`/api/ficha/${encodeURIComponent(especie)}/bandas?indicador=${d.indicador}&ventana=${d.ventana}`);
+    if (mio !== turno) return;
+    contenidoBandas(cajaPanel, datos);
+    if (desplazar) panelGrafica.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const pintar = () => {
+    const sectores = [...new Set(d.filas.map((r) => r.sector_sfc).filter(Boolean))].sort();
+    if (sector && !sectores.includes(sector)) sector = "";
+    selSector.replaceChildren(el("option", { value: "" }, "Todos los sectores"), ...sectores.map((x) => el("option", { value: x }, x)));
+    selSector.value = sector;
+    let filas = d.filas;
+    if (sector) filas = filas.filter((r) => r.sector_sfc === sector);
+    if (soloUniverso) filas = filas.filter((r) => r.en_universo);
+    const conZ = filas.filter((r) => r.z != null).length;
+    sub.textContent = d.fecha ? `Bandas al ${fecha(d.fecha)} · ${filas.length} acciones, ${conZ} con z (cobertura de ${pct(d.cobertura_minima, 0)} o más)` +
+      (d.recortar_al_quiebre ? " · ventanas recortadas al último quiebre" : "") : "Todavía no hay bandas: corra invest modelo.";
+    descTabla.textContent = "z = (actual − media) / desviación estándar del indicador diario en la ventana; percentil = parte de los días de la ventana con un valor menor. " +
+      "Clic en una fila para ver su gráfica. Es descriptivo, no es una recomendación; que un z bajo anticipe retornos no está validado.";
+    const c = cols();
+    cajaTabla.replaceChildren(filas.length ? tabla(c, filas, { orden: "z", asc: true, clic: (r) => { abrir(r.especie, true).catch(() => {}); } })
+      : el("div", { class: "vacio" }, d.filas.length ? "Ninguna acción cumple los filtros." : "Sin bandas para este indicador y ventana."));
+    exportar.onclick = () => csv(`bandas_${d.indicador}_${d.ventana}_${d.fecha || "sin_fecha"}.csv`, [
+      { k: "especie", t: "especie" }, ...c.map((x) => ({ ...x, v: x.v || ((r) => r[x.k]) })),
+      { k: "n_obs", t: "n_obs" }, { k: "sesiones", t: "sesiones" }, { k: "aviso", t: "aviso" }], filas);
+    const pedidaFila = elegida && d.filas.find((r) => r.especie === elegida || (r.nemotecnico || "").toUpperCase() === elegida.toUpperCase());
+    // Por omisión, la de z más bajo sin quiebre en la ventana
+    const objetivo = pedidaFila ? pedidaFila.especie
+      : (filas.find((r) => r.z != null && !r.quiebre) || filas.find((r) => r.z != null) || filas[0])?.especie;
+    if (objetivo) { panelGrafica.hidden = false; abrir(objetivo, false).catch(() => {}); }
+    else panelGrafica.hidden = true;
+  };
+  v.append(el("section", { class: "panel" },
+    el("div", { class: "encabezado" }, el("div", { style: { display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" } }, grupos, selSector,
+      el("label", { style: { fontSize: "12px", color: "var(--tenue)", display: "flex", gap: "6px", alignItems: "center" } }, chkU, "Solo universo líquido")), exportar)),
+  panelGrafica, el("section", { class: "panel" }, el("h2", {}, "Todas las acciones", info(varBanda(bandasSel.indicador))), descTabla, cajaTabla));
+  pintar();
+};
+
+// Panel de la Ficha
+function panelBandasFicha(caja, especie) {
+  const cuerpo = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px" } }, cargando());
+  const resumen = el("div", { class: "nota" });
+  const cargar = async () => {
+    const d = await api(`/api/ficha/${encodeURIComponent(especie)}/bandas?indicador=${bandasSel.indicador}&ventana=${bandasSel.ventana}`);
+    const deEste = (d.resumen || []).filter((r) => r.indicador === d.indicador);
+    resumen.textContent = deEste.length ? "z por ventana: " + deEste.map((r) => `${r.ventana.toUpperCase()} ${zBanda(r.z)}`).join(" · ") : "";
+    contenidoBandas(cuerpo, d);
+    return d;
+  };
+  caja.replaceChildren(el("section", { class: "panel" },
+    el("div", { class: "encabezado" }, el("h2", {}, "Valoración frente a su historia", info("bandas_valoracion")),
+      gruposBandas(["1a", "3a", "5a", "10a"], () => { cargar().catch(() => caja.remove()); })),
+    el("div", { class: "encabezado" }, resumen, el("a", { href: "#/valoracion/" + encodeURIComponent(especie), style: { color: "var(--acento)", fontWeight: 600, fontSize: "13px" } }, "Comparar con las demás acciones →")),
+    cuerpo));
+  cargar().catch(() => caja.remove());
+}
+// ===== fin Valoración (bandas) =====
+
+// ===== Graficador =====
+// Página #/graficador?series=ECOPETROL,ISA,universo_igual&metrica=retorno_total&periodo=1a[&log=1]
+// Varias acciones (y los índices) en una sola gráfica, un solo eje. El color sigue a la acción: la
+// posición en `series` es su ranura de color; al quitar una queda un hueco (",,") y las demás no cambian.
+// Paleta categórica en orden fijo, validada para fondo oscuro (#111A2C) con validate_palette.js de la
+// skill de visualización: luminosidad, croma, separación con daltonismo (adyacentes ΔE ≥ 8) y contraste ≥ 3:1.
+const GRAF_COLORES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c"];
+// Los índices van en tinta neutra y se distinguen por el trazo: no gastan ranuras de color
+const GRAF_ESTILO_INDICE = { universo_igual: { color: "#E6EAF2", guiones: null }, universo_cap: { color: "#9AA4B8", guiones: "7 4" },
+  colcap: { color: "#C3CAD8", guiones: "2 3" } };
+const GRAF_PERIODOS = [["6m", "6M"], ["1a", "1A"], ["3a", "3A"], ["5a", "5A"], ["10a", "10A"], ["max", "Máx."]];
+const GRAF_MAX = 6;
+
+function grafBuscarActivo(texto) {
+  const t = (texto || "").trim().toLowerCase();
+  if (!t) return null;
+  const A = estado.activos;
+  return A.find((x) => x.especie === t) || A.find((x) => t.startsWith(x.especie + " "))
+    || A.find((x) => (x.nemotecnico || "").toLowerCase() === t) || A.find((x) => (x.nombre_corto || "").toLowerCase() === t)
+    || A.find((x) => `${x.nemotecnico || ""} ${x.nombre_corto || ""} ${x.nombre || ""}`.toLowerCase().includes(t)) || null;
+}
+const grafToken = (a) => a.nemotecnico || a.especie;
+function grafHref(st) {
+  const ranuras = [...st.ranuras];
+  while (ranuras.length && !ranuras[ranuras.length - 1]) ranuras.pop();
+  const tokens = [...ranuras.map((a) => a ? grafToken(a) : ""), ...st.indices];
+  return "#/graficador?series=" + tokens.map(encodeURIComponent).join(",") + "&metrica=" + st.metrica + "&periodo=" + st.periodo + (st.log ? "&log=1" : "");
+}
+function grafLeerUrl(indicesValidos) {
+  const p = new URLSearchParams(location.hash.split("?")[1] || "");
+  const st = { ranuras: [], indices: [], metrica: p.get("metrica") || "retorno_total", periodo: p.get("periodo") || "1a", log: p.get("log") === "1", avisos: [] };
+  for (const crudo of (p.get("series") || "").split(",")) {
+    const t = crudo.trim();
+    if (indicesValidos.includes(t.toLowerCase())) { if (!st.indices.includes(t.toLowerCase())) st.indices.push(t.toLowerCase()); continue; }
+    if (!t) { st.ranuras.push(null); continue; }
+    const a = grafBuscarActivo(t);
+    if (!a) { st.avisos.push(`No se encontró «${t}».`); st.ranuras.push(null); continue; }
+    if (st.ranuras.some((x) => x && x.especie === a.especie)) continue;
+    if (st.ranuras.filter(Boolean).length >= GRAF_MAX) { st.avisos.push(`Máximo ${GRAF_MAX} acciones: se dejó por fuera «${t}».`); continue; }
+    // Solo hay seis colores: pasada la sexta posición, la acción ocupa el primer hueco
+    if (st.ranuras.length >= GRAF_MAX) st.ranuras[st.ranuras.indexOf(null)] = a; else st.ranuras.push(a);
+  }
+  while (st.ranuras.length && !st.ranuras[st.ranuras.length - 1]) st.ranuras.pop();
+  return st;
+}
+
+// Enlace de la ficha: la especie y sus pares del sector (primero los líquidos), hasta 6
+function grafEnlaceFicha(especie, pares) {
+  const otros = (pares || []).filter((p) => p.especie !== especie);
+  const orden = [...otros.filter((p) => p.en_universo), ...otros.filter((p) => !p.en_universo)];
+  const tokens = [especie, ...orden.map((p) => p.especie)].slice(0, GRAF_MAX)
+    .map((e) => { const a = estado.activos.find((x) => x.especie === e); return a ? grafToken(a) : e; });
+  return el("a", { class: "boton", href: "#/graficador?series=" + tokens.map(encodeURIComponent).join(",") + "&metrica=retorno_total&periodo=1a",
+    style: { display: "inline-flex", alignItems: "center" } }, "Comparar en el graficador");
+}
+
+// Formato del eje y del tooltip según la unidad de la métrica
+function grafFormato(unidad, paso) {
+  // Decimales que pide el paso de las marcas (2,5 → 1; 0,25 → 2; 20 → 0)
+  const dec = (escala) => { if (paso == null) return null; const t = String(+(paso * escala).toPrecision(6)); return Math.min(3, t.includes(".") ? t.split(".")[1].length : 0); };
+  switch (unidad) {
+    case "indice": return { eje: (v) => num(v, dec(1) ?? 0), tip: (v) => num(v, 1) };
+    case "veces": return { eje: (v) => veces(v, dec(1) ?? 1), tip: (v) => veces(v, 2) };
+    case "porcentaje": return { eje: (v) => pct(v, dec(100) ?? 0), tip: (v) => pct(v, 1) };
+    case "puntaje": return { eje: (v) => num(v, dec(1) ?? 1), tip: (v) => num(v, 1) };
+    default: return { eje: (v) => num(v, 2), tip: (v) => num(v, 2) };
+  }
+}
+function grafVariacion(r, m) {
+  if (r.variacion == null) return "—";
+  const signo = r.variacion > 0 ? "+" : "";
+  if (m.variacion === "relativa") return signo + pct(r.variacion);
+  if (m.unidad === "porcentaje") return signo + num(r.variacion * 100, 1) + " pp";
+  return signo + num(r.variacion, 1);
+}
+function grafTicks(y0, y1, n = 5) {
+  const crudo = (y1 - y0) / n, p = Math.pow(10, Math.floor(Math.log10(crudo)));
+  const paso = [1, 2, 2.5, 5, 10].map((k) => k * p).find((s) => s >= crudo) || 10 * p;
+  const t = [];
+  for (let v = Math.ceil(y0 / paso - 1e-9) * paso; v <= y1 + paso * 1e-9; v += paso) t.push(+v.toPrecision(12));
+  return { t, paso };
+}
+function grafTicksLog(y0, y1, Y) {
+  const cand = [];
+  for (let e = Math.floor(Math.log10(y0)); e <= Math.ceil(Math.log10(y1)); e++) for (const k of [1, 1.5, 2, 3, 5, 7]) cand.push(+(k * 10 ** e).toPrecision(6));
+  const t = []; let ultimo = null;
+  for (const v of cand.filter((v) => v >= y0 && v <= y1)) { if (ultimo == null || Math.abs(Y(v) - Y(ultimo)) >= 28) { t.push(v); ultimo = v; } }
+  return { t, paso: null };
+}
+// Eje de fechas: inicios de mes (o de año) que quepan, sin rótulos repetidos (misma regla que lineas())
+function grafTicksFecha(xs, X, ancho) {
+  const max = Math.max(2, Math.floor(ancho / 80));
+  const meses = []; let previo = null;
+  xs.forEach((x, i) => { const k = x.slice(0, 7); if (k !== previo) { meses.push({ i, x, a: +x.slice(0, 4), m: +x.slice(5, 7) }); previo = k; } });
+  const paso = [1, 2, 3, 6, 12, 24, 60, 120].find((p) => meses.length / p <= max) || 120;
+  const marcas = []; let rotuloAnterior = null, xAnterior = -Infinity;
+  for (const c of meses) {
+    if ((c.a * 12 + c.m - 1) % paso !== 0) continue;
+    const rotulo = paso >= 12 ? String(c.a) : fechaCorta(c.x);
+    if (rotulo === rotuloAnterior || X(c.i) - xAnterior < 56) continue;  // dos marcas en el mismo mes repetían el rótulo
+    rotuloAnterior = rotulo; xAnterior = X(c.i);
+    marcas.push({ i: c.i, rotulo });
+  }
+  return marcas;
+}
+// Escala logarítmica: solo para series positivas que se comparan en proporción (base 100 y múltiplos)
+const grafLogPermitido = (m) => m.base100 || m.unidad === "veces";
+function grafMuestra(color, guiones) {
+  const s = sv("svg", { width: 18, height: 8, viewBox: "0 0 18 8", "aria-hidden": "true" });
+  s.append(sv("line", { x1: 1, x2: 17, y1: 4, y2: 4, stroke: color, "stroke-width": 2.5, "stroke-linecap": "round", "stroke-dasharray": guiones }));
+  return s;
+}
+function grafTip(cx, cy, titulo, filas) {
+  // Valor primero (fuerte) y nombre después (tenue), con la muestra de la línea de cada serie
+  tip.replaceChildren(el("b", {}, titulo), ...filas.map((f) => el("div", { class: "graf-fila" }, grafMuestra(f.color, f.guiones), el("strong", { class: f.v == null ? "graf-sin" : null }, f.valor), el("span", {}, f.nombre))));
+  tip.style.display = "block";
+  tip.style.left = Math.max(8, Math.min(cx + 14, innerWidth - tip.offsetWidth - 8)) + "px";
+  tip.style.top = Math.max(8, Math.min(cy + 14, innerHeight - tip.offsetHeight - 8)) + "px";
+}
+
+// Gráfica multi-línea: un solo eje y, escala lineal o logarítmica, crosshair con tooltip de todas las series
+function grafDibujar(caja, d, estilo, op) {
+  caja.replaceChildren();
+  const series = d.series.filter((s) => (d.valores[s.id] || []).some((v) => v != null));
+  const xs = d.fechas;
+  if (!series.length || !xs.length) { caja.append(el("div", { class: "vacio" }, "Sin datos para esta métrica y periodo.")); return; }
+  const m = d.metrica;
+  const conRotulos = series.length <= 4;
+  const W = Math.max(caja.clientWidth || 600, 320), H = op.alto || 360;
+  const mg = { l: 60, r: conRotulos ? 118 : 18, t: 24, b: 26 };
+  const pw = W - mg.l - mg.r, ph = H - mg.t - mg.b;
+  const todos = series.flatMap((s) => d.valores[s.id].filter((v) => v != null));
+  const log = op.log && grafLogPermitido(m) && Math.min(...todos) > 0;
+  let y0 = Math.min(...todos), y1 = Math.max(...todos);
+  if (m.base100 && d.fecha_base) { y0 = Math.min(y0, 100); y1 = Math.max(y1, 100); }
+  let Y, ticks;
+  if (log) {
+    y0 /= 1.04; y1 *= 1.04;
+    Y = (v) => mg.t + ph - (Math.log(v) - Math.log(y0)) / (Math.log(y1) - Math.log(y0)) * ph;
+    ticks = grafTicksLog(y0, y1, Y);
+  } else {
+    if (y0 === y1) { y0 -= Math.abs(y0) * 0.1 || 1; y1 += Math.abs(y1) * 0.1 || 1; }
+    const pad = (y1 - y0) * 0.06; y0 -= pad; y1 += pad;
+    if (m.unidad !== "indice" && y0 < 0 && Math.min(...todos) >= 0) y0 = 0;  // múltiplos y porcentajes no bajan de 0
+    Y = (v) => mg.t + ph - (v - y0) / (y1 - y0) * ph;
+    ticks = grafTicks(y0, y1);
+  }
+  const X = (i) => mg.l + (xs.length < 2 ? pw / 2 : i / (xs.length - 1) * pw);
+  const fmt = grafFormato(m.unidad, ticks.paso);
+  if (log) fmt.eje = m.unidad === "veces" ? (v) => veces(v, v >= 10 || Number.isInteger(v) ? 0 : 1) : (v) => num(v, v >= 10 ? 0 : 1);
+  const s = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", tabindex: 0,
+    "aria-label": `${m.nombre}: ${series.map((x) => x.nombre).join(", ")}. Use las flechas para recorrer las fechas.` });
+  for (const v of ticks.t) {
+    s.append(sv("line", { x1: mg.l, x2: mg.l + pw, y1: Y(v), y2: Y(v), stroke: "#1A2540" }),
+      sv("text", { x: mg.l - 8, y: Y(v) + 4, "text-anchor": "end" }, fmt.eje(v)));
+  }
+  if (m.base100 && d.fecha_base) s.append(sv("line", { x1: mg.l, x2: mg.l + pw, y1: Y(100), y2: Y(100), stroke: "#2A3A5C" }));
+  for (const t of grafTicksFecha(xs, X, pw)) s.append(sv("text", { x: X(t.i), y: H - 7, "text-anchor": "middle" }, t.rotulo));
+  const iBase = d.fecha_base ? xs.indexOf(d.fecha_base) : -1;
+  if (iBase > 0) {
+    const xb = X(iBase);
+    s.append(sv("line", { x1: xb, x2: xb, y1: mg.t - 4, y2: mg.t + ph, stroke: "#2A3A5C" }),
+      sv("text", { x: Math.min(xb, mg.l + pw), y: mg.t - 9, "text-anchor": xb > mg.l + pw - 120 ? "end" : "middle" }, "base 100 · " + fecha(d.fecha_base)));
+  }
+  // Cada serie une sus propios datos (una fecha sin dato no se rellena: el tooltip dice "sin dato"); si entre
+  // dos datos pasa mucho tiempo (más de 45 días en series diarias, 100 en mensuales) la línea se corta
+  const dia = (x) => Date.UTC(+x.slice(0, 4), +x.slice(5, 7) - 1, +x.slice(8, 10)) / 864e5;
+  const hueco = m.frecuencia === "mensual" ? 100 : 45;
+  for (const se of series) {
+    const e = estilo(se);
+    const tramos = []; let previo = null;
+    d.valores[se.id].forEach((v, i) => {
+      if (v == null) return;
+      if (previo == null || dia(xs[i]) - dia(xs[previo]) > hueco) tramos.push([]);
+      tramos[tramos.length - 1].push([X(i).toFixed(1), Y(v).toFixed(1)]);
+      previo = i;
+    });
+    const dd = tramos.map((t) => t.map(([x, y], k) => (k ? "L" : "M") + x + "," + y).join("")).join("");
+    // Un dato aislado (sin vecino cercano) se ve como punto
+    for (const t of tramos) if (t.length === 1) s.append(sv("circle", { cx: t[0][0], cy: t[0][1], r: 2.5, fill: e.color }));
+    s.append(sv("path", { d: dd, fill: "none", stroke: e.color, "stroke-width": 2, "stroke-dasharray": e.guiones, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  }
+  if (conRotulos) {
+    // Rótulo al final de cada línea, separados al menos 14 px y dentro del área
+    const fin = series.map((se) => { const vals = d.valores[se.id]; let i = vals.length - 1; while (vals[i] == null) i--; return { se, i, y: Y(vals[i]), ty: Y(vals[i]) }; })
+      .sort((a, b) => a.y - b.y);
+    for (let k = 1; k < fin.length; k++) fin[k].ty = Math.max(fin[k].ty, fin[k - 1].ty + 14);
+    const limite = mg.t + ph;
+    for (let k = fin.length - 1; k >= 0; k--) fin[k].ty = Math.min(fin[k].ty, k === fin.length - 1 ? limite : fin[k + 1].ty - 14);
+    for (const f of fin) {
+      const e = estilo(f.se), xf = X(f.i);
+      s.append(sv("circle", { cx: xf, cy: f.y, r: 3.5, fill: e.color, stroke: "#111A2C", "stroke-width": 2 }));
+      const nombre = f.se.nombre.length > 16 ? f.se.nombre.slice(0, 15) + "…" : f.se.nombre;
+      s.append(sv("text", { x: mg.l + pw + 8, y: f.ty + 4, class: "et2" }, nombre));
+    }
+  }
+  const cruz = sv("line", { y1: mg.t, y2: mg.t + ph, stroke: "#5B6B8C", visibility: "hidden" });
+  s.append(cruz);
+  const puntos = series.map((se) => { const c = sv("circle", { r: 4, fill: estilo(se).color, stroke: "#111A2C", "stroke-width": 2, visibility: "hidden" }); s.append(c); return c; });
+  let actual = null;
+  const marcar = (i, cx, cy) => {
+    actual = i;
+    const x = X(i);
+    cruz.setAttribute("x1", x); cruz.setAttribute("x2", x); cruz.setAttribute("visibility", "visible");
+    const filas = series.map((se, k) => {
+      const v = d.valores[se.id][i];
+      if (v == null) puntos[k].setAttribute("visibility", "hidden");
+      else { puntos[k].setAttribute("cx", x); puntos[k].setAttribute("cy", Y(v)); puntos[k].setAttribute("visibility", "visible"); }
+      return { v, nombre: se.nombre, valor: v == null ? "sin dato" : fmt.tip(v), ...estilo(se) };
+    }).sort((a, b) => (b.v ?? -Infinity) - (a.v ?? -Infinity));
+    grafTip(cx, cy, fecha(xs[i]), filas);
+  };
+  const soltar = () => { actual = null; cruz.setAttribute("visibility", "hidden"); puntos.forEach((p) => p.setAttribute("visibility", "hidden")); ocultarTip(); };
+  const zona = sv("rect", { x: mg.l, y: mg.t, width: pw, height: ph, fill: "transparent" });
+  zona.addEventListener("pointermove", (ev) => {
+    const r = s.getBoundingClientRect();
+    const i = Math.max(0, Math.min(xs.length - 1, Math.round((ev.clientX - r.left - mg.l) / pw * (xs.length - 1))));
+    marcar(i, ev.clientX, ev.clientY);
+  });
+  zona.addEventListener("pointerleave", soltar);
+  s.addEventListener("keydown", (ev) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(ev.key)) return;
+    ev.preventDefault();
+    const n = xs.length - 1, salto = ev.shiftKey ? 20 : 1;
+    const i = ev.key === "Home" ? 0 : ev.key === "End" ? n : Math.max(0, Math.min(n, (actual ?? n) + (ev.key === "ArrowLeft" ? -salto : salto)));
+    const r = s.getBoundingClientRect();
+    marcar(i, r.left + X(i), r.top + mg.t + 10);
+  });
+  s.addEventListener("blur", soltar);
+  s.append(zona);
+  caja.append(s);
+}
+
+paginas.graficador = async (v) => {
+  const opciones = await api("/api/graficador/opciones");
+  const idsIndices = opciones.indices.map((i) => i.id);
+  const st = grafLeerUrl(idsIndices);
+  if (!opciones.metricas.some((m) => m.id === st.metrica)) { st.avisos.push(`Métrica desconocida «${st.metrica}»: se muestra el retorno total.`); st.metrica = "retorno_total"; }
+  if (!opciones.periodos.includes(st.periodo)) st.periodo = "1a";
+  const metricaDe = (id) => opciones.metricas.find((m) => m.id === id);
+  const estilo = (se) => se.tipo === "indice" ? (GRAF_ESTILO_INDICE[se.id] || { color: "#9AA4B8", guiones: null })
+    : { color: GRAF_COLORES[st.ranuras.findIndex((a) => a && a.especie === se.id)] || "#9AA4B8", guiones: null };
+
+  v.append(el("div", { class: "encabezado" }, el("div", {}, el("h1", {}, "Graficador"),
+    el("div", { class: "sub" }, `Compare hasta ${GRAF_MAX} acciones y los índices en una misma gráfica · datos al ${fecha(estado.info?.ultimo_precio)} · educativo: trayectorias pasadas, no recomendaciones`))));
+
+  // Controles: una fila de selección y una de métrica, periodo e índices
+  const mensaje = el("span", { class: "nota", role: "status" });
+  const entrada = el("input", { type: "search", list: listaActivos, placeholder: "Agregar: nemotécnico o nombre", autocomplete: "off", "aria-label": "Agregar acción" });
+  const chips = el("div", { class: "graf-chips" });
+  const selMetrica = el("select", { class: "graf-select", "aria-label": "Métrica" }, opciones.metricas.map((m) => el("option", { value: m.id }, m.nombre)));
+  const periodos = el("div", { class: "grupo", role: "group", "aria-label": "Periodo" });
+  const indices = el("div", { class: "grupo", role: "group", "aria-label": "Índices" });
+  const chkLog = el("input", { type: "checkbox", id: "graf-log" });
+  const etiquetaLog = el("label", { for: "graf-log", class: "graf-check" }, chkLog, "Escala logarítmica");
+  const agregar = () => {
+    const a = grafBuscarActivo(entrada.value);
+    if (!entrada.value.trim()) return;
+    if (!a) { mensaje.textContent = `No se encontró «${entrada.value.trim()}».`; return; }
+    entrada.value = "";
+    if (st.ranuras.some((x) => x && x.especie === a.especie)) { mensaje.textContent = `${nombreActivo(a)} ya está en la gráfica.`; return; }
+    if (st.ranuras.filter(Boolean).length >= GRAF_MAX) { mensaje.textContent = `Máximo ${GRAF_MAX} acciones: quite una para agregar otra.`; return; }
+    const hueco = st.ranuras.indexOf(null);
+    if (hueco >= 0) st.ranuras[hueco] = a; else st.ranuras.push(a);
+    mensaje.textContent = "";
+    cambiar();
+  };
+  entrada.addEventListener("change", agregar);
+  entrada.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); agregar(); } });
+  selMetrica.addEventListener("change", () => { st.metrica = selMetrica.value; cambiar(); });
+  chkLog.addEventListener("change", () => { st.log = chkLog.checked; cambiar(); });
+
+  const pintarControles = () => {
+    const elegidas = st.ranuras.filter(Boolean);
+    const repetido = (a) => elegidas.filter((b) => nombreActivo(b) === nombreActivo(a)).length > 1;
+    chips.replaceChildren(...st.ranuras.map((a, i) => a && el("span", { class: "graf-chip", title: a.especie },
+      grafMuestra(GRAF_COLORES[i], null), nombreActivo(a) + (repetido(a) ? ` (${grafToken(a)})` : ""),
+      el("button", { type: "button", "aria-label": "Quitar " + nombreActivo(a), onclick: () => {
+        st.ranuras[st.ranuras.indexOf(a)] = null;
+        while (st.ranuras.length && !st.ranuras[st.ranuras.length - 1]) st.ranuras.pop();
+        cambiar();
+      } }, "✕"))).filter(Boolean));
+    if (!elegidas.length) chips.append(el("span", { class: "nota" }, "Sin acciones elegidas."));
+    entrada.disabled = elegidas.length >= GRAF_MAX;
+    entrada.placeholder = entrada.disabled ? `Máximo ${GRAF_MAX} acciones` : "Agregar: nemotécnico o nombre";
+    selMetrica.value = st.metrica;
+    const m = metricaDe(st.metrica);
+    chkLog.checked = st.log && grafLogPermitido(m); chkLog.disabled = !grafLogPermitido(m);
+    etiquetaLog.style.opacity = grafLogPermitido(m) ? "1" : ".5";
+    periodos.replaceChildren(...GRAF_PERIODOS.map(([id, t]) => el("button", { type: "button", "aria-pressed": String(st.periodo === id), onclick: () => { st.periodo = id; cambiar(); } }, t)));
+    indices.replaceChildren(...opciones.indices.map((i) => el("button", { type: "button", "aria-pressed": String(st.indices.includes(i.id)), disabled: !m.base100,
+      title: `${i.nota}; datos desde el ${fecha(i.desde)}` + (m.base100 ? "" : " (solo en las métricas en base 100)"),
+      onclick: () => { st.indices = st.indices.includes(i.id) ? st.indices.filter((x) => x !== i.id) : [...st.indices, i.id]; cambiar(); } },
+      el("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px" } }, grafMuestra(GRAF_ESTILO_INDICE[i.id]?.color || "#9AA4B8", GRAF_ESTILO_INDICE[i.id]?.guiones),
+        i.nombre + (i.observaciones < 250 ? ` (desde ${fechaCorta(i.desde)})` : "")))));
+  };
+  v.append(el("section", { class: "panel" },
+    el("div", { class: "graf-controles" }, entrada, el("button", { type: "button", class: "boton", onclick: agregar }, "Agregar"), chips),
+    el("div", { class: "graf-controles" }, el("label", { class: "graf-check" }, "Métrica", selMetrica), periodos, etiquetaLog),
+    el("div", { class: "graf-controles" }, el("span", { class: "graf-check" }, "Índices de referencia (base 100)"), indices),
+    st.avisos.length ? el("div", { class: "aviso" }, st.avisos.join(" ")) : null, mensaje));
+
+  const titulo = el("h2", {});
+  const leyendaCaja = el("div", { class: "leyenda" });
+  const caja = el("div", { class: "graf-caja" });
+  const notas = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
+  v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" }, titulo, leyendaCaja), caja, notas));
+  const cajaTabla = el("div");
+  const exportar = el("button", { type: "button", class: "boton", disabled: true }, "Exportar resumen CSV");
+  const exportarSerie = el("button", { type: "button", class: "boton", disabled: true }, "Exportar series CSV");
+  v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Resumen del periodo"),
+    el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, exportar, exportarSerie)), cajaTabla));
+
+  let pedido = 0;
+  const pintar = async () => {
+    pintarControles();
+    const m = metricaDe(st.metrica);
+    const etiquetaPeriodo = GRAF_PERIODOS.find(([id]) => id === st.periodo)[1];
+    titulo.replaceChildren(m.nombre + " · " + etiquetaPeriodo, ...(m.variable && estado.variables[m.variable] ? [info(m.variable)] : []));
+    const elegidas = st.ranuras.filter(Boolean);
+    const tokens = [...elegidas.map((a) => a.especie), ...(m.base100 ? st.indices : [])];
+    if (!tokens.length) {
+      leyendaCaja.replaceChildren(); notas.replaceChildren();
+      caja.replaceChildren(el("div", { class: "vacio" }, "Agregue acciones con el buscador de arriba o active un índice. Desde la ficha de una acción, «Comparar en el graficador» la abre con sus pares del sector."));
+      cajaTabla.replaceChildren(el("div", { class: "vacio" }, "Sin series."));
+      exportar.disabled = exportarSerie.disabled = true;
+      return;
+    }
+    const n = ++pedido;
+    caja.classList.add("cargando");  // mientras llega lo nuevo queda la gráfica anterior, atenuada
+    if (!caja.children.length) caja.append(cargando());
+    let d;
+    try {
+      d = await api(`/api/graficador?series=${tokens.map(encodeURIComponent).join(",")}&metrica=${st.metrica}&periodo=${st.periodo}`);
+    } catch (e) {
+      if (n !== pedido) return;
+      caja.classList.remove("cargando");
+      caja.replaceChildren(el("p", { class: "mensaje error" }, "No se pudo graficar: " + e.message));
+      return;
+    }
+    if (n !== pedido) return;
+    caja.classList.remove("cargando");
+    const conDatos = d.series.filter((s) => s.observaciones > 0);
+    leyendaCaja.replaceChildren(...(conDatos.length >= 2 ? conDatos.map((s) => { const e = estilo(s); return el("span", {}, grafMuestra(e.color, e.guiones), s.nombre); }) : []));
+    grafDibujar(caja, d, estilo, { log: st.log, alto: 360 });
+    notas.replaceChildren(el("p", { class: "desc" }, m.descripcion + (m.frecuencia === "mensual" ? " Un dato por fin de mes." : "")
+      + (d.periodo.desde ? ` Periodo: ${fecha(d.periodo.desde)} a ${fecha(d.periodo.hasta)}.` : "")),
+      ...d.avisos.map((a) => el("p", { class: "desc" }, a.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (x) => fecha(x)))));
+    const nombre = Object.fromEntries(d.series.map((s) => [s.id, s]));
+    const fmt = grafFormato(m.unidad, null);
+    const filas = d.resumen.map((r) => ({ ...r, serie: nombre[r.id] }));
+    const cols = [
+      { k: "nombre", t: "Serie", izq: true, v: (r) => r.serie.nombre, f: (r) => el("span", { style: { display: "inline-flex", alignItems: "center", gap: "8px" } },
+        grafMuestra(estilo(r.serie).color, estilo(r.serie).guiones),
+        r.serie.tipo === "accion" ? el("a", { href: "#/ficha/" + r.serie.especie, style: { fontWeight: 600 } }, r.serie.nombre) : r.serie.nombre) },
+      { k: "fecha_inicial", t: "Desde", izq: true, f: (r) => r.fecha_inicial ? fecha(r.fecha_inicial) : "—" },
+      { k: "inicial", t: "Inicial", f: (r) => r.inicial == null ? "—" : fmt.tip(r.inicial) },
+      { k: "final", t: "Final", f: (r) => r.final == null ? "—" : fmt.tip(r.final) },
+      // Verde o rojo solo para retornos; subir o bajar un múltiplo o una volatilidad no es bueno ni malo en sí
+      { k: "variacion", t: "Variación", f: (r) => el("span", { class: r.variacion == null || !m.base100 ? "" : r.variacion >= 0 ? "sube" : "baja" }, grafVariacion(r, m)) },
+      { k: "maximo", t: "Máximo", f: (r) => r.maximo == null ? "—" : `${fmt.tip(r.maximo)} · ${fecha(r.fecha_maximo)}` },
+      { k: "minimo", t: "Mínimo", f: (r) => r.minimo == null ? "—" : `${fmt.tip(r.minimo)} · ${fecha(r.fecha_minimo)}` },
+      { k: "observaciones", t: "Datos", f: (r) => num(r.observaciones, 0) },
+    ];
+    cajaTabla.replaceChildren(tabla(cols, filas), el("p", { class: "desc" }, m.variacion === "relativa"
+      ? "Variación = final / inicial − 1, entre el primer y el último dato de cada serie en el periodo."
+      : "Variación = final − inicial" + (m.unidad === "porcentaje" ? ", en puntos porcentuales." : ", en puntos.")));
+    const archivo = `graficador_${st.metrica}_${st.periodo}_${d.periodo.hasta || ""}`;
+    exportar.disabled = exportarSerie.disabled = false;
+    exportar.onclick = () => csv(archivo + "_resumen.csv", [
+      { k: "id", t: "Serie" }, { k: "nombre", t: "Nombre", v: (r) => r.serie.nombre }, { k: "fecha_inicial", t: "Fecha inicial" }, { k: "inicial", t: "Inicial" },
+      { k: "fecha_final", t: "Fecha final" }, { k: "final", t: "Final" }, { k: "variacion", t: m.variacion === "relativa" ? "Variación (fracción)" : "Variación (puntos)" },
+      { k: "maximo", t: "Máximo" }, { k: "fecha_maximo", t: "Fecha máximo" }, { k: "minimo", t: "Mínimo" }, { k: "fecha_minimo", t: "Fecha mínimo" },
+      { k: "observaciones", t: "Datos" }], filas);
+    exportarSerie.onclick = () => csv(archivo + "_series.csv", [{ k: "fecha", t: "Fecha" }, ...d.series.map((s) => ({ k: s.id, t: s.nombre }))],
+      d.fechas.map((f, i) => Object.fromEntries([["fecha", f], ...d.series.map((s) => [s.id, d.valores[s.id][i]])])));
+  };
+  const cambiar = () => { history.replaceState(null, "", grafHref(st)); pintar(); };
+  // La URL queda con la selección resuelta (nemotécnicos y huecos), lista para compartir o volver
+  if (location.hash.includes("?")) history.replaceState(null, "", grafHref(st));
+  requestAnimationFrame(pintar);
+};
+// ===== fin Graficador =====
+
 // ------------------------------------------------------------------ navegación
 async function refrescarEstado() {
   estado.info = await api("/api/estado");
@@ -921,7 +1554,7 @@ async function refrescarEstado() {
 }
 
 async function ir() {
-  const [ruta, parametro] = (location.hash.replace(/^#\/?/, "") || "mercado").split("/");
+  const [ruta, parametro] = (location.hash.replace(/^#\/?/, "").split("?")[0] || "mercado").split("/");  // ?… lo lee la página
   const nombre = paginas[ruta] ? ruta : "mercado";
   document.querySelectorAll("#menu a").forEach((a) => { if (a.dataset.ruta !== nombre) a.removeAttribute("aria-current"); else a.setAttribute("aria-current", "page"); });
   const vista = $("#vista");

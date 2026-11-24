@@ -149,11 +149,127 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
     # Si dos anexos del mismo corte traen la misma cifra por acción con valores distintos, manda el 211:
     # sus acciones en circulación son las del mismo formulario, y el cotejo con Supersociedades le dio la
     # razón en 10 de 12 desacuerdos (Grupo Bolívar 2021-2025: el 141 da un patrimonio 13 % menor)
+    df = descartar_fuente_discordante(df)
     prioridad = pl.col("fuente").replace_strict(PRIORIDAD_ANEXOS, default=9, return_dtype=pl.Int32)
     df = (df.with_columns(prioridad.alias("_p")).sort(["emisor_id", "fecha_corte", "concepto", "_p"])
           .unique(subset=["emisor_id", "fecha_corte", "concepto", "base"], keep="first", maintain_order=True)
           .drop("_p"))
+    df = descartar_upa_imposible(descartar_saltos(df))
     return _a_dolares(_fecha_disponible_anexo(df)).select(list(ESQUEMA))
+
+
+SALTO_MAXIMO = 20.0   # veces; un split de verdad queda en gold/fact_split y no se descarta
+# Solo el valor patrimonial: es un saldo y se mueve poco. La utilidad por acción es acumulada en el año y
+# puede pasar de 0,2 a 13 sin error (o cambiar de signo), así que se controla contra el valor patrimonial.
+POR_ACCION = ("valor_patrimonial_accion",)
+UPA_SOBRE_VPA_MAXIMO = 1.5   # una utilidad por acción mayor que 1,5 veces el valor patrimonial es otra escala
+
+
+def _salto(a: float, b: float) -> bool:
+    return max(abs(a), abs(b)) / max(min(abs(a), abs(b)), 1e-12) > SALTO_MAXIMO
+
+
+def _fechas_split() -> dict[str, list]:
+    """Fechas de split por emisor (gold/fact_split viene por especie)."""
+    con_split: dict[str, list] = {}
+    try:
+        splits = storage.leer_tabla("gold", "fact_split")
+        activos = storage.leer_dim("dim_activo")
+    except Exception:  # noqa: BLE001 - sin tablas todavía (primera corrida o pruebas)
+        return con_split
+    if splits is not None and activos is not None and not splits.is_empty():
+        emisor_de = dict(activos.select("especie", "emisor_id").iter_rows())
+        for especie, f in splits.select("especie", "fecha").iter_rows():
+            if emisor_de.get(especie):
+                con_split.setdefault(emisor_de[especie], []).append(f)
+    return con_split
+
+
+def descartar_fuente_discordante(df: pl.DataFrame) -> pl.DataFrame:
+    """Quita una cifra por acción de un anexo de menor prioridad que se aparta más de ``SALTO_MAXIMO`` veces
+    de la cifra más cercana en el tiempo del anexo preferido del mismo emisor (sin split entre medio).
+    BAC (BHI) es emisor en dólares: el 211 dice 0,08 de valor patrimonial y 0,01 de utilidad por acción, y el
+    141 trae desde sep-2025 cifras de otra escala (128,41 y 53,67) aun en cortes donde el 211 no reportó.
+    """
+    if df.is_empty() or "fuente" not in df.columns:
+        return df
+    con_split = _fechas_split()
+    descartar = set()
+    sub = df.filter(pl.col("concepto").is_in(POR_ACCION), pl.col("valor").is_not_null(), pl.col("valor") != 0)
+    for (emisor, concepto, base), g in sub.group_by(["emisor_id", "concepto", "base"]):
+        fuentes = set(g.get_column("fuente").to_list())
+        if len(fuentes) < 2:
+            continue
+        mejor = min(fuentes, key=lambda f: PRIORIDAD_ANEXOS.get(f, 9))
+        ref = sorted(g.filter(pl.col("fuente") == mejor).select("fecha_corte", "valor").iter_rows())
+        for fecha, valor, fuente in g.filter(pl.col("fuente") != mejor).select("fecha_corte", "valor", "fuente").iter_rows():
+            f_ref, v_ref = min(ref, key=lambda r: abs((r[0] - fecha).days))
+            hay_split = any(min(fecha, f_ref) <= d <= max(fecha, f_ref) for d in con_split.get(emisor, []))
+            if not hay_split and _salto(valor, v_ref):
+                descartar.add((emisor, concepto, base, fecha, fuente))
+    if not descartar:
+        return df
+    marca = pl.struct(["emisor_id", "concepto", "base", "fecha_corte", "fuente"]).map_elements(
+        lambda r: (r["emisor_id"], r["concepto"], r["base"], r["fecha_corte"], r["fuente"]) in descartar,
+        return_dtype=pl.Boolean)
+    return df.filter(~marca)
+
+
+def descartar_saltos(df: pl.DataFrame, tramo_maximo: int = 4) -> pl.DataFrame:
+    """Quita un tramo de hasta ``tramo_maximo`` cortes seguidos de valor patrimonial por acción que se aparta
+    más de ``SALTO_MAXIMO`` veces del corte anterior y del siguiente, cuando esos dos coinciden entre sí y no
+    hay un split del emisor entre medio. Es otra escala (miles de pesos, dólares), no un cambio real:
+    Paz del Río dic-2020 y dic-2021 dicen 0,02 entre 20,61 (2019) y 19,24 (2024).
+    En los extremos de la serie no se descarta nada: ahí no se distingue un error de un cambio de nivel.
+    """
+    if df.is_empty():
+        return df
+    con_split = _fechas_split()
+    descartar = set()
+    for (emisor, concepto, base), g in (df.filter(pl.col("concepto").is_in(POR_ACCION))
+                                        .group_by(["emisor_id", "concepto", "base"])):
+        filas = sorted((f, v) for f, v in g.select("fecha_corte", "valor").iter_rows() if v)
+        splits = con_split.get(emisor, [])
+        for i in range(1, len(filas) - 1):
+            for largo in range(1, tramo_maximo + 1):
+                if i + largo >= len(filas):
+                    break
+                antes, despues, tramo = filas[i - 1], filas[i + largo], filas[i:i + largo]
+                if _salto(antes[1], despues[1]) or any(antes[0] <= d <= despues[0] for d in splits):
+                    continue
+                if all(_salto(v, antes[1]) and _salto(v, despues[1]) for _, v in tramo):
+                    descartar.update((emisor, concepto, base, f) for f, _ in tramo)
+                    break
+    if not descartar:
+        return df
+    marca = pl.struct(["emisor_id", "concepto", "base", "fecha_corte"]).map_elements(
+        lambda r: (r["emisor_id"], r["concepto"], r["base"], r["fecha_corte"]) in descartar, return_dtype=pl.Boolean)
+    return df.filter(~marca)
+
+def descartar_upa_imposible(df: pl.DataFrame, dias: int = 200) -> pl.DataFrame:
+    """Quita una utilidad por acción mayor (en valor absoluto) que ``UPA_SOBRE_VPA_MAXIMO`` veces el valor
+    patrimonial por acción del mismo emisor y base, en el mismo corte o el más cercano a menos de ``dias``:
+    sería una rentabilidad patrimonial de más de 150 % en el año. BAC (BHI) sep-2025: 53,67 contra 0,07."""
+    if df.is_empty():
+        return df
+    vpa: dict[tuple, list] = {}
+    for e, b, f, v in (df.filter(pl.col("concepto") == "valor_patrimonial_accion", pl.col("valor") > 0)
+                       .select("emisor_id", "base", "fecha_corte", "valor").iter_rows()):
+        vpa.setdefault((e, b), []).append((f, v))
+    descartar = set()
+    for e, b, f, v in (df.filter(pl.col("concepto") == "utilidad_accion", pl.col("valor").is_not_null())
+                       .select("emisor_id", "base", "fecha_corte", "valor").iter_rows()):
+        cerca = [r for r in vpa.get((e, b), []) if abs((r[0] - f).days) <= dias]
+        if not cerca:
+            continue
+        _, v_ref = min(cerca, key=lambda r: abs((r[0] - f).days))
+        if abs(v) > UPA_SOBRE_VPA_MAXIMO * v_ref:
+            descartar.add((e, b, f))
+    if not descartar:
+        return df
+    marca = (pl.col("concepto") == "utilidad_accion") & pl.struct(["emisor_id", "base", "fecha_corte"]).map_elements(
+        lambda r: (r["emisor_id"], r["base"], r["fecha_corte"]) in descartar, return_dtype=pl.Boolean)
+    return df.filter(~marca)
 
 
 PRIORIDAD_ANEXOS = {"anexo_211": 0, "anexo_187": 1, "anexo_141": 2}

@@ -112,3 +112,42 @@ def test_valor_por_accion_de_dos_anexos_manda_el_211():
                            celda("211", 1, "VALOR PATRIMONIAL POR ACCION", "VALOR", 178331.0)])
     f = fundamentales.desde_anexos(anexos).filter(pl.col("concepto") == "valor_patrimonial_accion")
     assert f.get_column("valor").to_list() == [178331.0] and f.get_column("fuente").to_list() == ["anexo_211"]
+
+
+def test_cifra_por_accion_absurda_se_descarta():
+    # BAC (BHI): 0,08 dólares de valor patrimonial por acción, y en mar-2026 el 141 dice 128,41
+    def fila(corte, valor):
+        return {"emisor_id": "CO-PAT07", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",
+                "valor": valor, "unidad": "pesos_por_accion", "base": "separado", "fuente": "anexo_141"}
+    df = pl.DataFrame([fila(date(2025, 12, 31), 0.08), fila(date(2026, 3, 31), 128.41), fila(date(2026, 6, 30), 0.08),
+                       fila(date(2026, 9, 30), 0.09)], schema=fundamentales.ESQUEMA)
+    limpio = fundamentales.descartar_saltos(df)
+    assert limpio.get_column("valor").to_list() == [0.08, 0.08, 0.09]
+    # Un cambio de nivel que persiste (p. ej. una reagrupación) no se descarta: el corte siguiente lo confirma
+    df2 = pl.DataFrame([fila(date(2025, 12, 31), 1.0), fila(date(2026, 3, 31), 500.0), fila(date(2026, 6, 30), 510.0)],
+                       schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_saltos(df2).height == 3
+    # Tramo de dos cortes en otra escala entre vecinos que coinciden (Paz del Río 2020-2021), aunque haya años sin dato
+    df3 = pl.DataFrame([fila(date(2019, 12, 31), 20.61), fila(date(2020, 12, 31), 0.02), fila(date(2021, 12, 31), 0.02),
+                        fila(date(2024, 12, 31), 19.24)], schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_saltos(df3).get_column("valor").to_list() == [20.61, 19.24]
+
+
+def test_anexo_de_menor_prioridad_en_otra_escala_se_descarta():
+    def fila(corte, valor, fuente):
+        return {"emisor_id": "CO-PAT07", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",
+                "valor": valor, "unidad": "pesos_por_accion", "base": "separado", "fuente": fuente}
+    df = pl.DataFrame([fila(date(2026, 6, 30), 0.08, "anexo_211"), fila(date(2025, 9, 30), 0.07, "anexo_141"),
+                       fila(date(2026, 9, 30), 128.41, "anexo_141")], schema=fundamentales.ESQUEMA)
+    assert sorted(fundamentales.descartar_fuente_discordante(df).get_column("valor").to_list()) == [0.07, 0.08]
+
+
+def test_utilidad_por_accion_imposible_frente_al_valor_patrimonial():
+    def fila(corte, concepto, valor):
+        return {"emisor_id": "CO-PAT07", "fecha_corte": corte, "fecha_disponible": corte, "concepto": concepto,
+                "valor": valor, "unidad": "pesos_por_accion", "base": "separado", "fuente": "anexo_141"}
+    df = pl.DataFrame([fila(date(2025, 9, 30), "valor_patrimonial_accion", 0.07), fila(date(2025, 9, 30), "utilidad_accion", 53.67),
+                       fila(date(2025, 12, 31), "utilidad_accion", 0.01), fila(date(2026, 9, 30), "utilidad_accion", -0.02)],
+                      schema=fundamentales.ESQUEMA)
+    limpio = fundamentales.descartar_upa_imposible(df)
+    assert limpio.filter(pl.col("concepto") == "utilidad_accion").get_column("valor").to_list() == [0.01, -0.02]  # 2026-09 sin VPA cercano: no se controla

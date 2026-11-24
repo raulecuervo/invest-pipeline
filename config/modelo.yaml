@@ -520,6 +520,98 @@ tablas:
       p_u: Float64
       rendimiento_utilidad: Float64
       rendimiento_dividendo_12m: Float64
+  fact_valoracion_diaria:
+    capa: gold
+    ruta: fact_valoracion_diaria
+    descripcion: "P/VL y P/U de cada día con negocios, con el valor patrimonial y la utilidad por acción vigentes ese día (as-of)"
+    grano: "especie × día con negocios"
+    claves: [fecha, especie]
+    pagina: "Valoración, Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      emisor_id: String
+      precio: Float64
+      vpa: Float64
+      corte_vpa: Date
+      upa_12m: Float64
+      corte_upa: Date
+      p_vl: Float64
+      p_u: Float64
+  fact_quiebre_valoracion:
+    capa: gold
+    ruta: fact_quiebre_valoracion
+    descripcion: "Quiebres de la historia de valoración: escisiones y repartos de acciones, splits y saltos del valor patrimonial por acción"
+    grano: "especie × fecha × tipo"
+    claves: [especie, fecha, tipo]
+    pagina: "Valoración, Ficha"
+    columnas:
+      especie: String
+      fecha: Date
+      tipo: String
+      indicador: String
+  fact_banda_valoracion:
+    capa: gold
+    ruta: fact_banda_valoracion
+    descripcion: "Bandas de valoración al último día: actual, media, desviación, z y percentil de P/VL y P/U en ventanas de 1, 3, 5 y 10 años, con cobertura y quiebres"
+    grano: "especie × indicador × ventana (última fecha)"
+    claves: [especie, indicador, ventana]
+    pagina: "Valoración, Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      emisor_id: String
+      indicador: String
+      ventana: String
+      anios: Int32
+      actual: Float64
+      fecha_actual: Date
+      media: Float64
+      desviacion: Float64
+      z: Float64
+      percentil: Float64
+      minimo: Float64
+      maximo: Float64
+      n_obs: Int64
+      sesiones: Int64
+      fecha_desde: Date
+      cobertura: Float64
+      suficiente: Boolean
+      quiebre: Date
+      tipo_quiebre: String
+      recortada: Boolean
+      aviso: String
+  fact_banda_valoracion_mensual:
+    capa: gold
+    ruta: fact_banda_valoracion_mensual
+    descripcion: "Serie histórica de las bandas de valoración a cada fin de mes (as-of), para validar si z anticipa retornos"
+    grano: "fin de mes (y última sesión) × especie × indicador × ventana"
+    claves: [fecha, especie, indicador, ventana]
+    pagina: "Screener (valoración histórica)"
+    columnas:
+      fecha: Date
+      especie: String
+      emisor_id: String
+      indicador: String
+      ventana: String
+      anios: Int32
+      actual: Float64
+      fecha_actual: Date
+      media: Float64
+      desviacion: Float64
+      z: Float64
+      percentil: Float64
+      minimo: Float64
+      maximo: Float64
+      n_obs: Int64
+      sesiones: Int64
+      fecha_desde: Date
+      cobertura: Float64
+      suficiente: Boolean
+      quiebre: Date
+      tipo_quiebre: String
+      recortada: Boolean
+      aviso: String
   fact_dividendo:
     capa: gold
     ruta: fact_dividendo
@@ -855,6 +947,10 @@ tablas:
       decision: String
       percentil_validado: Float64
       tercio_validado: String
+      z_p_vl_5a: Float64
+      quiebre_p_vl_5a: Date
+      z_p_u_5a: Float64
+      quiebre_p_u_5a: Date
   fact_screener_corrida:
     capa: gold
     ruta: fact_screener_corrida

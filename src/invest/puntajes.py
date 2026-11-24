@@ -39,6 +39,9 @@ from invest import storage
 from invest.config import cargar_yaml
 
 TOLERANCIA = "10d"
+# Columnas de las bandas de valoración (gold/fact_banda_valoracion_mensual) que pasan a fact_matriz
+COLUMNAS_BANDAS = (("z_p_vl_5a", pl.Float64), ("quiebre_p_vl_5a", pl.Date), ("z_p_u_5a", pl.Float64),
+                   ("quiebre_p_u_5a", pl.Date))
 
 
 def config() -> dict:
@@ -142,6 +145,14 @@ def panel(cfg: dict | None = None) -> pl.DataFrame | None:
             w = w.rename({"entidades": "entidad_banco", "es_holding": "banco_holding"})
             base = _asof(base, w, ["entidad_banco", "banco_holding", *presentes], fecha_otra="fecha_disponible",
                          por="emisor_id", tolerancia=_tolerancia_bancos(cfg))
+    # Bandas de valoración (src/invest/bandas.py): z de P/VL y P/U a 5 años y el último quiebre en la
+    # ventana, en las mismas fechas que fact_valoracion (para el screener de valoración histórica)
+    bandas = storage.leer_tabla("gold", "fact_banda_valoracion_mensual")
+    if bandas is not None and not bandas.is_empty():
+        for ind in ("p_vl", "p_u"):
+            b = bandas.filter((pl.col("indicador") == ind) & (pl.col("ventana") == "5a")).select(
+                "fecha", "especie", pl.col("z").alias(f"z_{ind}_5a"), pl.col("quiebre").alias(f"quiebre_{ind}_5a"))
+            base = base.join(b, on=["fecha", "especie"], how="left")
     validado = storage.leer_tabla("gold", "fact_puntaje_mensual")
     if validado is not None and not validado.is_empty():
         v = validado.with_columns(((pl.col("acciones_mes") - pl.col("posicion") + 0.5) / pl.col("acciones_mes"))
@@ -153,7 +164,7 @@ def panel(cfg: dict | None = None) -> pl.DataFrame | None:
                  ("rsi_14", pl.Float64), ("volatilidad_anual", pl.Float64), ("drawdown_maximo", pl.Float64),
                  ("beta", pl.Float64), ("apalancamiento", pl.Float64), ("crecimiento_upa_12m", pl.Float64),
                  ("crecimiento_ingresos_12m", pl.Float64), ("percentil_validado", pl.Float64),
-                 ("tercio_validado", pl.Utf8), *_columnas_banco(cfg)):
+                 ("tercio_validado", pl.Utf8), *COLUMNAS_BANDAS, *_columnas_banco(cfg)):
         if c not in base.columns:
             base = base.with_columns(pl.lit(None, t).alias(c))
     base = base.with_columns(_es_banco(cfg).alias("es_banco"))
@@ -213,7 +224,7 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
     e = cfg["escala"]
     zmax, minimo = float(e["z_max"]), int(e["minimo_pares"])
     minimo_bancos = int((cfg.get("bancos") or {}).get("minimo_pares", minimo))
-    for c, t in _columnas_banco(cfg):
+    for c, t in (*_columnas_banco(cfg), *COLUMNAS_BANDAS):
         if c not in p.columns:
             p = p.with_columns(pl.lit(None, t).alias(c))
     if "es_banco" not in p.columns:
@@ -327,6 +338,7 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
         "es_banco", "banco_holding", *metricas_banco(cfg),
         *[f"puntaje_{a}" for a in agregados], *[f"_m_{f}" for f in cfg["factores"]],
         "cuadrante", "estado", "decision", "percentil_validado", "tercio_validado",
+        *[c for c, _ in COLUMNAS_BANDAS],
     ]
     matriz = m.select(columnas_matriz).rename({f"_m_{f}": f"metricas_{f}" for f in cfg["factores"]}) \
         .sort(["fecha", "especie"])
