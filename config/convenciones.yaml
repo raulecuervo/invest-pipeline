@@ -45,6 +45,7 @@ fundamentales:
   # Estados publicados por la compañía (PDF) sin fecha de publicación detectada
   dias_disponible_pdf_intermedio: 60
   dias_disponible_pdf_cierre: 90
+  dias_resubida_pdf: 120          # publicación detectada más de 120 días después del plazo = archivo resubido: vale el plazo
 
 dividendos:
   # Periodo ex-dividendo: días hábiles bursátiles antes de la fecha de pago (el periodo incluye el

@@ -39,6 +39,7 @@ from invest.ingest.base import Conector
 URL = "https://www.superfinanciera.gov.co/SIMEV2/rnve/informesfinancierosniif/{tipo}/{codigo:06d}/0"
 MESES = {3: "Marzo", 6: "Junio", 9: "Septiembre", 12: "Diciembre"}
 INICIO = date(2015, 3, 31)  # la SFC publica XBRL desde el primer trimestre de 2015
+FALLOS_SEGUIDOS_MAXIMO = 8  # cortes seguidos que fallan (el SIMEV no responde): se detiene la corrida
 
 XBRLI = "{http://www.xbrl.org/2003/instance}"
 PREFIJOS = {  # espacio de nombres → prefijo corto (la versión del año de la taxonomía no importa)
@@ -442,7 +443,8 @@ class ConectorNIIF(Conector):
         if not pendientes:
             self.sin_novedades = True
             return anexos
-        vacios = con_xbrl = 0
+        vacios = con_xbrl = seguidos = 0
+        detenida = None
         lote = pendientes[:maximo]
         print(f"  SIMEV: {len(lote)} cortes por revisar (de {len(pendientes)} pendientes)", flush=True)
         with self._pagina_factory() as pagina:
@@ -464,7 +466,15 @@ class ConectorNIIF(Conector):
                          f"anexos {len(encontrado['anexos'])}, XBRL {'sí' if encontrado['xbrl'] else 'no'}" if encontrado
                          else "sin nada"), flush=True)
                 if not encontrado and fallo:
-                    continue  # no se marca: se vuelve a intentar
+                    # No se marca: se vuelve a intentar. Si el SIMEV deja de responder (varias fallas seguidas),
+                    # se detiene la corrida en vez de seguir insistiendo; lo que falta queda pendiente
+                    seguidos += 1
+                    if seguidos >= FALLOS_SEGUIDOS_MAXIMO:
+                        detenida = n
+                        print(f"  SIMEV: {seguidos} fallas seguidas; se detiene la corrida", flush=True)
+                        break
+                    continue
+                seguidos = 0
                 if not encontrado:
                     estado[clave] = {"radicado": None, "anexos": 0, "revisado": hoy.isoformat()}
                     vacios += 1
@@ -512,9 +522,12 @@ class ConectorNIIF(Conector):
             df = df.filter(pl.col("fecha_fin") <= pl.col("fecha_corte"))
             storage.upsert_por_anio("silver", "fact_xbrl_sfc", df, self.claves_xbrl, "fecha_corte")
             self.notas.append(f"hechos XBRL {df.height} en fact_xbrl_sfc")
-        leidos = min(len(pendientes), maximo)
+        leidos = detenida or min(len(pendientes), maximo)
+        if detenida:
+            self.notas.append(f"corrida detenida tras {FALLOS_SEGUIDOS_MAXIMO} fallas seguidas del SIMEV (corte {detenida} "
+                              f"de {len(lote)}); se retoma en la próxima")
         self.notas.append(f"cortes revisados {leidos}: con anexos o XBRL {leidos - vacios}, con XBRL {con_xbrl}, "
-                          f"sin nada {vacios}; pendientes para otra corrida {max(len(pendientes) - maximo, 0)}")
+                          f"sin nada {vacios}; pendientes para otra corrida {len(pendientes) - leidos}")
         if errores:
             self.notas.append(f"errores {len(errores)} (se reintentan en la próxima corrida; un XBRL ilegible, hasta 3 "
                               "veces): " + ", ".join(errores[:5]))

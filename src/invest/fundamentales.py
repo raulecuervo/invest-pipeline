@@ -313,7 +313,12 @@ def desde_pdf_compania(ee: pl.DataFrame | None) -> pl.DataFrame:
     plazo = (pl.when(pl.col("fecha_corte").dt.month() == 12).then(pl.col("fecha_corte") + timedelta(days=cierre))
              .otherwise(pl.col("fecha_corte") + timedelta(days=intermedio)))
     descubierto = pl.col("fecha_descubierto") if "fecha_descubierto" in ee.columns else pl.lit(None, pl.Date)
-    detectada = pl.when(pl.col("fecha_publicacion") >= pl.col("fecha_corte")).then(pl.col("fecha_publicacion"))
+    # Una fecha de publicación muy posterior al plazo es una resubida del archivo, no su publicación (Mineros
+    # volvió a subir en sep-2024 los estados de 2022 y 2023): entonces vale el plazo conservador
+    resubida = int(cfg.get("dias_resubida_pdf", 120))
+    detectada = (pl.when((pl.col("fecha_publicacion") >= pl.col("fecha_corte"))
+                         & (pl.col("fecha_publicacion") <= plazo + timedelta(days=resubida)))
+                 .then(pl.col("fecha_publicacion")))
     # Sin fecha detectada: el plazo conservador, salvo que el PDF ya se tuviera antes (se publicó a más tardar ese día)
     respaldo = pl.when(descubierto.is_not_null() & (descubierto < plazo) & (descubierto >= pl.col("fecha_corte"))) \
         .then(descubierto).otherwise(plazo)

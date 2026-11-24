@@ -138,6 +138,26 @@ def _tras_cambio_usuario() -> None:
 
 
 # --------------------------------------------------------------------------- estado y búsqueda
+def huella_codigo() -> str:
+    """Fecha y tamaño de los .py del paquete: cambia si se actualizó el código (``git pull``)."""
+    base = Path(__file__).resolve().parents[1]
+    partes = sorted((str(f.relative_to(base)), f.stat().st_mtime_ns, f.stat().st_size) for f in base.rglob("*.py"))
+    return str(hash(tuple(partes)))
+
+
+HUELLA_INICIO = huella_codigo()
+
+
+def resolver_especie(texto: str) -> str:
+    """Acepta el código SFC de la especie, el nemotécnico (ECOPETROL) o el nombre corto del emisor."""
+    if q1("SELECT 1 AS x FROM dim_activo WHERE especie = ?", [texto]):
+        return texto
+    fila = q1("""SELECT a.especie FROM dim_activo a LEFT JOIN dim_emisor e USING (emisor_id)
+                 WHERE upper(a.nemotecnico) = upper(?) OR lower(e.nombre_corto) = lower(?)
+                 ORDER BY a.activa DESC, (a.clase_accion = 'ordinaria') DESC LIMIT 1""", [texto, texto])
+    return fila["especie"] if fila else texto
+
+
 @app.get("/api/estado")
 def estado():
     precio = q1("SELECT max(fecha) AS f FROM fact_precio_diario")
@@ -145,7 +165,9 @@ def estado():
     carteras = q("SELECT cartera_id, nombre, tipo, perfil_id FROM dim_cartera ORDER BY nombre")
     perfiles = q("SELECT perfil_id, max(version) AS version, any_value(nombre) AS nombre FROM dim_perfil GROUP BY 1 ORDER BY 3")
     return responder({"ultimo_precio": precio and precio["f"], "fecha_matriz": matriz and matriz["f"],
-                      "carteras": carteras, "perfiles": perfiles, "base": str(ruta_base())})
+                      "carteras": carteras, "perfiles": perfiles, "base": str(ruta_base()),
+                      # El código cambió desde que arrancó el servidor: hay que cerrarlo y volverlo a abrir
+                      "reiniciar": huella_codigo() != HUELLA_INICIO})
 
 
 @app.get("/api/activos")
@@ -253,6 +275,7 @@ def matriz():
 # --------------------------------------------------------------------------- ficha
 @app.get("/api/ficha/{especie}")
 def ficha(especie: str):
+    especie = resolver_especie(especie)
     cab = q1("""SELECT m.*, a.nemotecnico, a.nombre AS nombre_sfc, a.iba_categoria, a.clase_accion, e.nombre_corto,
                        e.nombre AS emisor_nombre, e.nit, e.moneda_estados
                 FROM fact_matriz m LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
@@ -297,6 +320,7 @@ METRICAS_BANCO_SERIE = ["rote_12m", "roe_banco_12m", "nim_12m", "costo_riesgo_12
 def ficha_banco(especie: str):
     """Plantilla de bancos del emisor (gold/fact_metrica_banco): último corte, el de 12 meses antes, la
     serie de 5 años y los pares (una fila por entidad del CUIF). ``tiene: false`` si no es banco."""
+    especie = resolver_especie(especie)
     from invest.config import cargar_yaml
 
     act = q1("SELECT emisor_id FROM dim_activo WHERE especie = ?", [especie])
@@ -345,6 +369,7 @@ def ficha_banco(especie: str):
 
 @app.get("/api/ficha/{especie}/precio")
 def ficha_precio(especie: str, dias: int = 365):
+    especie = resolver_especie(especie)
     filas = q("""
         WITH s AS (
             SELECT fecha, precio_promedio, precio_ajustado, valor_transado,

@@ -149,3 +149,25 @@ def test_error_del_servidor_no_es_un_xbrl():
     assert not sfc_niif.es_xbrl(500, b"<html>error</html>")
     assert sfc_niif.es_xbrl(200, b'<?xml version="1.0"?><xbrli:xbrl/>')
     assert sfc_niif.es_xbrl(200, b'\xef\xbb\xbf<?xml version="1.0"?>')
+
+
+class PaginaCaida(PaginaFalsa):
+    def informe(self, tipo, codigo, corte, nombre=""):
+        PaginaFalsa.pedidos.append((tipo, codigo, corte))
+        raise TimeoutError("el SIMEV no responde")
+
+
+def test_se_detiene_si_el_simev_no_responde(carpeta_datos, monkeypatch):
+    monkeypatch.setattr(sfc_niif, "emisores", lambda: [
+        {"emisor_id": f"CO-X{i:02d}", "nit": "1", "nombre": f"E{i}", "codigos": [{"tipo": 260, "codigo": i}]}
+        for i in range(12)])
+    monkeypatch.setattr(sfc_niif, "INICIO", date(2026, 6, 30))
+    monkeypatch.setattr(sfc_niif, "date", type("D", (date,), {"today": staticmethod(lambda: date(2026, 9, 30))}))
+    PaginaFalsa.pedidos = []
+    res = sfc_niif.ConectorNIIF(pagina_factory=PaginaCaida).ejecutar()
+    assert len(PaginaFalsa.pedidos) == sfc_niif.FALLOS_SEGUIDOS_MAXIMO
+    assert "detenida" in res.detalle
+    # Nada quedó marcado: la próxima corrida vuelve a pedir esos cortes
+    PaginaFalsa.pedidos = []
+    sfc_niif.ConectorNIIF(pagina_factory=PaginaFalsa).ejecutar()
+    assert len(PaginaFalsa.pedidos) > sfc_niif.FALLOS_SEGUIDOS_MAXIMO

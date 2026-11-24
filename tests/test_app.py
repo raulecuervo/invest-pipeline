@@ -100,3 +100,15 @@ def test_puerto_ocupado_por_otro_programa_usa_el_siguiente():
 
 def test_reconoce_su_propia_identidad(cliente):
     assert cliente.get("/api/identidad").json() == {"app": "invest-pipeline"}
+
+
+def test_ficha_acepta_nemotecnico_y_aviso_de_codigo_nuevo(cliente, monkeypatch):
+    from invest.app import servidor
+
+    assert servidor.resolver_especie("aaa") == "coa01paao001"
+    assert servidor.resolver_especie("A") == "coa01paao001"
+    assert servidor.resolver_especie("coa01paao001") == "coa01paao001"
+    assert cliente.get("/api/ficha/AAA").json()["cabecera"]["especie"] == "coa01paao001"
+    assert cliente.get("/api/estado").json()["reiniciar"] is False
+    monkeypatch.setattr(servidor, "HUELLA_INICIO", "otra")
+    assert cliente.get("/api/estado").json()["reiniciar"] is True

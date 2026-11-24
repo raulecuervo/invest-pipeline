@@ -483,3 +483,13 @@ def test_cotejo_vacio_se_escribe(carpeta_datos):
     fundamentales.construir()
     c = storage.leer_tabla("gold", "fact_cotejo_pdf_compania")
     assert c is not None and c.is_empty() and "estado" in c.columns
+
+
+def test_pdf_resubido_vale_el_plazo():
+    # Mineros resubió en sep-2024 los estados de 2022: la fecha del archivo no es la de publicación
+    ee = pl.DataFrame([
+        _silver("CO-COC07", date(2022, 12, 31), "activos", 1.0, publicada=date(2024, 9, 6)),
+        _silver("CO-COC07", date(2024, 9, 30), "activos", 1.0, publicada=date(2025, 2, 7)),  # tarde, pero no resubido
+    ], schema=ec.ESQUEMA_SILVER | {"ingest_ts": pl.Datetime("us", "UTC")})
+    df = fundamentales.desde_pdf_compania(ee).sort("fecha_corte")
+    assert df.get_column("fecha_disponible").to_list() == [date(2023, 3, 31), date(2025, 2, 7)]

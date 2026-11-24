@@ -913,6 +913,7 @@ paginas.aprender = async (v, id) => {
 // ------------------------------------------------------------------ navegación
 async function refrescarEstado() {
   estado.info = await api("/api/estado");
+  $("#aviso-reiniciar").hidden = !estado.info.reiniciar;
   $("#pie-lateral").replaceChildren("Datos al " + fecha(estado.info.ultimo_precio), el("br"), "Puntajes al " + fecha(estado.info.fecha_matriz), el("br"),
     `${estado.info.carteras.length} carteras · ${estado.info.perfiles.length} perfiles`);
 }
@@ -942,6 +943,7 @@ async function arrancar() {
   boton.addEventListener("click", () => { const on = boton.getAttribute("aria-checked") !== "true"; localStorage.setItem("aprendizaje", on ? "si" : "no"); aplicar(on); });
   try {
     const [vars, activos] = await Promise.all([api("/api/variables"), api("/api/activos"), refrescarEstado()]);
+    setInterval(() => refrescarEstado().catch(() => {}), 60000);  // avisa si el código se actualizó
     estado.variables = Object.fromEntries(vars.map((x) => [x.id, x]));
     estado.activos = activos;
     $("#lista-activos").replaceChildren(...activos.map((a) => el("option", { value: `${a.especie} ${a.nemotecnico || ""} ${a.nombre_corto || ""}`.trim() })));
