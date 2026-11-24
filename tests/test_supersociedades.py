@@ -101,3 +101,14 @@ def test_construir_escribe_cotejo(carpeta_datos):
     df, resumen = fundamentales.construir()
     assert resumen["con_respaldo_anual"] == 2
     assert storage.leer_tabla("gold", "fact_cotejo_fundamental").height > 0
+
+
+def test_valor_por_accion_de_dos_anexos_manda_el_211():
+    # Grupo Bolívar dic-2025: 155.896,7 en el 141 y 178.331 en el 211 (el que cuadra con Supersociedades)
+    def celda(formato, fila, concepto, columna, valor):
+        return {"emisor_id": "CO-COT23", "fecha_corte": date(2025, 12, 31), "consolidado": False, "grupo": "trimestrales",
+                "formato": formato, "fila": fila, "concepto": concepto, "columna": columna, "valor": valor}
+    anexos = pl.DataFrame([celda("141", 1, "VALOR PATRIMONIAL POR ACCION", "VALOR", 155896.7),
+                           celda("211", 1, "VALOR PATRIMONIAL POR ACCION", "VALOR", 178331.0)])
+    f = fundamentales.desde_anexos(anexos).filter(pl.col("concepto") == "valor_patrimonial_accion")
+    assert f.get_column("valor").to_list() == [178331.0] and f.get_column("fuente").to_list() == ["anexo_211"]

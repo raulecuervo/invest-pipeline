@@ -146,7 +146,17 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
     df = (df.join(otra, on=["emisor_id", "fecha_corte"], how="left")
           .filter(~((pl.col("concepto") == "utilidad_accion") & (pl.col("valor") == 0) & pl.col("_otra").fill_null(False)))
           .drop("_otra"))
+    # Si dos anexos del mismo corte traen la misma cifra por acción con valores distintos, manda el 211:
+    # sus acciones en circulación son las del mismo formulario, y el cotejo con Supersociedades le dio la
+    # razón en 10 de 12 desacuerdos (Grupo Bolívar 2021-2025: el 141 da un patrimonio 13 % menor)
+    prioridad = pl.col("fuente").replace_strict(PRIORIDAD_ANEXOS, default=9, return_dtype=pl.Int32)
+    df = (df.with_columns(prioridad.alias("_p")).sort(["emisor_id", "fecha_corte", "concepto", "_p"])
+          .unique(subset=["emisor_id", "fecha_corte", "concepto", "base"], keep="first", maintain_order=True)
+          .drop("_p"))
     return _a_dolares(_fecha_disponible_anexo(df)).select(list(ESQUEMA))
+
+
+PRIORIDAD_ANEXOS = {"anexo_211": 0, "anexo_187": 1, "anexo_141": 2}
 
 
 MINIMO_ACCIONES = 100_000
@@ -267,7 +277,7 @@ def cotejo(fund: pl.DataFrame) -> pl.DataFrame:
         d = dic.filter(pl.col("concepto") == concepto)
         if base:
             d = d.filter(pl.col("base") == base)
-        # Si dos anexos traen el mismo concepto, se usa el 141/187 (el informe de información económica)
+        # desde_anexos ya deja un valor por concepto (manda el 211); esto solo ordena por si acaso
         d = d.with_columns((pl.col("fuente") == "anexo_211").alias("_ultimo")).sort(["emisor_id", "fecha_corte", "_ultimo"])
         return d.unique(subset=["emisor_id", "fecha_corte"], keep="first", maintain_order=True).select(
             "emisor_id", "fecha_corte", pl.col("valor").alias(concepto))
