@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/drawdown_maximo.md
+id: drawdown_maximo
+nombre: Caída máxima (drawdown)
+categoria: riesgo
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_riesgo
+columna: drawdown_maximo
+formula: mayor caída desde un máximo dentro de la ventana (datos diarios)
+que_es: La peor pérdida que habría tenido alguien que compró en un pico.
+que_hace: 'Mide el riesgo como se vive: cuánto se puede perder antes de recuperarse.'
+para_que_sirve: Para compararlo con la pérdida máxima aceptable del perfil.
+como_leer: 'Es negativo: −40 % significa que en algún momento valió 40 % menos que su máximo previo.'
+relacionadas:
+- volatilidad_anual
+- caida_desde_max_52s
+revisado: false
+version: 1

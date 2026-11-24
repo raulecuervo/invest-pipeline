@@ -10,7 +10,8 @@ from datetime import date
 
 import polars as pl
 
-from invest import distribuciones, dividendos, dividendos_web, eventos, fundamentales, liquidez, retornos, splits, storage
+from invest import (distribuciones, dividendos, dividendos_web, eventos, fundamentales, liquidez, macro, mercado,
+                    retornos, splits, storage)
 from invest.calendario import es_habil, limites
 from invest.config import catalogo_fuentes, dimensiones
 
@@ -102,6 +103,11 @@ def dim_activo() -> pl.DataFrame | None:
             pl.lit(None, pl.UInt32).alias("dias_con_negociacion"),
         )
         activa = pl.lit(None, pl.Boolean)
+    # Nemotécnico de la Bolsa de Colombia (config/nemotecnicos.yaml)
+    from invest.ingest.bvc import equivalencias
+
+    nemos = {v["especie"]: k for k, v in equivalencias().items() if v.get("especie")}
+    base = base.with_columns(pl.col("especie").replace_strict(nemos, default=None).alias("nemotecnico"))
     return base.with_columns(
         pl.col("especie").str.to_uppercase().alias("activo_id"),
         ("CO-" + pl.col("emisor").str.to_uppercase()).alias("emisor_id"),
@@ -111,7 +117,7 @@ def dim_activo() -> pl.DataFrame | None:
         pl.lit("XBOG").alias("mic"),
         activa.fill_null(False).alias("activa"),
     ).select(
-        "activo_id", "especie", "nombre", "emisor_id", "clase_accion", "clase_activo_id", "pais_id",
+        "activo_id", "especie", "nemotecnico", "nombre", "emisor_id", "clase_accion", "clase_activo_id", "pais_id",
         "moneda_id", "mic", "sector_sfc", "iba_categoria", "primera_negociacion", "ultima_negociacion",
         "dias_con_negociacion", "activa", "en_indice_vigente", "visto_desde",
     ).sort("activo_id")
@@ -161,5 +167,11 @@ def construir(desde: date = date(1991, 1, 1), hasta: date | None = None) -> dict
     if tabla_fund is not None:
         rutas["fact_fundamental"] = "gold/fact_fundamental (" + ", ".join(
             f"{k} {v}" for k, v in resumen_fund.items()) + ")"
+    resumen_mercado = mercado.construir()
+    if resumen_mercado:
+        rutas["dim_emisor y fact_precio_diario"] = ", ".join(f"{k} {v}" for k, v in resumen_mercado.items())
+    resumen_macro = macro.construir()
+    if resumen_macro:
+        rutas["dim_indicador_macro y fact_macro"] = ", ".join(f"{k} {v}" for k, v in resumen_macro.items())
     return rutas
 

@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/p_vl.md
+id: p_vl
+nombre: Precio / valor en libros (P/VL)
+categoria: valoracion
+nivel: basico
+formato: veces
+direccion: -1
+tabla: fact_valoracion
+columna: p_vl
+formula: precio / valor patrimonial por acción (estados separados, último publicado)
+que_es: Cuántas veces su patrimonio contable paga el mercado por la empresa.
+que_hace: Compara el precio con lo que los accionistas tienen en libros.
+para_que_sirve: Para encontrar acciones baratas frente a su patrimonio, sobre todo bancos y holdings.
+como_leer: 'Menos de 1 = se paga menos que el patrimonio contable; compárelo con el ROE: un ROE bajo justifica un
+  P/VL bajo.'
+relacionadas:
+- vpa
+- roe_12m
+revisado: false
+version: 1

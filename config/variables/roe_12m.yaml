@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/roe_12m.md
+id: roe_12m
+nombre: ROE (12 meses)
+categoria: rentabilidad
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_valoracion
+columna: roe_12m
+formula: utilidad por acción de 12 meses / valor patrimonial por acción
+que_es: Cuánto gana la empresa por cada peso que pusieron sus dueños.
+que_hace: Mide la rentabilidad del patrimonio.
+para_que_sirve: 'Para saber si la empresa crea valor: un ROE por encima del costo del patrimonio (Ke) crea valor.'
+como_leer: Un ROE alto con mucha deuda es más riesgoso que el mismo ROE sin deuda.
+relacionadas:
+- p_vl
+- apalancamiento
+revisado: false
+version: 1

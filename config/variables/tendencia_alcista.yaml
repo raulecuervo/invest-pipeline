@@ -1,0 +1,19 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/tendencia_alcista.md
+id: tendencia_alcista
+nombre: Tendencia alcista
+categoria: tecnico
+nivel: basico
+formato: si_no
+direccion: 1
+tabla: fact_tecnico_diario
+columna: tendencia_alcista
+formula: media de 50 sesiones > media de 200 sesiones
+que_es: Si el promedio corto está por encima del largo.
+que_hace: Resume la dirección del precio.
+para_que_sirve: Para el screener de momentum y la regla de tendencia primero, osciladores después.
+como_leer: 'Es una señal lenta: confirma tendencias, no las anticipa.'
+relacionadas:
+- distancia_sma200
+revisado: false
+version: 1

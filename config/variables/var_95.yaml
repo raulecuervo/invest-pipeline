@@ -1,0 +1,19 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/var_95.md
+id: var_95
+nombre: VaR 95 % semanal
+categoria: riesgo
+nivel: avanzado
+formato: porcentaje
+direccion: 1
+tabla: fact_riesgo
+columna: var_95
+formula: percentil 5 de los retornos semanales de la ventana (histórico)
+que_es: La pérdida semanal que solo se superó en una de cada 20 semanas.
+que_hace: Cuantifica una mala semana típica.
+para_que_sirve: Para entender el riesgo de cola de corto plazo.
+como_leer: 'No dice cuánto se pierde en las peores semanas: para eso está el CVaR.'
+relacionadas:
+- cvar_95
+revisado: false
+version: 1

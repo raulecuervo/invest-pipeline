@@ -16,11 +16,12 @@ Requiere el extra ``pc`` (Playwright) como el conector de la Bolsa de Colombia.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import polars as pl
 
+from invest import storage
 from invest.ingest.base import Conector
 from invest.ingest.dane_ipc import ESQUEMA
 
@@ -111,6 +112,14 @@ class ConectorBanRep(Conector):
         nombres = sorted({f"{r['serie_id']} = {r['nombre']}" for r in registros})
         if nombres:
             self.notas.append("; ".join(nombres))
+        # La página trae la serie completa: si lo guardado empieza después de lo que la página ofrece
+        # (p. ej. la primera carga quedó recortada), se guarda todo una vez y la serie queda completa
+        guardado = storage.leer_tabla("silver", self.tabla)
+        primero_web = min((r["fecha"] for r in registros), default=None)
+        if primero_web and (guardado is None or guardado.is_empty()
+                            or guardado.get_column("fecha").min() > primero_web + timedelta(days=30)):
+            self.notas.append(f"serie completa desde {primero_web}")
+            return registros
         return [r for r in registros if r["fecha"] >= desde]
 
     def interpretar(self, registros: list[dict]) -> pl.DataFrame:

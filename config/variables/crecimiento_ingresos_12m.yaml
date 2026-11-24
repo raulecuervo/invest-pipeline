@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/crecimiento_ingresos_12m.md
+id: crecimiento_ingresos_12m
+nombre: Crecimiento de los ingresos
+categoria: crecimiento
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_fundamental
+columna: valor
+formula: ingresos de 12 meses / ingresos de 12 meses un año antes − 1
+que_es: Cuánto crecieron las ventas en un año.
+que_hace: Separa el crecimiento del negocio del de la utilidad (que puede venir de recortes).
+para_que_sirve: Para el factor de crecimiento del puntaje.
+como_leer: 'Compárelo con la inflación: crecer menos que el IPC es decrecer en términos reales.'
+relacionadas:
+- crecimiento_upa_12m
+- inflacion_co_12m
+revisado: false
+version: 1
+metrica: crecimiento_ingresos_12m

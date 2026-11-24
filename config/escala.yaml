@@ -1,0 +1,66 @@
+# Escala de puntajes de 1 a 10 y factores del puntaje (src/invest/puntajes.py).
+#
+# Cada métrica se convierte en un z robusto frente a su grupo de comparación:
+#     z = (x - mediana) / (1,4826 × desviación absoluta mediana), limitado a ±z_max
+# con la dirección de la métrica (+1: más es mejor; -1: menos es mejor). El z de un factor es el
+# promedio de los z de sus métricas disponibles; el global combina los z de los factores con sus
+# pesos (renormalizados sobre los factores disponibles) y recién entonces se pasa a 1-10. Dato
+# faltante = excluido, nunca 5.
+#
+# Grupo de comparación: el sector de la SFC si tiene al menos minimo_pares acciones en el universo
+# del mes; si no, todo el universo (en la Bolsa de Colombia casi siempre es el universo). La ficha
+# guarda contra qué grupo y cuántos pares se calculó.
+escala:
+  centro: 5.5          # puntaje de z = 0 (mediana del grupo)
+  pendiente: 1.5       # puntos por cada desviación
+  z_max: 3             # z se limita a ±3 → puntaje entre 1 y 10
+  minimo_pares: 8
+  bandas:              # para colorear (mínimo de cada banda)
+    - {desde: 8.0, nombre: Fuerte}
+    - {desde: 6.0, nombre: Bueno}
+    - {desde: 4.0, nombre: Neutral}
+    - {desde: 1.0, nombre: Débil}
+
+# columna: de dónde sale (tabla gold) y su dirección
+factores:
+  valor:
+    peso: 1
+    metricas:
+      p_vl: {origen: fact_valoracion, direccion: -1}
+      rendimiento_utilidad: {origen: fact_valoracion, direccion: 1}
+      rendimiento_dividendo_12m: {origen: fact_valoracion, direccion: 1}
+  calidad:
+    peso: 1
+    metricas:
+      roe_12m: {origen: fact_valoracion, direccion: 1}
+      apalancamiento: {origen: fact_metrica_fundamental, direccion: -1}
+  crecimiento:
+    peso: 1
+    metricas:
+      crecimiento_upa_12m: {origen: fact_metrica_fundamental, direccion: 1}
+      crecimiento_ingresos_12m: {origen: fact_metrica_fundamental, direccion: 1}
+  momentum:
+    peso: 1
+    metricas:
+      momentum_12_1: {origen: fact_factor_mensual, direccion: 1}
+      distancia_sma200: {origen: fact_tecnico_diario, direccion: 1}
+  riesgo:
+    peso: 1
+    metricas:
+      volatilidad_anual: {origen: fact_riesgo, direccion: -1}
+      drawdown_maximo: {origen: fact_riesgo, direccion: 1}   # es negativo: más cerca de 0 es mejor
+      beta: {origen: fact_riesgo, direccion: -1}
+
+# Ejes de la matriz: qué factores forman cada uno
+matriz:
+  fundamental: [valor, calidad, crecimiento]
+  tecnico: [momentum]
+  umbral: 5.5          # por encima de la mediana del grupo = alto
+
+# Mientras un factor no esté "validado" en gold/fact_validacion_factor, la matriz es informativa y
+# no se traduce a decisiones (Comprar, Acumular en debilidad, Vigilar, Evitar).
+decisiones:
+  ambos_altos: Comprar
+  fundamental_alto: Acumular en debilidad
+  tecnico_alto: Vigilar
+  ambos_bajos: Evitar

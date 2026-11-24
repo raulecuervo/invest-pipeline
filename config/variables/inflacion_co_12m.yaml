@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/inflacion_co_12m.md
+id: inflacion_co_12m
+nombre: Inflación anual
+categoria: macro
+nivel: basico
+formato: porcentaje_puntos
+direccion: 0
+tabla: fact_macro
+columna: valor
+formula: IPC del mes / IPC del mismo mes del año anterior − 1 (DANE)
+que_es: Cuánto subieron los precios al consumidor en un año.
+que_hace: Es la vara para medir retornos reales.
+para_que_sirve: Para saber si una inversión ganó poder de compra.
+como_leer: Un retorno de 8 % con inflación de 6 % es un retorno real de cerca de 2 %.
+relacionadas:
+- tasa_real_banrep
+- banrep_59
+revisado: false
+version: 1
+serie_id: inflacion_co_12m

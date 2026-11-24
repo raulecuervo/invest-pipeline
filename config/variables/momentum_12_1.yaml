@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/momentum_12_1.md
+id: momentum_12_1
+nombre: Momentum 12-1
+categoria: momentum
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_matriz
+columna: momentum_12_1
+formula: retorno total de los meses −12 a −1 (se salta el último mes)
+que_es: Cuánto subió la acción en el último año sin contar el último mes.
+que_hace: 'Captura la tendencia de mediano plazo: las acciones que más subieron tienden a seguir haciéndolo un tiempo.'
+para_que_sirve: Es uno de los dos factores validados estadísticamente en la Bolsa de Colombia.
+como_leer: Se salta el último mes porque en el corto plazo los precios tienden a revertirse.
+relacionadas:
+- distancia_sma200
+- fuerza_relativa_12m
+revisado: false
+version: 1

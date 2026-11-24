@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/capitalizacion.md
+id: capitalizacion
+nombre: Capitalización bursátil
+categoria: mercado
+nivel: basico
+formato: pesos
+direccion: 0
+tabla: fact_precio_diario
+columna: capitalizacion
+formula: precio × acciones en circulación de la clase (anexo 211 del SIMEV)
+que_es: Lo que vale en bolsa toda la empresa (o una clase de acción) al precio de hoy.
+que_hace: Mide el tamaño de la empresa para el mercado.
+para_que_sirve: Para dimensionar el mapa de árbol del mercado y comparar empresas de tamaños distintos.
+como_leer: En acciones casi sin negocios (p. ej. después de una OPA) el precio puede no ser representativo y la
+  capitalización queda inflada.
+relacionadas:
+- precio
+- monto_medio_60
+revisado: false
+version: 1

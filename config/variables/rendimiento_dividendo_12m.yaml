@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/rendimiento_dividendo_12m.md
+id: rendimiento_dividendo_12m
+nombre: Rendimiento por dividendo (12 meses)
+categoria: dividendos
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_valoracion
+columna: rendimiento_dividendo_12m
+formula: dividendos en efectivo con fecha ex en los últimos 365 días / precio
+que_es: Cuánto pagó la acción en dividendos el último año como porcentaje de su precio.
+que_hace: Mide el ingreso en efectivo que da la acción.
+para_que_sirve: 'Para carteras de renta y como factor: está validado estadísticamente en la Bolsa de Colombia.'
+como_leer: Un rendimiento muy alto puede anticipar un recorte del dividendo; revise el payout.
+relacionadas:
+- payout
+- dividendo_accion
+revisado: false
+version: 1

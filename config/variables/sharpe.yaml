@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/sharpe.md
+id: sharpe
+nombre: Razón de Sharpe
+categoria: riesgo
+nivel: intermedio
+formato: numero
+direccion: 1
+tabla: fact_riesgo
+columna: sharpe
+formula: (retorno anual − tasa libre de riesgo) / volatilidad anual
+que_es: Cuánto retorno extra dio la acción por cada unidad de riesgo.
+que_hace: Compara inversiones con riesgos distintos.
+para_que_sirve: Para saber si el riesgo asumido fue compensado.
+como_leer: Por encima de 0,5 es aceptable en acciones; negativo = rindió menos que la tasa libre de riesgo.
+relacionadas:
+- sortino
+- volatilidad_anual
+revisado: false
+version: 1

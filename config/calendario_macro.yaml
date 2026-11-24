@@ -1,0 +1,12 @@
+# Fechas futuras que no vienen en ningún dato (gold/fact_evento_calendario).
+#
+# Reuniones de la Junta Directiva del Banco de la República con decisión de tasa (8 de las 12 del
+# año). El calendario oficial está en https://www.banrep.gov.co/es/calendario-junta-directiva; se
+# agregan aquí cuando se publica el del año siguiente. Las decisiones pasadas no hace falta
+# escribirlas: salen de los cambios de la tasa de política (serie banrep_59).
+banrep_decisiones:
+  - {fecha: 2026-12-18, fuente: "https://www.banrep.gov.co/es/noticias/calendario-actividades-junta-directiva/reunion-diciembre-2026"}
+
+# El DANE publica el IPC de cada mes hacia el quinto día hábil del mes siguiente; mientras no haya
+# fecha oficial, el calendario la estima con esta regla (estimada = true).
+dane_ipc_dia_habil: 5

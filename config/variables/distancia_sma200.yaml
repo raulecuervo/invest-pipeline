@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/distancia_sma200.md
+id: distancia_sma200
+nombre: Distancia a la media de 200
+categoria: tecnico
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_tecnico_diario
+columna: distancia_sma200
+formula: índice de retorno total / promedio de sus últimas 200 sesiones − 1
+que_es: Qué tan por encima o por debajo está la acción de su promedio de largo plazo.
+que_hace: Define el régimen de tendencia.
+para_que_sirve: Para no comprar contra la tendencia de largo plazo.
+como_leer: Positivo = tendencia alcista. Muy por encima (más de 30 %) puede indicar sobreextensión.
+relacionadas:
+- tendencia_alcista
+- momentum_12_1
+revisado: false
+version: 1

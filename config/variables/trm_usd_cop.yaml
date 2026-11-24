@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/trm_usd_cop.md
+id: trm_usd_cop
+nombre: TRM
+categoria: macro
+nivel: basico
+formato: pesos
+direccion: 0
+tabla: fact_macro
+columna: valor
+formula: tasa representativa del mercado calculada por la SFC con las operaciones del día hábil anterior
+que_es: Cuántos pesos cuesta un dólar oficialmente cada día.
+que_hace: Convierte precios y retornos entre pesos y dólares.
+para_que_sirve: Para medir la cartera en dólares y entender el riesgo cambiario.
+como_leer: Cuando el peso se devalúa (TRM sube), los activos en dólares ganan valor en pesos.
+relacionadas:
+- inflacion_co_12m
+revisado: false
+version: 1
+serie_id: trm_usd_cop

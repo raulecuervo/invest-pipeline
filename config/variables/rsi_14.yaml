@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/rsi_14.md
+id: rsi_14
+nombre: RSI (14)
+categoria: tecnico
+nivel: intermedio
+formato: numero
+direccion: 0
+tabla: fact_tecnico_diario
+columna: rsi_14
+formula: 100 − 100 / (1 + subidas medias / bajadas medias), suavizado de Wilder de 14 sesiones
+que_es: Un oscilador de 0 a 100 que compara la fuerza de las subidas y las bajadas recientes.
+que_hace: Indica si el movimiento reciente fue extremo.
+para_que_sirve: Solo para elegir el momento de entrada dentro de una tendencia ya definida.
+como_leer: Menos de 30 suele leerse como sobreventa y más de 70 como sobrecompra; en tendencias fuertes puede quedarse
+  ahí mucho tiempo.
+relacionadas:
+- tendencia_alcista
+revisado: false
+version: 1

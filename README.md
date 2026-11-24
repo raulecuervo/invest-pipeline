@@ -28,7 +28,9 @@ Proyectos/
 | 1 · Bolsa de Colombia y BanRep | Cierre, máximo y mínimo diarios de la BVC (`fact_precio_bvc`), MSCI COLCAP y MSCI NUAM USD, tasa de política monetaria e IBR en `fact_serie_macro`; con Playwright en el PC | Hecho (BanRep automático; BVC de lectura manual, primera lectura 23-nov-2026) |
 | 1 · Factores y validación | Factores mensuales con validación estadística; dos validados (momentum 12-1 y rendimiento por dividendo) | Hecho |
 | 1 · Matriz de factores | Puntaje por acción con los factores validados, ficha mensual y tablero local en HTML (`invest ficha`) | Hecho (24-nov-2026) |
-| 1 · Resto del MVP | NIIF histórico de la SFC (carga en curso), perfiles y cartera, modelo de Power BI | Pendiente |
+| 1 · Modelo de datos del aplicativo | Emisores, precio diario con capitalización, macro, técnico, riesgo, métricas fundamentales, valoración, puntajes de 1 a 10, matriz, screeners, calendario, perfiles, carteras y desempeño; base `modelo.duckdb` con contrato verificado (`invest modelo`) | Hecho (24-nov-2026) |
+| 1 · Resto del MVP | NIIF histórico de la SFC (carga en curso), el aplicativo (pantallas), plantilla de bancos con el CUIF | Pendiente |
+| Opcional, al final | Modelo de Power BI sobre los mismos Parquet | Opcional |
 
 ## Puesta en marcha (Windows)
 
@@ -78,6 +80,8 @@ Opcional: un *app token* gratuito de datos.gov.co en la variable `SOCRATA_APP_TO
 | `invest dividendos --revision` | Solo vuelve a leer `revision/dividendos.csv` (después de revisarlo) y reconstruye `fact_dividendo` |
 | `invest inspeccionar [especie]` | Descarga índice, ficha y serie de una especie de la SFC y muestra lo que entiende, sin guardar |
 | `invest factores` | Factores mensuales y su validación estadística |
+| `invest modelo [--sin-calcular]` | Tablas del aplicativo, base `invest-data/modelo.duckdb` y verificación del contrato (código 1 si hay problemas) |
+| `invest usuario --plantillas` / `--importar TABLA ARCHIVO.csv` | Tablas vacías y CSV de ejemplo para perfiles, carteras y transacciones; carga validada desde Excel |
 | `invest ficha [--abrir]` | Puntaje de los factores validados por acción y tablero `invest-data/tableros/matriz_factores.html` (`scripts\abrir_tablero.cmd` lo hace con doble clic) |
 
 ## Solo lo nuevo en cada corrida
@@ -231,6 +235,25 @@ Herramienta educativa: ordena las acciones del universo con los factores que que
 - **Tablero** (`invest-data/tableros/matriz_factores.html`): un solo archivo, sin conexión a internet ni librerías externas; los datos van dentro y no salen del computador. Matriz de los dos factores validados, detalle por acción (percentil del puntaje y retorno acumulado de los últimos 36 meses), tabla ordenable, historia del tercio superior contra el universo (bruto y neto), evidencia de cada factor y acciones fuera del universo. Modo claro y oscuro según Windows. No se versiona (`.gitignore` de `invest-data`): la tarea diaria lo regenera después de `invest factores`. Nombres cortos en `config/tablero.yaml`.
 
 Con los datos al 18-nov-2026: 18 acciones con puntaje; desde 2008 el tercio superior le gana al universo por 0,47 % mensual bruto y 0,21 % neto de costos, con t de Newey-West de 1,0 en el neto, así que esa ventaja todavía no se distingue del azar.
+
+## Modelo de datos del aplicativo (`invest modelo`, `config/modelo.yaml`)
+
+El aplicativo lee una sola base, `invest-data/modelo.duckdb`, con una vista por tabla del catálogo `config/modelo.yaml` (capa, ruta, grano, claves, columnas y la página que la usa) y vistas de conveniencia (`v_precio_ajustado`, `v_ficha_actual`, `v_mapa_mercado`). La base no se versiona: guarda rutas de este computador y se rehace en segundos; si el aplicativo la tiene abierta, queda la anterior. `invest modelo` verifica el contrato (cada tabla existe, trae sus columnas con un tipo compatible y sus claves no se repiten) y la tarea diaria escribe los problemas en la bitácora.
+
+| Bloque | Tablas (gold) | Módulo |
+| --- | --- | --- |
+| Emisores y precios | `dim_emisor`; `fact_precio_diario`: precio SFC + cierre/máximo/mínimo de la Bolsa cuando hay lectura, retorno total, acciones en circulación conocidas a la fecha (anexo 211, por clase) y capitalización en pesos y dólares | `mercado.py` |
+| Macro | `dim_indicador_macro` (`config/indicadores_macro.yaml`) y `fact_macro`: TRM, tasas BanRep, IPC, FRED, índices de la Bolsa e inflación anual y tasa real derivadas, con fecha de publicación | `macro.py` |
+| Técnico | `fact_indice_mercado` (universo líquido con pesos iguales y por capitalización, en pesos y dólares) y `fact_tecnico_diario` (medias de 50 y 200, RSI, MACD, Bollinger, caída desde el máximo de 52 semanas, retornos, fuerza relativa; N/A si no es líquida) | `tecnico.py` |
+| Riesgo | `fact_riesgo`: volatilidad, beta, correlación, Sharpe, Sortino, drawdown, VaR y CVaR a 1, 3 y 5 años, semanal, en pesos y dólares | `riesgo.py` |
+| Fundamentales | `fact_metrica_fundamental` (VPA, UPA y ROE de 12 meses, payout, crecimiento, apalancamiento, margen; con `fecha_disponible`) y `fact_valoracion` (P/VL, P/U, rendimiento de la utilidad y del dividendo a cada fin de mes) | `metricas.py` |
+| Puntajes | `fact_puntaje` (auditoría: valor, z, percentil y pares de cada métrica y factor), `fact_matriz` (1 a 10 por factor, ejes, cuadrante; decisión vacía mientras no esté validada) y `fact_screener_corrida` (`config/screeners.yaml`) | `puntajes.py`, `config/escala.yaml` |
+| Calendario | `fact_evento_calendario`: fechas ex y de pago, asambleas, decisiones del BanRep (cambios de tasa y `config/calendario_macro.yaml`), IPC | `calendario_eventos.py` |
+| Usuario | `invest-data/usuario/`: perfiles con versiones, asignación objetivo, carteras, transacciones, tesis, parámetros tributarios (vacíos: con el contador) y costos; se escriben validados | `usuario.py` |
+| Cartera | `fact_posicion` (costo fiscal promedio, valor, peso), `fact_asignacion` (desvío frente a las bandas) y `fact_desempeno` (Dietz modificado, TWR, XIRR, benchmark) | `cartera.py` |
+| Variables | `dim_variable`: fórmula, origen y explicación breve de 42 variables (`config/variables/`, borradores por revisar) | `variables.py` |
+
+Pendiente de datos, no de código: la historia de la tasa BanRep (la primera carga quedó recortada; el conector la completa solo en su próxima corrida), la utilidad de 12 meses y el ROE (cuando la carga histórica de NIIF traiga los cierres anuales), la historia del MSCI COLCAP (mientras tanto la beta es contra el universo líquido) y las métricas propias de bancos con el CUIF.
 
 ## Agregar una fuente
 

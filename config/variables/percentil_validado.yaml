@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/percentil_validado.md
+id: percentil_validado
+nombre: Percentil de los factores validados
+categoria: puntaje
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_matriz
+columna: percentil_validado
+formula: posición en el universo del promedio de los percentiles de momentum 12-1 y rendimiento por dividendo
+que_es: Dónde queda la acción según los únicos factores que pasaron la validación estadística.
+que_hace: Es el ordenamiento con respaldo histórico.
+para_que_sirve: Para ver qué dice la evidencia, separado del puntaje informativo.
+como_leer: Tercio superior = la acción está entre las mejores según la evidencia. Cuánto le ha ganado ese tercio
+  al universo, y con qué confianza, está en la página Salud de datos y señales.
+relacionadas:
+- momentum_12_1
+- rendimiento_dividendo_12m
+revisado: false
+version: 1

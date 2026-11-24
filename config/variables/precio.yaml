@@ -1,0 +1,23 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/precio.md
+id: precio
+nombre: Precio
+categoria: mercado
+nivel: basico
+formato: pesos
+direccion: 0
+tabla: fact_precio_diario
+columna: precio
+formula: Cierre de la Bolsa de Colombia si hay lectura; si no, precio promedio ponderado del día (SFC)
+que_es: Lo que costó una acción en el último día con negocios.
+que_hace: Es la base de todas las razones de valoración y de los retornos.
+para_que_sirve: Para saber cuánto cuesta comprar hoy y comparar contra el valor en libros, la utilidad o un precio
+  objetivo.
+como_leer: 'Un precio solo no dice si algo es caro o barato: compárelo con la utilidad (P/U) o con el patrimonio
+  (P/VL).'
+relacionadas:
+- capitalizacion
+- p_vl
+- p_u
+revisado: false
+version: 1

@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/correlacion.md
+id: correlacion
+nombre: Correlación con el mercado
+categoria: riesgo
+nivel: intermedio
+formato: numero
+direccion: 0
+tabla: fact_riesgo
+columna: correlacion
+formula: correlación de los retornos semanales de la acción con los del universo líquido (1 año, en pesos)
+que_es: Qué tanto se mueven juntas la acción y el mercado local, de −1 a 1.
+que_hace: Indica cuánto del movimiento de la acción lo explica el mercado.
+para_que_sirve: Para diversificar una cartera con activos que no se muevan todos igual.
+como_leer: Cerca de 1, se mueve casi igual que el mercado; cerca de 0, va por su lado; negativa, tiende a moverse en contra.
+relacionadas:
+- beta
+- volatilidad_anual
+revisado: false
+version: 1

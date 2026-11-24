@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/cuadrante.md
+id: cuadrante
+nombre: Cuadrante de la matriz
+categoria: puntaje
+nivel: basico
+formato: texto
+direccion: 0
+tabla: fact_matriz
+columna: cuadrante
+formula: fundamental ≥ 5,5 y técnico ≥ 5,5 → ambos altos; solo uno alto → fundamental o técnico alto; ninguno →
+  ambos bajos
+que_es: En qué zona de la matriz fundamental × técnico cae la acción.
+que_hace: Agrupa las acciones en cuatro situaciones.
+para_que_sirve: Para decidir qué hacer con cada una cuando la matriz esté validada (Comprar, Acumular en debilidad,
+  Vigilar, Evitar).
+como_leer: Mientras el estado sea informativo, el cuadrante describe, no recomienda.
+relacionadas:
+- puntaje_fundamental
+- puntaje_tecnico
+revisado: false
+version: 1

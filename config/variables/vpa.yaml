@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/vpa.md
+id: vpa
+nombre: Valor patrimonial por acción
+categoria: valoracion
+nivel: intermedio
+formato: pesos
+direccion: 0
+tabla: fact_valoracion
+columna: vpa
+formula: patrimonio de los estados separados / acciones en circulación (anexos de la SFC)
+que_es: La parte del patrimonio contable que le corresponde a cada acción.
+que_hace: Es el denominador del P/VL.
+para_que_sirve: Para estimar un piso contable del valor de la acción.
+como_leer: 'Es un valor contable: activos a costo o con métodos de participación pueden alejarse de su valor de
+  mercado.'
+relacionadas:
+- p_vl
+revisado: false
+version: 1

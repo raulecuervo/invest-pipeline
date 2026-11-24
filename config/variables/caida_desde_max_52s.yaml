@@ -1,0 +1,19 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/caida_desde_max_52s.md
+id: caida_desde_max_52s
+nombre: Caída desde el máximo de 52 semanas
+categoria: tecnico
+nivel: basico
+formato: porcentaje
+direccion: 0
+tabla: fact_tecnico_diario
+columna: caida_desde_max_52s
+formula: índice de retorno total / máximo de las últimas 252 sesiones − 1
+que_es: Cuánto ha caído la acción desde su punto más alto del último año.
+que_hace: Muestra oportunidades de acumular en debilidad y también riesgos.
+para_que_sirve: Para el mapa de caída y el screener de acumular en debilidad.
+como_leer: Una caída grande con fundamentales buenos puede ser oportunidad; con fundamentales malos, una alerta.
+relacionadas:
+- drawdown_maximo
+revisado: false
+version: 1

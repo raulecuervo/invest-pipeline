@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/p_u.md
+id: p_u
+nombre: Precio / utilidad (P/U)
+categoria: valoracion
+nivel: basico
+formato: veces
+direccion: -1
+tabla: fact_valoracion
+columna: p_u
+formula: precio / utilidad por acción de los últimos 12 meses (solo si es positiva)
+que_es: Cuántos años de utilidad actual paga el precio.
+que_hace: Compara el precio con la capacidad de generar ganancias.
+para_que_sirve: Para comparar qué tan cara está una acción frente a otras del sector o a su propia historia.
+como_leer: Un P/U bajo puede ser oportunidad o una utilidad que va a caer; con utilidad negativa no se calcula.
+relacionadas:
+- rendimiento_utilidad
+- upa_12m
+revisado: false
+version: 1

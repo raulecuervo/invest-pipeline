@@ -54,6 +54,9 @@ try {
         uv run invest factores 2>&1 | Out-Null
         # Puntaje de los factores validados y tablero local (invest-data\tableros\matriz_factores.html)
         uv run invest ficha 2>&1 | Out-Null
+        # Tablas del aplicativo (técnico, riesgo, valoración, puntajes, calendario, carteras), base
+        # modelo.duckdb y verificación del contrato; los problemas quedan en la bitácora
+        uv run invest modelo 2>&1 | Where-Object { "$_" -match '^\[contrato\]|^Contrato' } | ForEach-Object { Registrar $_ }
         Registrar "Tablas derivadas reconstruidas"
     } else {
         Registrar "Sin datos nuevos: no se reconstruye"

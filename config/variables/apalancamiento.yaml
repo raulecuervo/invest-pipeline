@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/apalancamiento.md
+id: apalancamiento
+nombre: Apalancamiento
+categoria: calidad
+nivel: intermedio
+formato: porcentaje
+direccion: -1
+tabla: fact_metrica_fundamental
+columna: valor
+formula: pasivos / activos (estados consolidados, XBRL)
+que_es: Qué parte de los activos está financiada con deuda y otros pasivos.
+que_hace: Mide el riesgo financiero.
+para_que_sirve: Para comparar la solidez del balance.
+como_leer: 'En bancos es naturalmente alto (los depósitos son pasivos): compare solo dentro del sector.'
+relacionadas:
+- roe_12m
+revisado: false
+version: 1
+metrica: apalancamiento

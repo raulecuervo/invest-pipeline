@@ -1,0 +1,34 @@
+# Screeners predefinidos (gold/fact_screener_corrida). Cada uno es una condición en SQL sobre las
+# columnas de gold/fact_matriz de un mismo fin de mes. Un dato faltante no cumple. Se corren en cada
+# fin de mes y en la última sesión, así que se ve qué acciones entraron y salieron.
+#
+# Son filtros informativos para encontrar candidatos, no recomendaciones.
+screeners:
+  valor:
+    nombre: Valor
+    descripcion: "Cotiza por debajo de su valor en libros y paga dividendo"
+    condicion: "p_vl < 1 AND rendimiento_dividendo_12m >= 0.03 AND en_universo"
+  dividendos:
+    nombre: Dividendos altos
+    descripcion: "Rendimiento por dividendo de 12 meses de 6 % o más, en el universo líquido"
+    condicion: "rendimiento_dividendo_12m >= 0.06 AND en_universo"
+  momentum:
+    nombre: Momentum
+    descripcion: "Tercio superior de momentum 12-1 del mes y tendencia alcista (media de 50 sobre la de 200)"
+    condicion: "momentum_12_1_percentil >= 0.6667 AND tendencia_alcista AND en_universo"
+  calidad:
+    nombre: Calidad
+    descripcion: "ROE de 12 meses de 12 % o más"
+    condicion: "roe_12m >= 0.12 AND en_universo"
+  factores_validados:
+    nombre: Factores validados
+    descripcion: "Tercio superior del puntaje de los factores que pasaron la validación estadística"
+    condicion: "tercio_validado = 'superior'"
+  holdings_descuento:
+    nombre: Holdings con descuento
+    descripcion: "Sociedades inversoras que cotizan a menos de 0,8 veces su valor en libros"
+    condicion: "sector_sfc = 'SOCIEDADES INVERSORAS' AND p_vl < 0.8"
+  caida_52s:
+    nombre: Acumular en debilidad
+    descripcion: "Más de 20 % por debajo de su máximo de 52 semanas, con puntaje fundamental de 6 o más"
+    condicion: "caida_desde_max_52s <= -0.2 AND puntaje_fundamental >= 6 AND en_universo"

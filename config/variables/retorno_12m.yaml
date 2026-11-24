@@ -1,0 +1,19 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/retorno_12m.md
+id: retorno_12m
+nombre: Retorno de 12 meses
+categoria: momentum
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_tecnico_diario
+columna: retorno_12m
+formula: índice de retorno total hoy / hace 252 sesiones − 1
+que_es: Cuánto ganó o perdió la acción en un año, con dividendos.
+que_hace: Resume el desempeño reciente.
+para_que_sirve: Para comparar contra el mercado y contra la inflación.
+como_leer: Un año es poco para juzgar una inversión de largo plazo.
+relacionadas:
+- fuerza_relativa_12m
+revisado: false
+version: 1

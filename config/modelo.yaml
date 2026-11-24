@@ -1,0 +1,1093 @@
+# Catálogo del modelo de datos (src/invest/modelo.py): una entrada por tabla que lee el aplicativo.
+#
+# capa y ruta dicen dónde está el Parquet (dentro de invest-data); grano y claves, qué identifica una
+# fila (invest modelo verifica que las claves no se repitan); columnas, el nombre y tipo que se
+# garantiza (puede haber más). pagina: dónde la usa el aplicativo. La explicación de cada variable
+# para el usuario vive en config/variables/ (dim_variable).
+tablas:
+  dim_activo:
+    capa: gold
+    ruta: dims/dim_activo.parquet
+    descripcion: "Acciones de la Bolsa de Colombia (especies de la SFC) con emisor, clase, nemotécnico, sector, bursatilidad y rango de negociación"
+    grano: "especie"
+    claves: [especie]
+    pagina: "todas"
+    columnas:
+      activo_id: String
+      especie: String
+      nemotecnico: String
+      nombre: String
+      emisor_id: String
+      clase_accion: String
+      clase_activo_id: String
+      pais_id: String
+      moneda_id: String
+      mic: String
+      sector_sfc: String
+      iba_categoria: String
+      primera_negociacion: Date
+      ultima_negociacion: Date
+      dias_con_negociacion: UInt32
+      activa: Boolean
+      en_indice_vigente: Boolean
+      visto_desde: Date
+  dim_variable:
+    capa: gold
+    ruta: dims/dim_variable.parquet
+    descripcion: "Variables que ve el usuario: fórmula, de dónde salen y su explicación breve (centro de aprendizaje)"
+    grano: "variable"
+    claves: [id]
+    pagina: "todas (ícono de información y Saber más)"
+    columnas:
+      id: String
+      nombre: String
+      categoria: String
+      nivel: String
+      formato: String
+      direccion: Int64
+      tabla: String
+      columna: String
+      formula: String
+      que_es: String
+      que_hace: String
+      para_que_sirve: String
+      como_leer: String
+      relacionadas: String
+      revisado: Boolean
+  dim_emisor:
+    capa: gold
+    ruta: dims/dim_emisor.parquet
+    descripcion: "Emisores de acciones: NIT, nombre, nombre corto, sector, moneda de sus estados y códigos del SIMEV"
+    grano: "emisor"
+    claves: [emisor_id]
+    pagina: "todas"
+    columnas:
+      emisor_id: String
+      nombre: String
+      nombre_corto: String
+      nit: String
+      sector_sfc: String
+      pais_id: String
+      moneda_estados: String
+      estandar_contable: String
+      en_rnve: Boolean
+      codigos_simev: String
+      especies: Int64
+      especies_activas: Int64
+      especie_principal: String
+      activo: Boolean
+  dim_fecha:
+    capa: gold
+    ruta: dims/dim_fecha.parquet
+    descripcion: "Calendario civil"
+    grano: "día"
+    claves: [fecha]
+    pagina: "todas"
+    columnas:
+      fecha: Date
+      anio: Int32
+      trimestre: Int8
+      mes: Int8
+      dia_semana: Int8
+      es_fin_mes: Boolean
+      semana_iso: Int8
+  dim_sesion:
+    capa: gold
+    ruta: dims/dim_sesion.parquet
+    descripcion: "Calendario bursátil por bolsa (días hábiles de XBOG)"
+    grano: "día × bolsa"
+    claves: [fecha, mic]
+    pagina: "todas"
+    columnas:
+      fecha: Date
+      mic: String
+      es_habil: Boolean
+      calendario_oficial: Boolean
+  dim_pais:
+    capa: gold
+    ruta: dims/dim_pais.parquet
+    descripcion: "Países: bolsa, zona horaria, moneda, benchmark y curva libre de riesgo"
+    grano: "país"
+    claves: [pais_id]
+    pagina: "Mercado y país"
+    columnas:
+      pais_id: String
+      nombre: String
+      bolsa: String
+      mic: String
+      zona_horaria: String
+      moneda_local_id: String
+      benchmark_id: String
+      curva_rf_id: String
+      activo: Boolean
+  dim_moneda:
+    capa: gold
+    ruta: dims/dim_moneda.parquet
+    descripcion: "Monedas ISO 4217"
+    grano: "moneda"
+    claves: [moneda_id]
+    pagina: "todas"
+    columnas:
+      moneda_id: String
+      nombre: String
+  dim_clase_activo:
+    capa: gold
+    ruta: dims/dim_clase_activo.parquet
+    descripcion: "Clases de activo (acción, ETF, TES, CDT, FIC...)"
+    grano: "clase"
+    claves: [clase_activo_id]
+    pagina: "todas"
+    columnas:
+      clase_activo_id: String
+      clase: String
+      es_renta_fija: Boolean
+      es_extranjero: Boolean
+  dim_indice:
+    capa: gold
+    ruta: dims/dim_indice.parquet
+    descripcion: "Índices de referencia por país"
+    grano: "índice"
+    claves: [indice_id]
+    pagina: "Mercado y país"
+    columnas:
+      indice_id: String
+      nombre: String
+      pais_id: String
+  dim_fuente:
+    capa: gold
+    ruta: dims/dim_fuente.parquet
+    descripcion: "Fuentes de datos con frecuencia, licencia y si se pueden redistribuir"
+    grano: "fuente"
+    claves: [fuente_id]
+    pagina: "Salud de datos"
+    columnas:
+      fuente_id: String
+      nombre: String
+      tipo_dato: String
+      url: String
+      acceso: String
+      frecuencia: String
+      recarga_dias: Int64
+      ejecuta_en: String
+      licencia: String
+      redistribuible: Boolean
+      estado: String
+      fase: Int64
+  dim_indicador_macro:
+    capa: gold
+    ruta: dims/dim_indicador_macro.parquet
+    descripcion: "Series macro y de mercado: nombre, categoría, unidad, frecuencia, primer y último dato"
+    grano: "serie"
+    claves: [serie_id]
+    pagina: "Mercado y país"
+    columnas:
+      serie_id: String
+      nombre: String
+      corto: String
+      pais_id: String
+      categoria: String
+      unidad: String
+      frecuencia: String
+      derivada_de: String
+      fuente_id: String
+      primer_dato: Date
+      ultimo_dato: Date
+      observaciones: Int64
+  fact_precio_diario:
+    capa: gold
+    ruta: fact_precio_diario
+    descripcion: "Precio diario unificado: promedio de la SFC y cierre, máximo y mínimo de la Bolsa cuando hay lectura; retorno total, acciones en circulación conocidas a la fecha y capitalización en pesos y dólares"
+    grano: "especie × día con negocio o lectura de la Bolsa"
+    claves: [fecha, especie]
+    pagina: "Mercado y país, Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      activo_id: String
+      emisor_id: String
+      nemotecnico: String
+      precio: Float64
+      fuente_precio: String
+      precio_promedio: Float64
+      valor_transado: Float64
+      cierre_bvc: Float64
+      apertura_bvc: Float64
+      maximo_bvc: Float64
+      minimo_bvc: Float64
+      volumen_bvc: Float64
+      cantidad_bvc: Float64
+      dias_desde_anterior: Int64
+      dividendo: Float64
+      distribucion: Float64
+      split_factor: Float64
+      retorno_precio: Float64
+      retorno_total: Float64
+      indice_rt: Float64
+      salto_atipico: Boolean
+      acciones_circulacion: Float64
+      fecha_acciones: Date
+      capitalizacion: Float64
+      trm: Float64
+      precio_usd: Float64
+      capitalizacion_usd: Float64
+  fact_retorno_diario:
+    capa: gold
+    ruta: fact_retorno_diario
+    descripcion: "Retorno total diario con dividendos, splits y escisiones; índice de retorno total"
+    grano: "especie × día con negocio"
+    claves: [fecha, especie]
+    pagina: "Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      activo_id: String
+      precio_promedio: Float64
+      valor_transado: Float64
+      dias_desde_anterior: Int64
+      dividendo: Float64
+      fecha_ex: Date
+      fecha_ex_estimada: Boolean
+      revisado: Boolean
+      dividendo_invalido: Boolean
+      distribucion: Float64
+      split_factor: Float64
+      factor_ajuste: Float64
+      retorno_precio: Float64
+      retorno_total: Float64
+      indice_rt: Float64
+      salto_atipico: Boolean
+  fact_liquidez_diaria:
+    capa: gold
+    ruta: fact_liquidez_diaria
+    descripcion: "Monto medio y fracción de ruedas con negocio en 20 y 60 días; marca de acción líquida"
+    grano: "especie × día"
+    claves: [fecha, especie]
+    pagina: "Screener, Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      valor_transado: Float64
+      monto_medio_20: Float64
+      fraccion_dias_20: Float64
+      monto_medio_60: Float64
+      fraccion_dias_60: Float64
+      liquida: Boolean
+  fact_tecnico_diario:
+    capa: gold
+    ruta: fact_tecnico_diario
+    descripcion: "Indicadores técnicos sobre el índice de retorno total: medias de 50 y 200, RSI, MACD, Bollinger, caída desde el máximo de 52 semanas, retornos y fuerza relativa"
+    grano: "especie × día con negocio"
+    claves: [fecha, especie]
+    pagina: "Ficha, Matriz"
+    columnas:
+      fecha: Date
+      especie: String
+      indice_rt_limpio: Float64
+      distancia_sma50: Float64
+      distancia_sma200: Float64
+      tendencia_alcista: Boolean
+      rsi_14: Float64
+      macd: Float64
+      macd_histograma: Float64
+      bollinger_pct_b: Float64
+      caida_desde_max_52s: Float64
+      subida_desde_min_52s: Float64
+      retorno_1m: Float64
+      retorno_3m: Float64
+      retorno_6m: Float64
+      retorno_12m: Float64
+      volatilidad_60: Float64
+      fuerza_relativa_12m: Float64
+      sesiones_historia: Int64
+      tecnico_valido: Boolean
+  fact_indice_mercado:
+    capa: gold
+    ruta: fact_indice_mercado
+    descripcion: "Índices propios del universo líquido (pesos iguales y por capitalización) en pesos y dólares"
+    grano: "índice × moneda × día"
+    claves: [fecha, indice_id, moneda]
+    pagina: "Mercado y país"
+    columnas:
+      fecha: Date
+      indice_id: String
+      moneda: String
+      valor: Float64
+      retorno: Float64
+      acciones: UInt32
+  fact_riesgo:
+    capa: gold
+    ruta: fact_riesgo
+    descripcion: "Volatilidad, beta, correlación, Sharpe, Sortino, drawdown, VaR y CVaR a 1, 3 y 5 años, en pesos y dólares"
+    grano: "especie × fin de mes × ventana × moneda"
+    claves: [fecha, especie, ventana, moneda]
+    pagina: "Ficha, Riesgo"
+    columnas:
+      fecha: Date
+      especie: String
+      ventana: String
+      moneda: String
+      desde: Date
+      semanas: Int64
+      retorno_anual: Float64
+      volatilidad_anual: Float64
+      beta: Float64
+      correlacion: Float64
+      tasa_libre_riesgo: Float64
+      sharpe: Float64
+      sortino: Float64
+      drawdown_maximo: Float64
+      var_95: Float64
+      cvar_95: Float64
+  fact_macro:
+    capa: gold
+    ruta: fact_macro
+    descripcion: "Valores de las series macro y de mercado (TRM, tasas, IPC, FRED, índices) con fecha de publicación"
+    grano: "serie × fecha"
+    claves: [fecha, serie_id]
+    pagina: "Mercado y país"
+    columnas:
+      fecha: Date
+      serie_id: String
+      valor: Float64
+      fecha_publicacion: Date
+      publicacion_estimada: Boolean
+      fuente_id: String
+  fact_fundamental:
+    capa: gold
+    ruta: fact_fundamental
+    descripcion: "Cifras de los estados financieros (anexos separados y XBRL consolidado del SIMEV) con fecha desde la que se conocían"
+    grano: "emisor × corte × base × concepto × fuente"
+    claves: [emisor_id, fecha_corte, base, concepto, fuente]
+    pagina: "Ficha"
+    columnas:
+      emisor_id: String
+      fecha_corte: Date
+      fecha_disponible: Date
+      concepto: String
+      valor: Float64
+      unidad: String
+      base: String
+      fuente: String
+  fact_metrica_fundamental:
+    capa: gold
+    ruta: fact_metrica_fundamental
+    descripcion: "Métricas fundamentales: VPA, UPA y ROE de 12 meses, payout, crecimiento, apalancamiento, margen"
+    grano: "emisor × corte × base × métrica"
+    claves: [emisor_id, fecha_corte, base, metrica]
+    pagina: "Ficha, Screener"
+    columnas:
+      emisor_id: String
+      fecha_corte: Date
+      fecha_disponible: Date
+      base: String
+      metrica: String
+      valor: Float64
+      unidad: String
+  fact_valoracion:
+    capa: gold
+    ruta: fact_valoracion
+    descripcion: "Valoración a cada fin de mes: precio, capitalización, P/VL, P/U, rendimiento de la utilidad y del dividendo"
+    grano: "especie × fin de mes (y última sesión)"
+    claves: [fecha, especie]
+    pagina: "Screener, Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      emisor_id: String
+      fecha_precio: Date
+      precio: Float64
+      capitalizacion: Float64
+      capitalizacion_usd: Float64
+      vpa: Float64
+      corte_vpa: Date
+      upa_12m: Float64
+      corte_upa: Date
+      roe_12m: Float64
+      p_vl: Float64
+      p_u: Float64
+      rendimiento_utilidad: Float64
+      rendimiento_dividendo_12m: Float64
+  fact_dividendo:
+    capa: gold
+    ruta: fact_dividendo
+    descripcion: "Dividendos de los avisos de la SFC leídos por dos agentes, por cuota"
+    grano: "emisor × ejercicio × clase × tipo × forma × cuota"
+    claves: [emisor_id, ejercicio, clase_accion, tipo, forma, cuota]
+    pagina: "Ficha, Calendario"
+    columnas:
+      emisor_id: String
+      ejercicio: Int64
+      clase_accion: String
+      tipo: String
+      forma: String
+      cuota: Int64
+      moneda: String
+      valor_por_accion: Float64
+      valor_cuota: Float64
+      fecha_ex_dividendo: Date
+      fecha_pago: Date
+      solo_propuesto: Boolean
+      revisado: Boolean
+      conflicto_entre_documentos: Boolean
+      eventos: String
+      documentos: UInt32
+      ejercicio_estimado: Boolean
+      valor_cuota_estimado: Boolean
+  fact_dividendo_web:
+    capa: gold
+    ruta: fact_dividendo_web
+    descripcion: "Dividendos de historiales públicos verificados"
+    grano: "especie × fecha ex"
+    claves: [especie, fecha_ex]
+    pagina: "Ficha"
+    columnas:
+      especie: String
+      fecha_ex: Date
+      fecha_pago: Date
+      dividendo: Float64
+      moneda: String
+      revisado: Boolean
+      fuentes: String
+  fact_evento_corporativo:
+    capa: gold
+    ruta: fact_evento_corporativo
+    descripcion: "Información relevante de la SFC clasificada y enlazada al emisor"
+    grano: "evento"
+    claves: [evento_id]
+    pagina: "Mercado y país (¿por qué se mueve?), Ficha"
+    columnas:
+      evento_id: String
+      fecha: Date
+      hora: String
+      entidad: String
+      tema: String
+      resumen: String
+      tiene_anexo: Boolean
+      anexo_archivo: String
+      fuente_id: String
+      ingest_ts: Datetime
+      categoria: String
+      afecta_precio: Boolean
+      emisor_id: String
+  fact_split:
+    capa: gold
+    ruta: fact_split
+    descripcion: "Splits y reagrupaciones aplicados"
+    grano: "especie × fecha"
+    claves: [especie, fecha]
+    pagina: "Ficha"
+    columnas:
+      especie: String
+      fecha: Date
+      factor_acciones: Float64
+      origen: String
+      clasificacion: String
+  fact_salto_mercado:
+    capa: gold
+    ruta: fact_salto_mercado
+    descripcion: "Saltos de más de 50 % que fueron reales (OPA, quiebra, reanudación)"
+    grano: "especie × fecha"
+    claves: [especie, fecha]
+    pagina: "Ficha"
+    columnas:
+      especie: String
+      fecha: Date
+      notas: String
+  fact_distribucion_especie:
+    capa: gold
+    ruta: fact_distribucion_especie
+    descripcion: "Escisiones y repartos en especie con su relación oficial"
+    grano: "especie × fecha ex × especie recibida"
+    claves: [especie, fecha_ex, especie_recibida]
+    pagina: "Ficha"
+    columnas:
+      especie: String
+      fecha_ex: Date
+      tipo: String
+      especie_recibida: String
+      nombre_recibida: String
+      acciones_por_accion: Float64
+      precio_recibida: Float64
+      fecha_precio: Date
+      origen_precio: String
+      valor: Float64
+      fuente: String
+  fact_factor_mensual:
+    capa: gold
+    ruta: fact_factor_mensual
+    descripcion: "Factores mensuales (momentum, reversión, volatilidad, liquidez, dividendo, valor en libros) con su percentil y el retorno del mes siguiente"
+    grano: "especie × fin de mes × factor"
+    claves: [fecha, especie, factor]
+    pagina: "Salud de datos y señales"
+    columnas:
+      fecha: Date
+      especie: String
+      retorno_siguiente: Float64
+      factor: String
+      valor: Float64
+      percentil: Float64
+      acciones_mes: UInt32
+  fact_validacion_factor:
+    capa: gold
+    ruta: fact_validacion_factor
+    descripcion: "Validación estadística de cada factor: IC, t de Newey-West, Holm, descubrimiento contra fuera de muestra, exceso neto"
+    grano: "factor"
+    claves: [factor]
+    pagina: "Salud de datos y señales"
+    columnas:
+      factor: String
+      signo_hipotesis: Int64
+      meses: Int64
+      ic_medio: Float64
+      ic_t: Float64
+      ic_p: Float64
+      ic_positivo: Float64
+      spread_mensual: Float64
+      spread_t: Float64
+      spread_sharpe_anual: Float64
+      rotacion_superior: Float64
+      exceso_superior: Float64
+      exceso_superior_t: Float64
+      exceso_superior_neto: Float64
+      exceso_superior_neto_t: Float64
+      ic_medio_descubrimiento: Float64
+      meses_descubrimiento: Int64
+      ic_medio_fuera_muestra: Float64
+      meses_fuera_muestra: Int64
+      spread_fuera_muestra: Float64
+      ic_p_holm: Float64
+      veredicto: String
+      fecha_calculo: Date
+  fact_correlacion_factor:
+    capa: gold
+    ruta: fact_correlacion_factor
+    descripcion: "Correlación media entre factores"
+    grano: "par de factores"
+    claves: [factor_a, factor_b]
+    pagina: "Salud de datos y señales"
+    columnas:
+      factor_a: String
+      factor_b: String
+      correlacion_media: Float64
+      meses: Int64
+  fact_puntaje_mensual:
+    capa: gold
+    ruta: fact_puntaje_mensual
+    descripcion: "Puntaje de los factores validados (combinado de la validación), posición y tercio"
+    grano: "especie × fin de mes"
+    claves: [fecha, especie]
+    pagina: "Matriz"
+    columnas:
+      fecha: Date
+      especie: String
+      puntaje: Float64
+      retorno_siguiente: Float64
+      acciones_mes: UInt32
+      posicion: UInt32
+      tercio: String
+  fact_puntaje_tercio:
+    capa: gold
+    ruta: fact_puntaje_tercio
+    descripcion: "Historia del tercio superior del puntaje validado frente al universo, bruto y neto de costos"
+    grano: "fin de mes"
+    claves: [fecha]
+    pagina: "Salud de datos y señales"
+    columnas:
+      fecha: Date
+      acciones: Int64
+      acciones_superior: Int64
+      retorno_superior: Float64
+      retorno_universo: Float64
+      rotacion: Float64
+      exceso: Float64
+      exceso_neto: Float64
+      retorno_superior_neto: Float64
+      indice_superior: Float64
+      indice_superior_neto: Float64
+      indice_universo: Float64
+  fact_ficha_accion:
+    capa: gold
+    ruta: fact_ficha_accion
+    descripcion: "Ficha del último mes por acción activa: puntaje validado, factores, contexto, fundamentales y avisos"
+    grano: "especie (último mes)"
+    claves: [especie]
+    pagina: "Ficha"
+    columnas:
+      especie: String
+      nombre: String
+      emisor_id: String
+      clase_accion: String
+      sector_sfc: String
+      fecha_ultimo_negocio: Date
+      precio: Float64
+      dias_con_negocio: UInt32
+      salto_atipico_12m: Boolean
+      monto_medio_60: Float64
+      fraccion_dias_60: Float64
+      liquida: Boolean
+      momentum_12_1_valor: Float64
+      momentum_12_1_percentil: Float64
+      momentum_6_1_valor: Float64
+      momentum_6_1_percentil: Float64
+      reversion_1m_valor: Float64
+      reversion_1m_percentil: Float64
+      volatilidad_1a_valor: Float64
+      volatilidad_1a_percentil: Float64
+      liquidez_60_valor: Float64
+      liquidez_60_percentil: Float64
+      rendimiento_dividendo_12m_valor: Float64
+      rendimiento_dividendo_12m_percentil: Float64
+      valor_libros_precio_valor: Float64
+      valor_libros_precio_percentil: Float64
+      puntaje: Float64
+      posicion: UInt32
+      tercio: String
+      acciones_mes: UInt32
+      percentil_puntaje: Float64
+      percentil_puntaje_1m: Float64
+      percentil_puntaje_3m: Float64
+      meses_seguidos_superior: Int64
+      valor_patrimonial_accion: Float64
+      corte_valor_patrimonial: Date
+      utilidad_accion_anual: Float64
+      corte_utilidad_anual: Date
+      unidad_por_accion: String
+      fecha: Date
+      en_universo: Boolean
+      con_puntaje: Boolean
+      motivo_fuera: String
+      retorno_12m: Float64
+      retorno_1m: Float64
+      precio_utilidad: Float64
+      precio_valor_libros: Float64
+      alertas: String
+  fact_puntaje:
+    capa: gold
+    ruta: fact_puntaje
+    descripcion: "Auditoría de los puntajes de 1 a 10: cada métrica y factor con su valor, z, percentil y pares"
+    grano: "especie × fecha × elemento"
+    claves: [fecha, especie, elemento]
+    pagina: "Ficha"
+    columnas:
+      fecha: Date
+      especie: String
+      elemento: String
+      nivel: String
+      factor: String
+      valor: Float64
+      z: Float64
+      percentil: Float64
+      grupo_comparacion: String
+      pares: UInt32
+      puntaje: Float64
+      banda: String
+  fact_matriz:
+    capa: gold
+    ruta: fact_matriz
+    descripcion: "Puntajes de 1 a 10 por factor, ejes fundamental y técnico, cuadrante y decisión (informativa si no está validada)"
+    grano: "especie × fin de mes (y última sesión)"
+    claves: [fecha, especie]
+    pagina: "Screener, Matriz"
+    columnas:
+      fecha: Date
+      especie: String
+      emisor_id: String
+      nombre: String
+      sector_sfc: String
+      clase_accion: String
+      en_universo: Boolean
+      grupo_comparacion: String
+      precio: Float64
+      capitalizacion: Float64
+      capitalizacion_usd: Float64
+      p_vl: Float64
+      p_u: Float64
+      rendimiento_utilidad: Float64
+      rendimiento_dividendo_12m: Float64
+      roe_12m: Float64
+      apalancamiento: Float64
+      crecimiento_upa_12m: Float64
+      crecimiento_ingresos_12m: Float64
+      momentum_12_1: Float64
+      momentum_12_1_percentil: Float64
+      distancia_sma200: Float64
+      tendencia_alcista: Boolean
+      caida_desde_max_52s: Float64
+      rsi_14: Float64
+      tecnico_valido: Boolean
+      volatilidad_anual: Float64
+      drawdown_maximo: Float64
+      beta: Float64
+      puntaje_valor: Float64
+      puntaje_calidad: Float64
+      puntaje_crecimiento: Float64
+      puntaje_momentum: Float64
+      puntaje_riesgo: Float64
+      puntaje_fundamental: Float64
+      puntaje_tecnico: Float64
+      puntaje_global: Float64
+      metricas_valor: Int32
+      metricas_calidad: Int32
+      metricas_crecimiento: Int32
+      metricas_momentum: Int32
+      metricas_riesgo: Int32
+      cuadrante: String
+      estado: String
+      decision: String
+      percentil_validado: Float64
+      tercio_validado: String
+  fact_screener_corrida:
+    capa: gold
+    ruta: fact_screener_corrida
+    descripcion: "Acciones que cumplen cada screener en cada fecha, con las que entraron"
+    grano: "fecha × screener × especie"
+    claves: [fecha, screener_id, especie]
+    pagina: "Screener"
+    columnas:
+      fecha: Date
+      screener_id: String
+      especie: String
+      nueva: Boolean
+  fact_evento_calendario:
+    capa: gold
+    ruta: fact_evento_calendario
+    descripcion: "Calendario: fechas ex y de pago de dividendos, asambleas, decisiones del BanRep y publicaciones del IPC, pasadas y futuras"
+    grano: "evento"
+    claves: []
+    pagina: "Mercado y país, Mi cartera"
+    columnas:
+      fecha: Date
+      tipo: String
+      emisor_id: String
+      especie: String
+      descripcion: String
+      valor: Float64
+      moneda: String
+      estimada: Boolean
+      fuente: String
+      futura: Boolean
+  salud_datos:
+    capa: gold
+    ruta: salud_datos
+    descripcion: "Último dato y estado de cada fuente"
+    grano: "fuente"
+    claves: [fuente_id]
+    pagina: "Salud de datos"
+    columnas:
+      fuente_id: String
+      fuente: String
+      ultimo_dato: Date
+      rezago_dias_habiles: Int64
+      ultima_ejecucion_utc: String
+      estado_ultima_ejecucion: String
+      detalle: String
+      estado: String
+  fact_posicion:
+    capa: gold
+    ruta: fact_posicion
+    descripcion: "Posiciones diarias de cada cartera con costo fiscal, valor de mercado, peso y ganancia no realizada"
+    grano: "cartera × especie × día"
+    claves: [fecha, cartera_id, especie]
+    pagina: "Mi cartera"
+    columnas:
+      fecha: Date
+      cartera_id: String
+      especie: String
+      cantidad: Float64
+      costo_fiscal_cop: Float64
+      precio: Float64
+      valor_cop: Float64
+      valor_usd: Float64
+      peso: Float64
+      ganancia_no_realizada_cop: Float64
+  fact_asignacion:
+    capa: gold
+    ruta: fact_asignacion
+    descripcion: "Peso actual por clase frente al objetivo y bandas del perfil vigente"
+    grano: "cartera × día × clase"
+    claves: [cartera_id, fecha, clase_activo_id]
+    pagina: "Mi cartera"
+    columnas:
+      cartera_id: String
+      fecha: Date
+      clase_activo_id: String
+      peso: Float64
+      valor_cop: Float64
+      perfil_id: String
+      version: Int64
+      peso_objetivo: Float64
+      banda_minima: Float64
+      banda_maxima: Float64
+      desvio: Float64
+      fuera_de_banda: Boolean
+  fact_desempeno:
+    capa: gold
+    ruta: fact_desempeno
+    descripcion: "Desempeño mensual: Dietz modificado, TWR acumulado, XIRR, benchmark y exceso"
+    grano: "cartera × mes"
+    claves: [cartera_id, mes]
+    pagina: "Mi cartera"
+    columnas:
+      cartera_id: String
+      mes: Date
+      fecha: Date
+      valor_inicio_cop: Float64
+      valor_fin_cop: Float64
+      flujo_externo_cop: Float64
+      retorno_mes: Float64
+      twr_acumulado: Float64
+      xirr_desde_inicio: Float64
+      retorno_benchmark: Float64
+      exceso: Float64
+  fact_precio_sfc:
+    capa: silver
+    ruta: fact_precio_sfc
+    descripcion: "Precio promedio ponderado y valor transado diarios de la SFC (crudo tipado)"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha: Date
+      especie: String
+      codigo_titulo: String
+      precio_promedio: Float64
+      valor_transado: Float64
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_precio_bvc:
+    capa: silver
+    ruta: fact_precio_bvc
+    descripcion: "Cierre, máximo, mínimo y volumen de la Bolsa de Colombia (lectura manual)"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha: Date
+      nemotecnico: String
+      especie: String
+      clase: String
+      emisor: String
+      cierre: Float64
+      variacion_pct: Float64
+      volumen_cop: Float64
+      cantidad: Float64
+      variacion_abs: Float64
+      apertura: Float64
+      maximo: Float64
+      minimo: Float64
+      promedio: Float64
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_indicadores_sfc:
+    capa: silver
+    ruta: fact_indicadores_sfc
+    descripcion: "Ficha diaria de la SFC: IBA, Q de Tobin, valor patrimonial, sector"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha_reporte: Date
+      especie: String
+      nombre: String
+      codigo_accion: String
+      clase_accion_sfc: String
+      sector_sfc: String
+      fecha_ultima_operacion: Date
+      precio_promedio: Float64
+      fecha_precio: Date
+      maximo_2m: Float64
+      fecha_maximo: Date
+      minimo_2m: Float64
+      fecha_minimo: Date
+      valor_patrimonial: Float64
+      fecha_valor_patrimonial: Date
+      q_tobin: Float64
+      fecha_q_tobin: Date
+      rpg: Float64
+      fecha_rpg: Date
+      liquidez_bursatil: Float64
+      fecha_liquidez: Date
+      iba_categoria: String
+      iba: Float64
+      fecha_iba: Date
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_fx_diaria:
+    capa: silver
+    ruta: fact_fx_diaria
+    descripcion: "TRM con vigencia y fecha de mercado"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha: Date
+      moneda_origen: String
+      moneda_destino: String
+      tasa: Float64
+      tipo: String
+      vigencia_desde: Date
+      vigencia_hasta: Date
+      fecha_mercado: Date
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_serie_macro:
+    capa: silver
+    ruta: fact_serie_macro
+    descripcion: "Series macro por fuente (una carpeta por fuente)"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha: Date
+      serie_id: String
+      valor: Float64
+      unidad: String
+      frecuencia: String
+      fecha_publicacion: Date
+      publicacion_estimada: Boolean
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_anexo_sfc:
+    capa: silver
+    ruta: fact_anexo_sfc
+    descripcion: "Anexos NIIF del SIMEV fila a fila"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      emisor_id: String
+      entidad_sfc: String
+      fecha_corte: Date
+      grupo: String
+      consolidado: Boolean
+      formato: String
+      nombre_formato: String
+      fila: Int64
+      concepto: String
+      columna: String
+      valor_texto: String
+      valor: Float64
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_xbrl_sfc:
+    capa: silver
+    ruta: fact_xbrl_sfc
+    descripcion: "Hechos XBRL del SIMEV"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      emisor_id: String
+      nit: String
+      entidad_sfc: String
+      fecha_corte: Date
+      tipo_informe: String
+      concepto: String
+      tipo_periodo: String
+      fecha_inicio: Date
+      fecha_fin: Date
+      valor: Float64
+      unidad: String
+      escala: String
+      radicado: String
+      fecha_transmision: Date
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_cuif_mensual:
+    capa: silver
+    ruta: fact_cuif_mensual
+    descripcion: "CUIF mensual de los bancos (cuentas del catálogo único)"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha_corte: Date
+      codigo_entidad: String
+      nombre_entidad: String
+      cuenta: String
+      nombre_cuenta: String
+      valor: Float64
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_xbrl_sec:
+    capa: silver
+    ruta: fact_xbrl_sec
+    descripcion: "XBRL de la SEC (Bancolombia/Cibest, Ecopetrol, Aval)"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      cik: Int64
+      emisor: String
+      taxonomia: String
+      concepto: String
+      unidad: String
+      tipo_periodo: String
+      fecha_inicio: Date
+      fecha_fin: Date
+      valor: Float64
+      ejercicio: Int64
+      periodo_fiscal: String
+      formulario: String
+      fecha_presentacion: Date
+      accn: String
+      frame: String
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_evento_sfc:
+    capa: silver
+    ruta: fact_evento_sfc
+    descripcion: "Información relevante de la SFC sin clasificar"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      evento_id: String
+      fecha: Date
+      hora: String
+      entidad: String
+      tema: String
+      resumen: String
+      tiene_anexo: Boolean
+      anexo_archivo: String
+      fuente_id: String
+      ingest_ts: Datetime
+  dim_especie_sfc:
+    capa: silver
+    ruta: dim_especie_sfc
+    descripcion: "Índice de especies de la SFC por fecha de reporte"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      fecha_reporte: Date
+      especie: String
+      nombre: String
+      emisor: String
+      clase: String
+      fuente_id: String
+      ingest_ts: Datetime
+  fact_dividendo_extraccion:
+    capa: silver
+    ruta: fact_dividendo_extraccion
+    descripcion: "Lecturas de los dos agentes por PDF de dividendos"
+    grano: "ver descripción"
+    claves: []
+    pagina: "consultas avanzadas"
+    columnas:
+      evento_id: String
+      fecha: Date
+      emisor_id: String
+      entidad: String
+      anexo_archivo: String
+      huella_pdf: String
+      estado: String
+      rondas: Int64
+      diferencias: String
+      alertas: String
+      json_a: String
+      json_b: String
+      json_final: String
+      modelo_a: String
+      modelo_b: String
+      procesado_ts: Datetime

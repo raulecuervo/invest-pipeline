@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/upa_12m.md
+id: upa_12m
+nombre: Utilidad por acción (12 meses)
+categoria: rentabilidad
+nivel: intermedio
+formato: pesos
+direccion: 1
+tabla: fact_metrica_fundamental
+columna: valor
+formula: acumulado del año + año anterior completo − acumulado del mismo trimestre del año anterior
+que_es: La utilidad que le corresponde a cada acción en los últimos cuatro trimestres.
+que_hace: 'Quita el efecto de la temporada: compara siempre un año completo.'
+para_que_sirve: Es la base del P/U, del ROE y del crecimiento.
+como_leer: Una utilidad con partidas extraordinarias (venta de un activo) puede inflarla un año.
+relacionadas:
+- p_u
+- roe_12m
+- crecimiento_upa_12m
+revisado: false
+version: 1
+metrica: upa_12m

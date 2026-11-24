@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/fraccion_dias_60.md
+id: fraccion_dias_60
+nombre: Días con negocio (60)
+categoria: liquidez
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_liquidez_diaria
+columna: fraccion_dias_60
+formula: ruedas con negocios en las últimas 60 / 60
+que_es: En cuántos de los últimos 60 días hábiles hubo al menos un negocio.
+que_hace: Distingue acciones que se negocian todos los días de las que se negocian de vez en cuando.
+para_que_sirve: Para filtrar acciones cuyos precios y retornos no son confiables por falta de negocios.
+como_leer: Por debajo de 50 % el sistema muestra un aviso y deja el bloque técnico en N/A.
+relacionadas:
+- monto_medio_60
+- liquida
+revisado: false
+version: 1

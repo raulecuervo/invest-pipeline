@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/puntaje_global.md
+id: puntaje_global
+nombre: Puntaje global
+categoria: puntaje
+nivel: basico
+formato: puntaje
+direccion: 1
+tabla: fact_matriz
+columna: puntaje_global
+formula: 5,5 + 1,5 × z global (promedio ponderado de los z de los factores), entre 1 y 10
+que_es: Una nota de 1 a 10 que resume valor, calidad, crecimiento, momentum y riesgo frente al universo.
+que_hace: Ordena las acciones en una sola escala.
+para_que_sirve: Para priorizar qué mirar primero. Es informativo mientras sus factores no estén validados.
+como_leer: 5,5 es la mediana del grupo; 8 o más, fuerte; menos de 4, débil. Un factor sin datos no cuenta (no vale
+  5).
+relacionadas:
+- puntaje_fundamental
+- puntaje_tecnico
+- percentil_validado
+revisado: false
+version: 1

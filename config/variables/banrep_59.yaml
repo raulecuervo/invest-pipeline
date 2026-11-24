@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/banrep_59.md
+id: banrep_59
+nombre: Tasa de política monetaria
+categoria: macro
+nivel: basico
+formato: porcentaje_puntos
+direccion: 0
+tabla: fact_macro
+columna: valor
+formula: tasa de interés de intervención fijada por la Junta Directiva del Banco de la República
+que_es: La tasa a la que el Banco de la República presta a los bancos.
+que_hace: Guía todas las tasas de interés de la economía.
+para_que_sirve: Para entender el costo del dinero y la tasa libre de riesgo en pesos.
+como_leer: Tasas altas suelen presionar a la baja las acciones y favorecer la renta fija.
+relacionadas:
+- tasa_real_banrep
+- inflacion_co_12m
+revisado: false
+version: 1
+serie_id: banrep_59

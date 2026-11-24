@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/volatilidad_anual.md
+id: volatilidad_anual
+nombre: Volatilidad anual
+categoria: riesgo
+nivel: basico
+formato: porcentaje
+direccion: -1
+tabla: fact_riesgo
+columna: volatilidad_anual
+formula: desviación estándar de los retornos semanales × √52 (1 año, en pesos)
+que_es: Qué tanto se mueve el precio, hacia arriba o hacia abajo.
+que_hace: Es la medida más común de riesgo de mercado.
+para_que_sirve: Para dimensionar posiciones y comparar con la volatilidad objetivo del perfil.
+como_leer: Una volatilidad de 30 % anual significa que en un año normal el precio puede moverse ±30 % alrededor
+  de lo esperado.
+relacionadas:
+- drawdown_maximo
+- beta
+- var_95
+revisado: false
+version: 1

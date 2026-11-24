@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/puntaje_tecnico.md
+id: puntaje_tecnico
+nombre: Puntaje técnico
+categoria: puntaje
+nivel: basico
+formato: puntaje
+direccion: 1
+tabla: fact_matriz
+columna: puntaje_tecnico
+formula: z de momentum (12-1 y distancia a la media de 200), en escala 1 a 10; N/A si la acción no es líquida
+que_es: La nota de la tendencia del precio.
+que_hace: Es el eje vertical de la matriz.
+para_que_sirve: 'Para decidir el momento: comprar con tendencia, acumular en debilidad.'
+como_leer: 'N/A en acciones poco líquidas: sus precios esporádicos no permiten leer tendencias.'
+relacionadas:
+- puntaje_fundamental
+- cuadrante
+revisado: false
+version: 1

@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/fuerza_relativa_12m.md
+id: fuerza_relativa_12m
+nombre: Fuerza relativa (12 meses)
+categoria: momentum
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_tecnico_diario
+columna: fuerza_relativa_12m
+formula: (1 + retorno 12 meses de la acción) / (1 + retorno 12 meses del universo) − 1
+que_es: Cuánto le ganó o perdió la acción al conjunto de acciones líquidas en un año.
+que_hace: Separa el desempeño propio del movimiento general del mercado.
+para_que_sirve: Para ver líderes y rezagados.
+como_leer: Positivo = le ganó al mercado local.
+relacionadas:
+- retorno_12m
+- beta
+revisado: false
+version: 1

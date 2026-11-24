@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/liquida.md
+id: liquida
+nombre: Acción líquida
+categoria: liquidez
+nivel: basico
+formato: si_no
+direccion: 0
+tabla: fact_liquidez_diaria
+columna: liquida
+formula: monto y frecuencia de negocios por encima de los umbrales de config/liquidez
+que_es: Marca si la acción cumple los mínimos de negociación para entrar al universo de análisis.
+que_hace: Define qué acciones reciben factores y puntajes validados.
+para_que_sirve: Para no sacar conclusiones de precios esporádicos.
+como_leer: 'Fuera del universo no quiere decir mala acción: quiere decir que sus datos no alcanzan para medirla.'
+relacionadas:
+- monto_medio_60
+- fraccion_dias_60
+revisado: false
+version: 1

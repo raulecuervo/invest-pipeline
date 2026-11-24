@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/payout.md
+id: payout
+nombre: Payout
+categoria: dividendos
+nivel: intermedio
+formato: porcentaje
+direccion: 0
+tabla: fact_metrica_fundamental
+columna: valor
+formula: dividendo decretado en el año / utilidad por acción del año anterior
+que_es: Qué parte de la utilidad reparte la empresa como dividendo.
+que_hace: Indica si el dividendo es sostenible.
+para_que_sirve: Para juzgar si un rendimiento por dividendo alto se puede mantener.
+como_leer: 'Por encima de 100 % la empresa reparte más de lo que gana: no es sostenible por mucho tiempo.'
+relacionadas:
+- rendimiento_dividendo_12m
+- upa_12m
+revisado: false
+version: 1
+metrica: payout

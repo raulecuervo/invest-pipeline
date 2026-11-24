@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/monto_medio_60.md
+id: monto_medio_60
+nombre: Monto negociado promedio (60 días)
+categoria: liquidez
+nivel: basico
+formato: pesos
+direccion: 1
+tabla: fact_liquidez_diaria
+columna: monto_medio_60
+formula: promedio del valor transado en las últimas 60 ruedas
+que_es: Cuánta plata se negocia en promedio cada día en esa acción.
+que_hace: Indica qué tan fácil es comprar o vender sin mover el precio.
+para_que_sirve: Para saber si una posición se puede liquidar rápido y si los indicadores técnicos tienen sentido.
+como_leer: Como regla práctica, una posición no debería superar el 10–20 % del monto diario promedio por día de
+  venta.
+relacionadas:
+- fraccion_dias_60
+- liquida
+revisado: false
+version: 1

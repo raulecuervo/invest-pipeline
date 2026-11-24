@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/tasa_real_banrep.md
+id: tasa_real_banrep
+nombre: Tasa de política real
+categoria: macro
+nivel: intermedio
+formato: porcentaje_puntos
+direccion: 0
+tabla: fact_macro
+columna: valor
+formula: tasa de política al cierre del mes − inflación anual de ese mes
+que_es: La tasa de política descontando la inflación.
+que_hace: Indica si la política monetaria es restrictiva o expansiva.
+para_que_sirve: Para el contexto de tasas en la página Mercado y país.
+como_leer: Positiva y alta = política restrictiva.
+relacionadas:
+- banrep_59
+- inflacion_co_12m
+revisado: false
+version: 1
+serie_id: tasa_real_banrep

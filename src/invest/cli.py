@@ -12,6 +12,9 @@
     invest dividendos --reevaluar       vuelve a juzgar las disputas con las lecturas guardadas (sin API)
     invest factores                     calcula los factores mensuales y su validación estadística
     invest ficha [--abrir]              puntaje de los factores validados por acción y tablero local (HTML)
+    invest modelo [--sin-calcular]      tablas del aplicativo, base modelo.duckdb y verificación del contrato
+    invest usuario --plantillas         tablas vacías y CSV de ejemplo en invest-data/usuario/
+    invest usuario --importar TABLA ARCHIVO.csv   carga perfiles, carteras o transacciones validadas
     invest probar-niif 260 36 2025-09-30 [--visible]   prueba la página del SIMEV con un emisor (no guarda)
 """
 
@@ -67,6 +70,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="vuelve a juzgar los documentos en disputa con las lecturas guardadas, sin llamar a la API")
 
     sub.add_parser("factores", help="Factores mensuales y su validación estadística")
+
+    pm = sub.add_parser("modelo", help="Tablas del aplicativo, base DuckDB y verificación del contrato")
+    pm.add_argument("--sin-calcular", action="store_true", help="solo rehace la base y verifica")
+
+    pu = sub.add_parser("usuario", help="Datos que ingresa el usuario (perfiles, carteras, transacciones)")
+    pu.add_argument("--plantillas", action="store_true", help="crea tablas vacías y CSV de ejemplo")
+    pu.add_argument("--importar", nargs=2, metavar=("TABLA", "ARCHIVO"), help="carga un CSV validado")
+    pu.add_argument("--reemplazar", action="store_true", help="con --importar: reemplaza en vez de agregar")
 
     pf = sub.add_parser("ficha", help="Puntaje de los factores validados por acción y tablero local")
     pf.add_argument("--abrir", action="store_true", help="abre el tablero en el navegador")
@@ -182,6 +193,39 @@ def main(argv: list[str] | None = None) -> int:
             import webbrowser
 
             webbrowser.open(destino.resolve().as_uri())
+        return 0
+
+    if a.comando == "modelo":
+        from invest import modelo
+
+        r = modelo.construir(recalcular=not a.sin_calcular)
+        for nombre, res in r["calculo"].items():
+            print(f"{nombre}: " + (", ".join(f"{k} {v}" for k, v in res.items()) or "sin datos"))
+        print(f"Base: {r['duckdb']} ({r['vistas']} vistas)")
+        for p in r["problemas"]:
+            print(f"[contrato] {p}")
+        print("Contrato: " + ("sin problemas" if not r["problemas"] else f"{len(r['problemas'])} problemas"))
+        return 1 if r["problemas"] else 0
+
+    if a.comando == "usuario":
+        from pathlib import Path
+
+        from invest import usuario
+
+        if a.plantillas:
+            for ruta in usuario.plantillas():
+                print(f"Creado: {ruta}")
+        if a.importar:
+            tabla, archivo = a.importar
+            if tabla not in usuario.TABLAS:
+                print(f"Tabla desconocida: {tabla}. Opciones: {', '.join(usuario.TABLAS)}")
+                return 1
+            problemas = usuario.importar_csv(tabla, Path(archivo), reemplazar=a.reemplazar)
+            for p in problemas:
+                print(f"[no se guardó] {p}")
+            if problemas:
+                return 1
+            print(f"{tabla}: {usuario.leer(tabla).height} filas")
         return 0
 
     if a.comando == "salud":

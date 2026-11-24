@@ -1,0 +1,19 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/rendimiento_utilidad.md
+id: rendimiento_utilidad
+nombre: Rendimiento de la utilidad
+categoria: valoracion
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_valoracion
+columna: rendimiento_utilidad
+formula: utilidad por acción de 12 meses / precio
+que_es: 'El inverso del P/U: qué porcentaje del precio gana la empresa en un año.'
+que_hace: Permite comparar acciones con tasas de interés (p. ej. el TES UVR a 10 años).
+para_que_sirve: Para ver si el retorno implícito de la acción compensa frente a renta fija.
+como_leer: Si es menor que la tasa real de largo plazo, el precio supone crecimiento futuro.
+relacionadas:
+- p_u
+revisado: false
+version: 1

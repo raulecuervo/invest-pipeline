@@ -1,0 +1,38 @@
+# Indicadores macro y de mercado (gold/dims/dim_indicador_macro).
+#
+# Una entrada por serie_id de silver/fact_serie_macro, más la TRM (silver/fact_fx_diaria). La app usa
+# el nombre corto en gráficos y la categoría para agrupar la página Mercado y país. Una serie nueva
+# que llegue sin entrada aquí aparece en dim_indicador_macro con su serie_id como nombre y
+# categoria "sin clasificar", y la prueba del modelo avisa.
+#
+# categoria: tasas | inflacion | divisas | renta_variable | riesgo
+indicadores:
+  trm_usd_cop: {nombre: "TRM (pesos por dólar)", corto: TRM, pais_id: CO, categoria: divisas, unidad: cop_por_usd, frecuencia: diaria}
+  banrep_59: {nombre: "Tasa de política monetaria del Banco de la República", corto: Tasa BanRep, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_241: {nombre: "IBR overnight, nominal", corto: IBR overnight, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_242: {nombre: "IBR a 1 mes, nominal", corto: IBR 1 mes, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_243: {nombre: "IBR a 3 meses, nominal", corto: IBR 3 meses, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_16560: {nombre: "IBR a 6 meses, nominal", corto: IBR 6 meses, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_16562: {nombre: "IBR a 12 meses, nominal", corto: IBR 12 meses, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_15324: {nombre: "IBR overnight, efectiva", corto: IBR overnight E.A., pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_15325: {nombre: "IBR a 1 mes, efectiva", corto: IBR 1 mes E.A., pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_15326: {nombre: "IBR a 3 meses, efectiva", corto: IBR 3 meses E.A., pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_16561: {nombre: "IBR a 6 meses, efectiva", corto: IBR 6 meses E.A., pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  banrep_16563: {nombre: "IBR a 12 meses, efectiva", corto: IBR 12 meses E.A., pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  ipc_co: {nombre: "Índice de precios al consumidor de Colombia (DANE, base dic-2018 = 100)", corto: IPC, pais_id: CO, categoria: inflacion, unidad: indice_dic2018_100, frecuencia: mensual}
+  msci_colcap: {nombre: "MSCI COLCAP", corto: COLCAP, pais_id: CO, categoria: renta_variable, unidad: puntos, frecuencia: diaria}
+  msci_nuam_usd: {nombre: "MSCI NUAM USD", corto: NUAM USD, pais_id: CO, categoria: renta_variable, unidad: puntos, frecuencia: diaria}
+  fred_colirltlt01stm: {nombre: "Tasa de largo plazo de Colombia (OCDE)", corto: Tasa larga CO, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: mensual}
+  fred_dgs10: {nombre: "Bono del Tesoro de EE. UU. a 10 años", corto: Tesoro 10 años, pais_id: US, categoria: tasas, unidad: pct, frecuencia: diaria}
+  fred_dgs3mo: {nombre: "Letra del Tesoro de EE. UU. a 3 meses", corto: Tesoro 3 meses, pais_id: US, categoria: tasas, unidad: pct, frecuencia: diaria}
+  fred_dfii10: {nombre: "Tesoro de EE. UU. a 10 años real (TIPS)", corto: TIPS 10 años, pais_id: US, categoria: tasas, unidad: pct, frecuencia: diaria}
+  fred_t10yie: {nombre: "Inflación implícita de EE. UU. a 10 años", corto: Inflación implícita EE. UU., pais_id: US, categoria: inflacion, unidad: pct, frecuencia: diaria}
+  fred_cpiaucsl: {nombre: "Índice de precios al consumidor de EE. UU.", corto: IPC EE. UU., pais_id: US, categoria: inflacion, unidad: indice_1982_84_100, frecuencia: mensual}
+  fred_vixcls: {nombre: "Índice de volatilidad VIX", corto: VIX, pais_id: US, categoria: riesgo, unidad: puntos, frecuencia: diaria}
+  fred_bamlemcbpioas: {nombre: "Diferencial de bonos corporativos de emergentes (ICE BofA)", corto: Diferencial emergentes, pais_id: US, categoria: riesgo, unidad: pct, frecuencia: diaria}
+
+# Series derivadas que calcula invest.macro (no vienen de una fuente)
+derivados:
+  inflacion_co_12m: {nombre: "Inflación anual de Colombia (variación del IPC en 12 meses)", corto: Inflación anual, pais_id: CO, categoria: inflacion, unidad: pct, frecuencia: mensual, base: ipc_co}
+  inflacion_us_12m: {nombre: "Inflación anual de EE. UU. (variación del IPC en 12 meses)", corto: Inflación anual EE. UU., pais_id: US, categoria: inflacion, unidad: pct, frecuencia: mensual, base: fred_cpiaucsl}
+  tasa_real_banrep: {nombre: "Tasa de política real (tasa BanRep menos inflación anual)", corto: Tasa real BanRep, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: mensual, base: banrep_59}

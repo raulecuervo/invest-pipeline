@@ -102,6 +102,7 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
         if primera and primera > 100:  # las otras filas TOTAL son porcentajes (100)
             filas.append({"emisor_id": emisor, "fecha_corte": corte, "concepto": "acciones_circulacion",
                           "valor": float(primera), "unidad": "acciones", "base": "separado", "fuente": "anexo_211"})
+    filas += _acciones_por_clase(a)
     df = pl.DataFrame(filas, schema={k: v for k, v in ESQUEMA.items() if k != "fecha_disponible"})
     if df.is_empty():
         return pl.DataFrame(schema=ESQUEMA)
@@ -116,6 +117,40 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
     # Un valor patrimonial en cero o negativo es un campo sin diligenciar (p. ej. Promigas, sep-2025)
     df = df.filter(~((pl.col("concepto") == "valor_patrimonial_accion") & (pl.col("valor") <= 0)))
     return _a_dolares(_fecha_disponible_anexo(df)).select(list(ESQUEMA))
+
+
+CLASES_211 = {
+    "ACCIONES ORDINARIAS": "acciones_ordinarias",
+    "ACCIONES CON DIVIDENDO PREFERENCIAL Y SIN DERECHO A VOTO": "acciones_preferenciales",
+    "ACCIONES PREFERENCIALES": "acciones_preferenciales",
+    "ACCIONES PRIVILEGIADAS": "acciones_privilegiadas",
+}
+
+
+def _acciones_por_clase(a: pl.DataFrame) -> list[dict]:
+    """Acciones en circulación por clase (211): las filas de la primera tabla, antes de su TOTAL.
+
+    Más abajo el formato repite nombres de clase en otras tablas (p. ej. acciones readquiridas), por
+    eso solo cuentan las filas anteriores al primer TOTAL con número de acciones.
+    """
+    t = a.filter((pl.col("formato") == "211")
+                 & (pl.col("columna").map_elements(normalizar, return_dtype=pl.Utf8) == "NUMERO DE ACCIONES"))
+    filas = []
+    for (emisor, corte, _), g in t.group_by(["emisor_id", "fecha_corte", "grupo"]):
+        g = g.sort("fila")
+        totales = g.filter((pl.col("_c") == "TOTAL") & (pl.col("valor") > 100)).get_column("fila")
+        if totales.is_empty():
+            continue
+        vistas: dict[str, float] = {}
+        for r in g.filter(pl.col("fila") < totales.min()).iter_rows(named=True):
+            concepto = CLASES_211.get(r["_c"])
+            if concepto and concepto not in vistas and r["valor"] is not None:
+                vistas[concepto] = float(r["valor"])
+        filas += [{"emisor_id": emisor, "fecha_corte": corte, "concepto": k, "valor": v, "unidad": "acciones",
+                   "base": "separado", "fuente": "anexo_211"} for k, v in vistas.items() if v > 0]
+    # El 211 trimestral y el semestral de un mismo corte traen lo mismo: una fila por concepto
+    unicas = {(f["emisor_id"], f["fecha_corte"], f["concepto"]): f for f in filas}
+    return list(unicas.values())
 
 
 def _a_dolares(df: pl.DataFrame) -> pl.DataFrame:

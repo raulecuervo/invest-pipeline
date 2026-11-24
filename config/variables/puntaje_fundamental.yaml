@@ -1,0 +1,20 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/puntaje_fundamental.md
+id: puntaje_fundamental
+nombre: Puntaje fundamental
+categoria: puntaje
+nivel: basico
+formato: puntaje
+direccion: 1
+tabla: fact_matriz
+columna: puntaje_fundamental
+formula: z combinado de valor, calidad y crecimiento, en escala 1 a 10
+que_es: La nota de la empresa como negocio y como precio.
+que_hace: Es el eje horizontal de la matriz.
+para_que_sirve: Para separar lo que vale la empresa de cómo se está moviendo su precio.
+como_leer: Por encima de 5,5 está mejor que la mediana del universo.
+relacionadas:
+- puntaje_tecnico
+- cuadrante
+revisado: false
+version: 1
