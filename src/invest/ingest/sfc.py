@@ -324,7 +324,7 @@ class ConectorSFCPrecios(Conector):
         registros: list[dict] = []
         omitidas = sin_operacion = sin_cambio = faltantes = 0
         # Antecesoras de una sucesión (config/sucesiones.yaml): la SFC ya no las lista; se bajan una vez
-        antecesoras = [e for e in sucesiones.especies_antecesoras() if e not in ultimas or self.forzado]
+        antecesoras = [e for e in sucesiones.especies_antecesoras() if e not in ultimas]
         for especie in especies_vigentes() + antecesoras:
             if especie in antecesoras:
                 for sufijo, obligatorio in (("ant", True), ("2025", False)):

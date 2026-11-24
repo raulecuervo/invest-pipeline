@@ -31,6 +31,8 @@ def servidor(monkeypatch):
         "cotk7paao003_2026.xls": escribir_biff2(CIBEST_2026),
     }
     falso = ServidorFalso(archivos)
+    # Las antecesoras de config/sucesiones.yaml tienen su propia prueba
+    monkeypatch.setattr(sfc.sucesiones, "especies_antecesoras", lambda: [])
     monkeypatch.setattr(sfc.http, "obtener", falso)
     monkeypatch.setattr(sfc.http, "obtener_condicional", falso.condicional)
     monkeypatch.setattr(sfc, "_hoy", lambda: HOY)
@@ -282,3 +284,17 @@ def test_desde_explicito_fuerza_la_descarga(carpeta_datos, servidor):
 def test_fechas_sin_cero_inicial():
     # Así vienen en coc04paao008_2025.xls
     assert sfc.fecha_dmy("4/11/2025") == date(2025, 11, 4) and sfc.fecha_dmy("1/2/2025") == date(2025, 2, 1)
+
+
+def test_antecesora_de_una_sucesion_se_baja_una_vez(carpeta_datos, servidor, monkeypatch):
+    # Bancolombia ya no está en el índice de la SFC, pero sus archivos sí
+    servidor.archivos["cob07paao012_ant.xls"] = escribir_biff2([
+        ("COB07PAAO012", "15/05/2025", 51500.0, 2.1e10), ("COB07PAAO012", "16/05/2025", 51790.42, 3.0e10)])
+    monkeypatch.setattr(sfc.sucesiones, "especies_antecesoras", lambda: ["cob07paao012"])
+    sfc.ConectorSFCPrecios().ejecutar(date(2026, 11, 13), date(2026, 11, 29))
+    assert "cob07paao012_ant.xls" in servidor.pedidos
+    precios = storage.leer_tabla("silver", "fact_precio_sfc")
+    assert precios.filter(pl.col("especie") == "cob07paao012").height == 2
+    servidor.pedidos.clear()
+    sfc.ConectorSFCPrecios().ejecutar(date(2026, 11, 13), date(2026, 11, 29))
+    assert not any(p.startswith("cob07") for p in servidor.pedidos)
