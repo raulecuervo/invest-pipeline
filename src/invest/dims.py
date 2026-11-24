@@ -10,7 +10,7 @@ from datetime import date
 
 import polars as pl
 
-from invest import distribuciones, dividendos, dividendos_web, eventos, liquidez, retornos, splits, storage
+from invest import distribuciones, dividendos, dividendos_web, eventos, fundamentales, liquidez, retornos, splits, storage
 from invest.calendario import es_habil, limites
 from invest.config import catalogo_fuentes, dimensiones
 
@@ -157,5 +157,9 @@ def construir(desde: date = date(1991, 1, 1), hasta: date | None = None) -> dict
     if tabla_liquidez is not None:
         rutas["fact_liquidez_diaria"] = "gold/fact_liquidez_diaria (" + ", ".join(
             f"{k} {v}" for k, v in resumen_liq.items()) + ")"
+    tabla_fund, resumen_fund = fundamentales.construir()
+    if tabla_fund is not None:
+        rutas["fact_fundamental"] = "gold/fact_fundamental (" + ", ".join(
+            f"{k} {v}" for k, v in resumen_fund.items()) + ")"
     return rutas
 

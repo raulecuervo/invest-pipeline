@@ -125,6 +125,34 @@ def _asof(panel: pl.DataFrame, fechas: list[date], columnas: list[str]) -> pl.Da
                            check_sortedness=False)
 
 
+def _valor_libros_mes(meses: list[date]) -> pl.DataFrame:
+    """Valor patrimonial por acción conocido a cada fin de mes (``fecha_disponible`` ≤ fin de mes), por especie.
+
+    Sale de ``gold/fact_fundamental`` (anexos de la SFC, estados separados, en pesos). Las especies
+    ordinaria y preferencial de un emisor comparten el valor patrimonial por acción.
+    """
+    vacio = pl.DataFrame(schema={"especie": pl.Utf8, "fecha_mes": pl.Date, "_vp": pl.Float64})
+    fund = storage.leer_tabla("gold", "fact_fundamental")
+    activos = storage.leer_dim("dim_activo")
+    if fund is None or activos is None or fund.is_empty():
+        return vacio
+    vp = (fund.filter((pl.col("concepto") == "valor_patrimonial_accion") & (pl.col("unidad") == "pesos_por_accion"))
+          .select("emisor_id", "fecha_disponible", "fecha_corte", pl.col("valor").alias("_vp"))
+          .sort(["emisor_id", "fecha_disponible", "fecha_corte"])
+          .unique(subset=["emisor_id", "fecha_disponible"], keep="last", maintain_order=True))
+    if vp.is_empty():
+        return vacio
+    grilla = (vp.select("emisor_id").unique().join(pl.DataFrame({"fecha_mes": meses}), how="cross")
+              .sort(["emisor_id", "fecha_mes"]))
+    por_emisor = grilla.join_asof(vp.drop("fecha_corte"), left_on="fecha_mes", right_on="fecha_disponible",
+                                  by="emisor_id", strategy="backward", check_sortedness=False)
+    # Un valor patrimonial de hace más de 15 meses ya no describe a la empresa
+    por_emisor = por_emisor.filter(pl.col("_vp").is_not_null()
+                                   & ((pl.col("fecha_mes") - pl.col("fecha_disponible")).dt.total_days() <= 460))
+    return (por_emisor.join(activos.select("especie", "emisor_id"), on="emisor_id")
+            .select("especie", "fecha_mes", "_vp"))
+
+
 def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
     cfg = config()
     retornos = storage.leer_tabla("gold", "fact_retorno_diario")
@@ -140,7 +168,7 @@ def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
         return None, {"meses": len(meses)}
     sesion_idx = {d: i for i, d in enumerate(sesiones_entre(inicio, fin))}
 
-    base = _asof(panel, meses, ["indice", "n_negocios"])
+    base = _asof(panel, meses, ["indice", "n_negocios", "precio_promedio"])
     base = base.with_columns(
         pl.col("fecha_dato").map_elements(lambda d: sesion_idx.get(d), return_dtype=pl.Int64).alias("_i_dato"),
         pl.col("fecha_mes").map_elements(lambda d: sesion_idx.get(d), return_dtype=pl.Int64).alias("_i_mes"),
@@ -173,9 +201,12 @@ def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
     liq = liquidez.select("especie", "fecha", "monto_medio_60", "liquida").sort(["especie", "fecha"])
     liq_mes = _asof(liq, meses, ["monto_medio_60", "liquida"]).drop("fecha_dato")
 
+    valor = _valor_libros_mes(meses)
     df = (
         base.join(ventanas, on=["especie", "fecha_mes"], how="left")
         .join(liq_mes, on=["especie", "fecha_mes"], how="left")
+        .join(valor, on=["especie", "fecha_mes"], how="left")
+        .with_columns((pl.col("_vp") / pl.col("precio_promedio")).alias("valor_libros_precio"))
         .with_columns(
             (pl.col("i_m1") / pl.col("i_m12") - 1).alias("momentum_12_1"),
             (pl.col("i_m1") / pl.col("i_m6") - 1).alias("momentum_6_1"),

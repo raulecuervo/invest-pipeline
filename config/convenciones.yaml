@@ -36,6 +36,13 @@ liquidez:
   monto_medio_minimo_cop: 200000000   # COP 200 millones diarios en promedio
   fraccion_dias_minima: 0.8
 
+# Fundamentales (src/invest/fundamentales.py): desde cuándo se conocía cada cifra de los anexos de la
+# SFC, que no traen fecha de transmisión. Plazos legales: 45 días para los intermedios y la asamblea
+# ordinaria (hasta finales de marzo) para el cierre; se deja margen.
+fundamentales:
+  dias_disponible_intermedio: 60
+  dias_disponible_cierre: 100
+
 dividendos:
   # Periodo ex-dividendo: días hábiles bursátiles antes de la fecha de pago (el periodo incluye el
   # día de pago). Solo se usa cuando el PDF no trae la fecha ex-dividendo; esas filas quedan

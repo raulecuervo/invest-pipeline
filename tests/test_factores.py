@@ -68,3 +68,22 @@ def test_construir_sin_mirar_al_futuro(carpeta_datos):
     # El retorno siguiente de julio es el de agosto (índice limpio)
     assert math.isclose(mom["retorno_siguiente"], 1.001 ** len(factores.sesiones_entre(date(2021, 8, 2), date(2021, 8, 31))) - 1,
                         rel_tol=1e-9)
+
+
+def test_valor_libros_sin_mirar_al_futuro(carpeta_datos):
+    (carpeta_datos / "gold" / "dims").mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({"especie": ["cot13paao004", "cot13paad031"], "emisor_id": ["CO-COT13", "CO-COT13"]}).write_parquet(
+        carpeta_datos / "gold" / "dims" / "dim_activo.parquet")
+    storage.escribir_completa("gold", "fact_fundamental", pl.DataFrame([
+        {"emisor_id": "CO-COT13", "fecha_corte": date(2025, 6, 30), "fecha_disponible": date(2025, 8, 29),
+         "concepto": "valor_patrimonial_accion", "valor": 40000.0, "unidad": "pesos_por_accion"},
+        {"emisor_id": "CO-COT13", "fecha_corte": date(2025, 9, 30), "fecha_disponible": date(2025, 11, 29),
+         "concepto": "valor_patrimonial_accion", "valor": 41841.09, "unidad": "pesos_por_accion"},
+    ]))
+    meses = [date(2025, 7, 31), date(2025, 8, 29), date(2025, 10, 31), date(2025, 11, 28), date(2025, 12, 30)]
+    v = factores._valor_libros_mes(meses).filter(pl.col("especie") == "cot13paao004").sort("fecha_mes")
+    # Julio: aún no se conocía nada; noviembre 28: el de septiembre todavía no estaba disponible
+    assert dict(v.select("fecha_mes", "_vp").iter_rows()) == {
+        date(2025, 8, 29): 40000.0, date(2025, 10, 31): 40000.0, date(2025, 11, 28): 40000.0,
+        date(2025, 12, 30): 41841.09}
+    assert factores._valor_libros_mes(meses).get_column("especie").n_unique() == 2  # ordinaria y preferencial

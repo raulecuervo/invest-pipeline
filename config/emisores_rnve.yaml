@@ -28,7 +28,7 @@ emisores:
   - {emisor_id: CO-COF02, nit: "8909011108", nombre: Conconcreto, codigos: [{tipo: 55, codigo: 3}]}
   - {emisor_id: CO-COB51, nit: "8600343137", nombre: Banco Davivienda, codigos: [{tipo: 1, codigo: 39}]}
   - {emisor_id: CO-COT23, nit: "8300254485", nombre: Grupo Bolívar, codigos: [{tipo: 142, codigo: 3}, {tipo: 66, codigo: 9}]}
-  - {emisor_id: CO-PAT07, nit: "4444005240", nombre: BAC Holding, codigos: [{tipo: 141, codigo: 3}]}
+  - {emisor_id: CO-PAT07, nit: "4444005240", nombre: BAC Holding, moneda_informes: USD, codigos: [{tipo: 141, codigo: 3}]}
   - {emisor_id: CO-COI13, nit: "8999991158", nombre: ETB, codigos: [{tipo: 260, codigo: 47}, {tipo: 250, codigo: 33}]}
   - {emisor_id: CO-COT04, nit: "8909000501", nombre: Grupo Nutresa, codigos: [{tipo: 66, codigo: 32}]}
   - {emisor_id: CO-COD05, nit: "8909034742", nombre: Enka, codigos: [{tipo: 39, codigo: 21}]}

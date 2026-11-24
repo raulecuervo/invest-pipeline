@@ -30,6 +30,9 @@ factores:
   rendimiento_dividendo_12m:
     signo: 1
     descripcion: "Suma de dividendos en efectivo de los últimos 12 meses sobre el precio de cada fecha ex"
+  valor_libros_precio:
+    signo: 1
+    descripcion: "Valor patrimonial por acción publicado (anexos de la SFC, estados separados) sobre el precio a fin de mes (hipótesis: las acciones baratas frente a su patrimonio rinden más)"
 
 validacion:
   inicio: "2008-01-31"            # antes hay muy pocas acciones líquidas
