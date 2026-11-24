@@ -315,17 +315,21 @@ class ConectorSFCPrecios(Conector):
 
     def descargar(self, desde: date, hasta: date) -> list[dict]:
         hoy = _hoy()
-        if _sin_reporte_nuevo(self):
+        ultimas = ultima_negociacion()
+        # Antecesoras de una sucesión (config/sucesiones.yaml): la SFC ya no las lista; se bajan una vez,
+        # aunque no haya reporte nuevo
+        antecesoras = [e for e in sucesiones.especies_antecesoras() if e not in ultimas]
+        sin_reporte = _sin_reporte_nuevo(self)
+        if sin_reporte and not antecesoras:
             return []
+        if antecesoras:
+            self.sin_novedades = False
         historica = desde.year < hoy.year
         sufijos = self._sufijos(desde, hasta, hoy.year)
-        ultimas = ultima_negociacion()
         operaciones = {} if self.forzado else ultima_operacion_segun_ficha()
         registros: list[dict] = []
         omitidas = sin_operacion = sin_cambio = faltantes = 0
-        # Antecesoras de una sucesión (config/sucesiones.yaml): la SFC ya no las lista; se bajan una vez
-        antecesoras = [e for e in sucesiones.especies_antecesoras() if e not in ultimas]
-        for especie in especies_vigentes() + antecesoras:
+        for especie in ([] if sin_reporte else especies_vigentes()) + antecesoras:
             if especie in antecesoras:
                 for sufijo, obligatorio in (("ant", True), ("2025", False)):
                     try:
