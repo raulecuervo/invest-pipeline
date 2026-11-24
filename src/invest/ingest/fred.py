@@ -47,12 +47,15 @@ class ConectorFRED(Conector):
         self.series = {s["id"]: s for s in self.meta["series"]}
         fallidas = []
         for sid in self.series:
-            # FRED a veces tarda en responder a los servidores de GitHub: más tiempo de espera, y una serie
+            # FRED a veces tarda en responder a los servidores de GitHub: 90 s de espera y dos intentos, y una serie
             # que falla no impide guardar las demás (se reintenta en la próxima corrida)
             try:
-                contenido = self.bajar(URL.format(sid), timeout=120)
+                contenido = self.bajar(URL.format(sid), reintentos=2, timeout=90)
             except Exception as e:  # noqa: BLE001
                 fallidas.append(f"{sid} ({type(e).__name__})")
+                if len(fallidas) >= 2 and not registros:
+                    # Las dos primeras no respondieron: FRED está caído; no se espera por cada serie
+                    raise RuntimeError("FRED no responde: " + ", ".join(fallidas)) from e
                 continue
             if contenido is None:
                 continue

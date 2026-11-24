@@ -103,7 +103,7 @@ def test_fred_una_serie_caida_no_tumba_las_demas(carpeta_datos, monkeypatch):
     csv = b"observation_date,DGS10\n2026-11-18,5.01\n"
 
     def bajar(self, url, **kw):
-        if url.endswith("=DGS10"):
+        if url.endswith("=DGS10") or "=DGS10" in url:
             return csv
         raise TimeoutError("FRED no responde")
 

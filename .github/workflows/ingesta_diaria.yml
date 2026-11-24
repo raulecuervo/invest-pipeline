@@ -33,7 +33,7 @@ jobs:
     # No corre hasta configurar la variable DATA_REPO y el secreto DATA_REPO_TOKEN (docs/configurar_github.md)
     if: ${{ vars.DATA_REPO != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45   # la primera carga histórica de la SFC baja unos 350 archivos
+    timeout-minutes: 90   # la primera carga histórica de la SFC baja unos 350 archivos
     steps:
       - name: Código
         uses: actions/checkout@v4
@@ -63,9 +63,11 @@ jobs:
         # Si una fuente falla, el paso termina en error, pero lo demás se guarda igual (pasos con
         # !cancelled()); al final, "Resultado" marca la corrida en rojo para que se note
         continue-on-error: true
+        timeout-minutes: 60   # si se pasa, el paso cuenta como falla y lo demás se guarda igual
         working-directory: invest-pipeline
         env:
           INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
+          PYTHONUNBUFFERED: "1"   # los mensajes salen en el registro a medida que ocurren
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}   # "Nombre correo@dominio" (lo exige la SEC)
         run: |
