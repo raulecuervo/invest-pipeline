@@ -484,13 +484,80 @@ def tablero_validado():
 app.mount("/static", StaticFiles(directory=ESTATICOS), name="static")
 
 
-def iniciar(puerto: int = 8765, abrir: bool = True) -> None:
+IDENTIDAD = "invest-pipeline"
+PUERTO = 8790  # 8765 lo usa otro aplicativo de Esteban (seguimiento financiero SDIS)
+
+
+@app.get("/api/identidad")
+def identidad():
+    """Permite reconocer, antes de arrancar, si lo que ocupa el puerto es este mismo aplicativo."""
+    return responder({"app": IDENTIDAD})
+
+
+def _responde(puerto: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", puerto)) == 0
+
+
+def _es_este_aplicativo(puerto: int) -> bool:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{puerto}/api/identidad", timeout=1.5) as r:
+            return json.loads(r.read().decode("utf-8")).get("app") == IDENTIDAD
+    except Exception:  # noqa: BLE001 - cualquier otra cosa en el puerto no es este aplicativo
+        return False
+
+
+def _libre(puerto: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", puerto))
+            return True
+        except OSError:
+            return False
+
+
+def elegir_puerto(preferido: int = PUERTO, intentos: int = 20) -> tuple[int, bool]:
+    """(puerto, ya_abierto). Si el preferido lo ocupa otro programa, usa el siguiente libre.
+
+    ``ya_abierto`` es True si este aplicativo ya está corriendo en ese puerto: entonces solo se abre
+    el navegador, sin arrancar un segundo servidor.
+    """
+    for puerto in range(preferido, preferido + intentos):
+        if _responde(puerto):
+            if _es_este_aplicativo(puerto):
+                return puerto, True
+            continue  # otro aplicativo: se prueba el siguiente
+        if _libre(puerto):
+            return puerto, False
+    raise RuntimeError(f"no hay un puerto libre entre {preferido} y {preferido + intentos - 1}")
+
+
+def iniciar(puerto: int = PUERTO, abrir: bool = True) -> None:
     import uvicorn
 
+    elegido, ya_abierto = elegir_puerto(puerto)
+    url = f"http://127.0.0.1:{elegido}/"
+    if elegido != puerto and not ya_abierto:
+        print(f"El puerto {puerto} lo usa otro programa; el aplicativo queda en el {elegido}.")
+    if ya_abierto:
+        print(f"El aplicativo ya está abierto en {url}; se abre el navegador ahí.")
+        if abrir:
+            import webbrowser
+
+            webbrowser.open(url)
+        return
     asegurar_base()
+    print(f"Aplicativo en {url} (cierre esta ventana o Ctrl+C para apagarlo)")
     if abrir:
         import webbrowser
 
-        threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{puerto}/")).start()
-    uvicorn.run(app, host="127.0.0.1", port=puerto, log_level="warning")
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    uvicorn.run(app, host="127.0.0.1", port=elegido, log_level="warning")
 

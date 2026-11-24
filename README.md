@@ -82,7 +82,7 @@ Opcional: un *app token* gratuito de datos.gov.co en la variable `SOCRATA_APP_TO
 | `invest inspeccionar [especie]` | Descarga índice, ficha y serie de una especie de la SFC y muestra lo que entiende, sin guardar |
 | `invest factores` | Factores mensuales y su validación estadística |
 | `invest modelo [--sin-calcular]` | Tablas del aplicativo, base `invest-data/modelo.duckdb` y verificación del contrato (código 1 si hay problemas) |
-| `invest app [--puerto 8765] [--no-abrir]` | Aplicativo local en el navegador (doble clic: `scripts\abrir_app.cmd`) |
+| `invest app [--puerto 8790] [--no-abrir]` | Aplicativo local en el navegador (doble clic: `scripts\abrir_app.cmd`) |
 | `invest usuario --plantillas` / `--importar TABLA ARCHIVO.csv` | Tablas vacías y CSV de ejemplo para perfiles, carteras y transacciones; carga validada desde Excel |
 | `invest ficha [--abrir]` | Puntaje de los factores validados por acción y tablero `invest-data/tableros/matriz_factores.html` (`scripts\abrir_tablero.cmd` lo hace con doble clic) |
 
@@ -259,7 +259,7 @@ Pendiente de datos, no de código: la historia de la tasa BanRep (la primera car
 
 ## Aplicativo local (`src/invest/app/`, `invest app`)
 
-Doble clic en `scripts\abrir_app.cmd` (o `uv run --extra app invest app`): abre el navegador en `http://127.0.0.1:8765/`. Solo escucha en este computador y solo atiende pedidos dirigidos a `127.0.0.1` o `localhost`; los cambios (guardar, lanzar acciones) exigen el encabezado `X-Invest` que pone la propia página, y se rechazan los pedidos que el navegador marca como de otro sitio. Así otra página abierta en el mismo navegador no puede lanzar acciones ni leer la cartera. Lee de `modelo.duckdb` (una conexión de solo lectura por consulta) y escribe únicamente en `invest-data/usuario/`, validando antes de guardar; tras cada cambio de carteras o transacciones recalcula posiciones y desempeño.
+Doble clic en `scripts\abrir_app.cmd` (o `uv run --extra app invest app`): abre el navegador en `http://127.0.0.1:8790/` (el 8765 lo usa el aplicativo de seguimiento financiero de la SDIS). Si el puerto lo ocupa otro programa, usa el siguiente libre y lo dice en la ventana; si el aplicativo ya está abierto, solo abre el navegador. Solo escucha en este computador y solo atiende pedidos dirigidos a `127.0.0.1` o `localhost`; los cambios (guardar, lanzar acciones) exigen el encabezado `X-Invest` que pone la propia página, y se rechazan los pedidos que el navegador marca como de otro sitio. Así otra página abierta en el mismo navegador no puede lanzar acciones ni leer la cartera. Lee de `modelo.duckdb` (una conexión de solo lectura por consulta) y escribe únicamente en `invest-data/usuario/`, validando antes de guardar; tras cada cambio de carteras o transacciones recalcula posiciones y desempeño.
 
 | Página | Qué muestra |
 | --- | --- |

@@ -67,3 +67,36 @@ def test_rechaza_pedidos_de_otros_sitios(cliente):
     assert motivo_rechazo("GET", {"host": "localhost:8765"}) is None
     assert motivo_rechazo("GET", {"host": "[::1]:8765"}) is None
     assert motivo_rechazo("GET", {"host": "127.0.0.1.malo.example"}) == "host no permitido"
+
+
+def test_puerto_ocupado_por_otro_programa_usa_el_siguiente():
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from invest.app import servidor
+
+    class Otro(BaseHTTPRequestHandler):
+        def do_GET(self):  # otro aplicativo: responde, pero no es este
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"<html>Matriz de seguimiento financiero</html>")
+
+        def log_message(self, *a):
+            pass
+
+    with socket.socket() as s:  # un puerto libre para empezar
+        s.bind(("127.0.0.1", 0))
+        base = s.getsockname()[1]
+    otro = HTTPServer(("127.0.0.1", base), Otro)
+    threading.Thread(target=otro.serve_forever, daemon=True).start()
+    try:
+        puerto, ya_abierto = servidor.elegir_puerto(base, intentos=5)
+        assert puerto != base and not ya_abierto
+    finally:
+        otro.shutdown()
+        otro.server_close()
+
+
+def test_reconoce_su_propia_identidad(cliente):
+    assert cliente.get("/api/identidad").json() == {"app": "invest-pipeline"}

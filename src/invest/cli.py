@@ -14,7 +14,7 @@
     invest ficha [--abrir]              puntaje de los factores validados por acción y tablero local (HTML)
     invest modelo [--sin-calcular]      tablas del aplicativo, base modelo.duckdb y verificación del contrato
     invest usuario --plantillas         tablas vacías y CSV de ejemplo en invest-data/usuario/
-    invest app [--puerto 8765] [--no-abrir]   aplicativo local en el navegador (requiere el extra app)
+    invest app [--puerto 8790] [--no-abrir]   aplicativo local en el navegador (requiere el extra app)
     invest usuario --importar TABLA ARCHIVO.csv   carga perfiles, carteras o transacciones validadas
     invest probar-niif 260 36 2025-09-30 [--visible]   prueba la página del SIMEV con un emisor (no guarda)
 """
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     pm.add_argument("--sin-calcular", action="store_true", help="solo rehace la base y verifica")
 
     pa = sub.add_parser("app", help="Aplicativo local en el navegador")
-    pa.add_argument("--puerto", type=int, default=8765)
+    pa.add_argument("--puerto", type=int, default=8790, help="si está ocupado por otro programa, usa el siguiente libre")
     pa.add_argument("--no-abrir", action="store_true", help="no abre el navegador")
 
     pu = sub.add_parser("usuario", help="Datos que ingresa el usuario (perfiles, carteras, transacciones)")
@@ -218,7 +218,6 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError:
             print("Falta el extra app: uv sync --extra app (o uv run --extra app invest app)")
             return 1
-        print(f"Aplicativo en http://127.0.0.1:{a.puerto}/ (Ctrl+C para cerrarlo)")
         iniciar(a.puerto, abrir=not a.no_abrir)
         return 0
 
