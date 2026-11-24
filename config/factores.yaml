@@ -41,3 +41,6 @@ validacion:
   nivel: 0.05                     # sobre el valor p ajustado por Holm (varios factores a la vez)
   nivel_debil: 0.10
   cuantiles: 3                    # spread entre el tercio superior y el inferior
+  # Costo de una compra o una venta (comisión, impuestos y la mitad del diferencial de compra y venta).
+  # 0,5 % es una referencia conservadora para acciones líquidas de la BVC; en las poco líquidas es mayor.
+  costo_ida: 0.005

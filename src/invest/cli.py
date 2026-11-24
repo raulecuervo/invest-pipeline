@@ -160,7 +160,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Validación: " + ", ".join(f"{k} {v}" for k, v in veredictos.items()))
             with __import__("polars").Config(tbl_rows=20, tbl_cols=12, float_precision=3, tbl_width_chars=200):
                 print(val.select("factor", "meses", "ic_medio", "ic_t", "ic_p_holm", "ic_medio_descubrimiento",
-                                 "ic_medio_fuera_muestra", "spread_mensual", "spread_sharpe_anual", "veredicto"))
+                                 "ic_medio_fuera_muestra", "exceso_superior", "exceso_superior_neto",
+                                 "rotacion_superior", "veredicto"))
         return 0
 
     if a.comando == "salud":

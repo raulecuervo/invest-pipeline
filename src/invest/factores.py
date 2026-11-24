@@ -248,9 +248,14 @@ def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
 
 
 # --------------------------------------------------------------------------- validación
-def _metricas(sub: pl.DataFrame, signo: int, minimo: int, cuantiles: int, rezagos: int) -> dict:
-    ics, spreads = [], []
-    for (_,), g in sub.filter(pl.col("retorno_siguiente").is_not_null()).group_by(["fecha"], maintain_order=True):
+def _metricas(sub: pl.DataFrame, signo: int, minimo: int, cuantiles: int, rezagos: int, costo_ida: float = 0.0) -> dict:
+    """IC, spread largo-corto y, como en Colombia no se puede vender en corto con facilidad, el exceso
+    del tercio superior sobre el promedio del universo, bruto y neto de costos (compra y venta de lo
+    que entra y sale del tercio cada mes)."""
+    ics, spreads, excesos, netos, rotaciones = [], [], [], [], []
+    anterior: set | None = None
+    for (_,), g in (sub.filter(pl.col("retorno_siguiente").is_not_null()).sort("fecha")
+                    .group_by(["fecha"], maintain_order=True)):
         if g.height < minimo:
             continue
         ic = _spearman((g.get_column("valor") * signo).to_list(), g.get_column("retorno_siguiente").to_list())
@@ -264,7 +269,18 @@ def _metricas(sub: pl.DataFrame, signo: int, minimo: int, cuantiles: int, rezago
         bajo = [r for r, k in zip(rets, grupos) if k == 0]
         if alto and bajo:
             spreads.append(sum(alto) / len(alto) - sum(bajo) / len(bajo))
+        if alto:
+            especies = g.get_column("especie").to_list()
+            arriba = {e for e, k in zip(especies, grupos) if k == cuantiles - 1}
+            rotacion = 1.0 if anterior is None else 1 - len(arriba & anterior) / len(arriba)
+            exceso = sum(alto) / len(alto) - sum(rets) / len(rets)
+            excesos.append(exceso)
+            netos.append(exceso - 2 * costo_ida * rotacion)
+            rotaciones.append(rotacion)
+            anterior = arriba
     ic_m, ic_t, ic_p = newey_west(ics, rezagos)
+    ex_m, ex_t, _ = newey_west(excesos, rezagos)
+    ne_m, ne_t, _ = newey_west(netos, rezagos)
     sp_m, sp_t, _ = newey_west(spreads, rezagos)
     sd = (sum((s - sp_m) ** 2 for s in spreads) / (len(spreads) - 1)) ** 0.5 if len(spreads) > 1 else float("nan")
     return {
@@ -272,6 +288,9 @@ def _metricas(sub: pl.DataFrame, signo: int, minimo: int, cuantiles: int, rezago
         "ic_positivo": (sum(1 for i in ics if i > 0) / len(ics)) if ics else float("nan"),
         "spread_mensual": sp_m, "spread_t": sp_t,
         "spread_sharpe_anual": (sp_m / sd * math.sqrt(12)) if sd and sd == sd and sd > 0 else float("nan"),
+        "rotacion_superior": (sum(rotaciones[1:]) / len(rotaciones[1:])) if len(rotaciones) > 1 else float("nan"),
+        "exceso_superior": ex_m, "exceso_superior_t": ex_t,
+        "exceso_superior_neto": ne_m, "exceso_superior_neto_t": ne_t,
     }
 
 
@@ -285,11 +304,12 @@ def validar(factores: pl.DataFrame | None = None) -> tuple[pl.DataFrame | None, 
     corte = date.fromisoformat(str(v["inicio_fuera_de_muestra"]))
     minimo = int(cfg["universo"]["minimo_acciones_por_mes"])
     q, L = int(v["cuantiles"]), int(v["rezagos_newey_west"])
+    costo = float(v.get("costo_ida", 0.0))
     filas = []
     for nombre, f in cfg["factores"].items():
         sub = factores.filter((pl.col("factor") == nombre) & (pl.col("fecha") >= inicio))
         signo = int(f.get("signo", 1))
-        total = _metricas(sub, signo, minimo, q, L)
+        total = _metricas(sub, signo, minimo, q, L, costo)
         dentro = _metricas(sub.filter(pl.col("fecha") < corte), signo, minimo, q, L)
         fuera = _metricas(sub.filter(pl.col("fecha") >= corte), signo, minimo, q, L)
         filas.append({"factor": nombre, "signo_hipotesis": signo, **total,
@@ -306,7 +326,49 @@ def validar(factores: pl.DataFrame | None = None) -> tuple[pl.DataFrame | None, 
             r["veredicto"] = "debil"
         else:
             r["veredicto"] = "no_validado"
+    # Combinación de los validados (promedio de percentiles con su signo). Se elige después de ver los
+    # resultados, así que no entra en la corrección de Holm ni puede quedar "validado": es informativa.
+    validados = [r["factor"] for r in filas if r["veredicto"] == "validado"]
+    if len(validados) >= 2:
+        signos = {k: int(cfg["factores"][k].get("signo", 1)) for k in validados}
+        comb = (factores.filter(pl.col("factor").is_in(validados) & (pl.col("fecha") >= inicio))
+                .with_columns(pl.when(pl.col("factor").replace_strict(signos, default=1) > 0)
+                              .then(pl.col("percentil")).otherwise(1 - pl.col("percentil")).alias("_p"))
+                .group_by("fecha", "especie")
+                .agg(pl.col("_p").mean().alias("valor"), pl.col("retorno_siguiente").first(), pl.len().alias("_n"))
+                .filter(pl.col("_n") == len(validados)))
+        total = _metricas(comb, 1, minimo, q, L, costo)
+        dentro = _metricas(comb.filter(pl.col("fecha") < corte), 1, minimo, q, L, costo)
+        fuera = _metricas(comb.filter(pl.col("fecha") >= corte), 1, minimo, q, L, costo)
+        filas.append({"factor": "combinado_validados", "signo_hipotesis": 1, **total,
+                      "ic_medio_descubrimiento": dentro["ic_medio"], "meses_descubrimiento": dentro["meses"],
+                      "ic_medio_fuera_muestra": fuera["ic_medio"], "meses_fuera_muestra": fuera["meses"],
+                      "spread_fuera_muestra": fuera["spread_mensual"], "ic_p_holm": float("nan"),
+                      "veredicto": "informativo"})
     tabla = pl.DataFrame(filas).with_columns(pl.lit(date.today()).alias("fecha_calculo"))
     storage.escribir_completa("gold", "fact_validacion_factor", tabla)
+    storage.escribir_completa("gold", "fact_correlacion_factor", correlaciones(factores, inicio))
     resumen = {k: tabla.filter(pl.col("veredicto") == k).height for k in ("validado", "debil", "no_validado")}
     return tabla, resumen
+
+
+def correlaciones(factores: pl.DataFrame, inicio: date) -> pl.DataFrame:
+    """Correlación de Spearman media, mes a mes, entre cada par de factores (cuánto se solapan)."""
+    cfg = config()
+    nombres = list(cfg["factores"])
+    ancho = (factores.filter(pl.col("fecha") >= inicio).pivot(on="factor", index=["fecha", "especie"], values="valor"))
+    filas = []
+    for i, a in enumerate(nombres):
+        for b in nombres[i + 1:]:
+            if a not in ancho.columns or b not in ancho.columns:
+                continue
+            rs = []
+            for (_,), g in ancho.select("fecha", a, b).drop_nulls().group_by(["fecha"]):
+                if g.height >= int(cfg["universo"]["minimo_acciones_por_mes"]):
+                    r = _spearman(g.get_column(a).to_list(), g.get_column(b).to_list())
+                    if r is not None:
+                        rs.append(r)
+            if rs:
+                filas.append({"factor_a": a, "factor_b": b, "correlacion_media": sum(rs) / len(rs), "meses": len(rs)})
+    return pl.DataFrame(filas, schema={"factor_a": pl.Utf8, "factor_b": pl.Utf8, "correlacion_media": pl.Float64,
+                                       "meses": pl.Int64})
