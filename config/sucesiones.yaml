@@ -18,17 +18,19 @@
 #   fuente             de dónde sale la relación
 #
 # Revisado por Claude el 24-nov-2026 con La República (13-may-2025) y Valora Analitik (19-may-2025).
+# Códigos de Bancolombia: fichas d_cob07paao012.htm y d_cob07paad015.htm de la SFC (siguen publicadas,
+# última operación 16-may-2025), aunque ya no están en el índice ppal_promedios.htm.
 
 sucesiones:
   - especie: cotk7paao003          # CIBEST
-    antecesora: {nemotecnico: BCOLOMBIA, nombre: "AO BANCOLOMBIA S.A.", especie_sfc: null}
+    antecesora: {nemotecnico: BCOLOMBIA, nombre: "AO BANCOLOMBIA", especie_sfc: cob07paao012}
     ultimo_dia: 2025-05-16
     acciones_por_accion: 1
     respaldo_csv: BCOLOMBIA.csv
     fuente: "La República 13-may-2025 y Valora Analitik 19-may-2025: mismo número de acciones, ordinarias por ordinarias"
 
   - especie: cotk7paad014          # PFCIBEST
-    antecesora: {nemotecnico: PFBCOLOM, nombre: "ADP BANCOLOMBIA S.A.", especie_sfc: null}
+    antecesora: {nemotecnico: PFBCOLOM, nombre: "ADP BANCOLOMBIA S.A.", especie_sfc: cob07paad015}
     ultimo_dia: 2025-05-16
     acciones_por_accion: 1
     respaldo_csv: PFBCOLOM.csv
