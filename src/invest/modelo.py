@@ -9,7 +9,8 @@
    también los que leen sus salidas. ``invest modelo --todo`` recalcula todo.
 
 1. Las tablas derivadas que dependen de dims, factores y ficha: técnico e índices propios
-   (``tecnico``), riesgo (``riesgo``), métricas fundamentales y valoración (``metricas``), puntajes de
+   (``tecnico``), riesgo (``riesgo``), métricas fundamentales y valoración (``metricas``), métricas de
+   los bancos con el CUIF (``bancos``, plantilla de bancos), puntajes de
    1 a 10, matriz y screeners (``puntajes``), calendario (``calendario_eventos``), carteras
    (``cartera``, a partir de lo que el usuario ingresó en ``usuario/``) y el catálogo de variables
    para el usuario (``variables``, de config/variables/).
@@ -108,11 +109,17 @@ PASOS: dict[str, dict] = {
         "entradas": [("gold", "fact_fundamental"), ("gold", "fact_precio_diario")],
         "salidas": [("gold", "fact_metrica_fundamental"), ("gold", "fact_valoracion")],
     },
+    "bancos": {
+        "modulo": "bancos",
+        "entradas": [("silver", "fact_cuif_mensual")],
+        "config": ["bancos.yaml", "catalogo_fuentes.yaml"],
+        "salidas": [("gold", "fact_metrica_banco")],
+    },
     "puntajes": {
         "modulo": "puntajes",
         "entradas": [("gold", "fact_valoracion"), ("gold", "dim_activo"), ("gold", "fact_factor_mensual"),
                      ("gold", "fact_tecnico_diario"), ("gold", "fact_riesgo"), ("gold", "fact_metrica_fundamental"),
-                     ("gold", "fact_puntaje_mensual"), ("gold", "fact_validacion_factor")],
+                     ("gold", "fact_metrica_banco"), ("gold", "fact_puntaje_mensual"), ("gold", "fact_validacion_factor")],
         "config": ["escala.yaml", "screeners.yaml"],
         "salidas": [("gold", "fact_puntaje"), ("gold", "fact_matriz"), ("gold", "fact_screener_corrida")],
     },

@@ -1,0 +1,26 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/costo_riesgo_12m.md
+id: costo_riesgo_12m
+nombre: Costo del riesgo
+categoria: bancos
+nivel: avanzado
+formato: porcentaje
+direccion: -1
+tabla: fact_metrica_banco
+columna: valor
+formula: (deterioro de cartera y leasing 517005 + 517010 + contracíclico 517105 + 517115 − recuperaciones 419810
+  + 419815 + 419825 + 419835 + 419855) de 12 meses / promedio de 13 meses de la cartera bruta
+que_es: Lo que le costaron al banco en el último año los créditos que no se van a pagar, como porcentaje de lo que
+  presta.
+que_hace: Mide la calidad de la originación y el ciclo de crédito.
+para_que_sirve: 'Es una de las métricas de calidad de los bancos (dirección negativa): un costo del riesgo alto
+  se come el margen.'
+como_leer: 'Compárelo con el NIM: el margen después de riesgo (NIM − costo del riesgo) es lo que de verdad deja
+  la cartera. Sube primero en consumo cuando la economía se enfría.'
+relacionadas:
+- indice_cartera_riesgo
+- cobertura_cartera_cde
+- nim_12m
+revisado: false
+version: 1
+metrica: costo_riesgo_12m

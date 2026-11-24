@@ -232,6 +232,7 @@ fuentes:
     acceso: api_socrata
     frecuencia: mensual
     ventana_publicacion: "45 a 50 días tras el corte"
+    rezago_dias: 50                # fecha en que se da por conocido un corte (src/invest/bancos.py)
     recarga_dias: 100              # vuelve a bajar los últimos meses por si la SFC corrige
     ejecuta_en: actions
     licencia: datos abiertos del Estado colombiano
@@ -241,7 +242,7 @@ fuentes:
     historico_desde: "2015-01-01"
     tabla_destino: fact_cuif_mensual
     columna_fecha: fecha_corte
-    nota: "Primer nivel de cuentas (XX0000), moneda total, bancos con acciones inscritas. La API tarda unos 40 s por consulta"
+    nota: "Primer nivel de cuentas (XX0000) y las cuentas_extra de la plantilla de bancos, moneda total, bancos con acciones inscritas. La API tarda unos 40 s por consulta"
     entidades:                     # código de entidad en el CUIF (tipo de entidad 1 = establecimientos bancarios)
       - {codigo: "1", nombre: Banco de Bogotá}
       - {codigo: "2", nombre: Banco Popular}
@@ -251,7 +252,90 @@ fuentes:
       - {codigo: "39", nombre: Davivienda}
       - {codigo: "49", nombre: Banco AV Villas}
       - {codigo: "12", nombre: Banco GNB Sudameris}
-    cuentas_extra: []
+    cuentas_extra:
+      # Plantilla de bancos (config/bancos.yaml, src/invest/bancos.py). Códigos de 6 dígitos con ceros a la
+      # derecha (cuenta 1408 = 140800). Fuente de cada código: catálogo CUIF anexo a la Circular Externa 021
+      # de 2014 de la SFC, con sus modificaciones (compilado en normograma.com/keralty/compilacion/docs/
+      # circular_superfinanciera_0021_2014.htm, consultado 24-nov-2026), salvo donde se indica la CE 033 de 2014.
+      # Cartera bruta (capital, con leasing financiero), cuentas de la 14
+      - "140400"   # 1404 cartera de vivienda y operaciones de leasing habitacional
+      - "140800"   # 1408 cartera y operaciones de leasing de consumo
+      - "141000"   # 1410 cartera y operaciones de leasing comerciales
+      - "141200"   # 1412 cartera y leasing de microcréditos
+      # Cartera por calificación (B aceptable, C apreciable, D significativo, E incobrabilidad)
+      - "140415"   # 1404 categoría B, cartera de vivienda
+      - "140420"   # 1404 categoría B, leasing habitacional
+      - "140425"   # 1404 categoría C, cartera de vivienda
+      - "140430"   # 1404 categoría C, leasing habitacional
+      - "140435"   # 1404 categoría D, cartera de vivienda
+      - "140440"   # 1404 categoría D, leasing habitacional
+      - "140445"   # 1404 categoría E, cartera de vivienda
+      - "140450"   # 1404 categoría E, leasing habitacional
+      - "140810"   # 1408 categoría B, consumo
+      - "140815"   # 1408 categoría C, consumo
+      - "140820"   # 1408 categoría D, consumo
+      - "140825"   # 1408 categoría E, consumo
+      - "141010"   # 1410 categoría B, comercial
+      - "141015"   # 1410 categoría C, comercial
+      - "141020"   # 1410 categoría D, comercial
+      - "141025"   # 1410 categoría E, comercial
+      - "141210"   # 1412 categoría B, microcrédito
+      - "141215"   # 1412 categoría C, microcrédito
+      - "141220"   # 1412 categoría D, microcrédito
+      - "141225"   # 1412 categoría E, microcrédito
+      # Deterioro (provisión) acumulado de la cartera: cuentas correctoras del activo
+      - "148700"   # 1487 deterioro componente contracíclico individual
+      - "148900"   # 1489 deterioro cartera de vivienda y leasing habitacional
+      - "149100"   # 1491 deterioro cartera y leasing de consumo
+      - "149300"   # 1493 deterioro microcréditos
+      - "149500"   # 1495 deterioro créditos y leasing comerciales
+      - "149800"   # 1498 deterioro (provisión) general
+      # Intangibles (para el patrimonio tangible)
+      - "191100"   # 1911 activos intangibles, neto de amortización y deterioro (incluye la plusvalía)
+      - "191105"   # 1911 05 plusvalía (crédito mercantil); solo informativa
+      # Depósitos y exigibilidades (pasivo a costo amortizado, grupo 21)
+      - "210500"   # 2105 depósitos en cuenta corriente
+      - "210600"   # 2106 depósitos simples
+      - "210700"   # 2107 certificados de depósito a término (CDT)
+      - "210800"   # 2108 depósitos de ahorro
+      - "210900"   # 2109 cuentas de ahorro especial
+      - "211000"   # 2110 certificados de ahorro de valor real
+      - "211300"   # 2113 fondos en fideicomiso y cuentas especiales
+      - "211600"   # 2116 depósitos especiales
+      - "211700"   # 2117 exigibilidades por servicios
+      - "211800"   # 2118 servicios de recaudo
+      - "212000"   # 2120 depósitos electrónicos
+      # Ingresos y gastos por intereses (acumulados del año)
+      - "410200"   # 4102 ingresos financieros cartera
+      - "410300"   # 4103 ingresos financieros operaciones del mercado monetario y otros intereses (modificada por la CE 033/2014)
+      - "510200"   # 5102 intereses depósitos y exigibilidades
+      - "510300"   # 5103 intereses créditos de bancos y otras obligaciones financieras
+      - "510400"   # 5104 financieros por operaciones del mercado monetario y otros intereses (modificada por la CE 033/2014)
+      # Gastos de personal y administrativos (acumulados del año)
+      - "512000"   # 5120 beneficios a empleados (gastos de personal)
+      - "513000"   # 5130 honorarios
+      - "514000"   # 5140 impuestos y tasas
+      - "514500"   # 5145 arrendamientos
+      - "515000"   # 5150 contribuciones, afiliaciones y transferencias
+      - "515500"   # 5155 seguros (incluye el seguro de depósitos)
+      - "516000"   # 5160 mantenimiento y reparaciones (no es deterioro)
+      - "516500"   # 5165 adecuación e instalación
+      - "517500"   # 5175 depreciación de la propiedad, planta y equipo
+      - "518000"   # 5180 amortización de activos intangibles
+      - "519000"   # 5190 diversos (servicios, publicidad, procesamiento de datos, etc.)
+      # Deterioro del periodo (gasto) y recuperaciones (acumulados del año)
+      - "517000"   # 5170 deterioro (provisiones), total
+      - "517005"   # 5170 05 deterioro cartera de créditos
+      - "517010"   # 5170 10 deterioro operaciones de leasing financiero
+      - "517100"   # 5171 componente contracíclico deterioro individual, total
+      - "517105"   # 5171 05 contracíclico créditos y leasing de consumo
+      - "517115"   # 5171 15 contracíclico créditos y leasing comerciales
+      - "419800"   # 4198 recuperaciones deterioro (provisión), total
+      - "419810"   # 4198 10 reintegro provisiones de cartera de créditos
+      - "419815"   # 4198 15 reintegro provisiones de operaciones de leasing financiero
+      - "419825"   # 4198 25 reintegro contracíclico consumo
+      - "419835"   # 4198 35 reintegro contracíclico comercial
+      - "419855"   # 4198 55 recuperación de cartera y leasing castigados
 
   - id: supersociedades_10000
     nombre: Supersociedades, 10.000 empresas más grandes del país (estados anuales de respaldo)

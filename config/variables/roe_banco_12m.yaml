@@ -1,0 +1,24 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/roe_banco_12m.md
+id: roe_banco_12m
+nombre: ROE del banco (CUIF, 12 meses)
+categoria: bancos
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: utilidad de 12 meses (590000) / promedio de los 13 cierres mensuales del patrimonio (300000), cifras del
+  banco en el CUIF
+que_es: Cuánto ganó el banco en el último año por cada peso de patrimonio, con sus estados mensuales a la Superfinanciera.
+que_hace: Mide la rentabilidad del patrimonio con cifras mensuales, sin esperar los informes trimestrales.
+para_que_sirve: Respaldo del ROTE en el factor calidad de los bancos mientras no estén las cuentas de intangibles.
+como_leer: 'Son estados separados del banco: en un holding (Cibest, Davivienda Group, Aval) no es el ROE del holding.
+  Una utilidad extraordinaria (venta de una filial) lo infla un año.'
+relacionadas:
+- rote_12m
+- roa_banco_12m
+- roe_12m
+revisado: false
+version: 1
+metrica: roe_banco_12m

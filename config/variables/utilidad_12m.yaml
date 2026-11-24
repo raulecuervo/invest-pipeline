@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/utilidad_12m.md
+id: utilidad_12m
+nombre: Utilidad del banco (12 meses)
+categoria: bancos
+nivel: basico
+formato: pesos
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: acumulado del año de la 590000 + diciembre anterior − mismo mes del año anterior
+que_es: Lo que ganó el banco en los últimos 12 meses, según el CUIF.
+que_hace: Quita la estacionalidad del acumulado del año.
+para_que_sirve: Es el numerador del ROE, el ROA y el ROTE de los bancos.
+como_leer: Incluye lo que el banco gana en sus filiales por el método de participación; las partidas extraordinarias
+  la inflan un año.
+relacionadas:
+- roe_banco_12m
+- rote_12m
+revisado: false
+version: 1
+metrica: utilidad_12m

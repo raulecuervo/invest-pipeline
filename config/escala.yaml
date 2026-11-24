@@ -51,6 +51,35 @@ factores:
       drawdown_maximo: {origen: fact_riesgo, direccion: 1}   # es negativo: más cerca de 0 es mejor
       beta: {origen: fact_riesgo, direccion: -1}
 
+# Plantilla de bancos (gold/fact_metrica_banco, src/invest/bancos.py). Para los emisores que son bancos
+# (sector de la SFC en `sectores`, o con cifras del CUIF por el mapeo de config/bancos.yaml: así entran
+# los holdings Grupo Cibest, Davivienda Group y Grupo Aval), cada factor listado aquí reemplaza sus
+# métricas genéricas por estas. El apalancamiento genérico no aplica: en un banco los depósitos son el
+# negocio, no una señal de riesgo.
+#
+# Pares: las métricas de banco se comparan solo entre bancos. La referencia (mediana y desviación
+# absoluta mediana) son las entidades individuales del CUIF (hoy 8 bancos, incluido GNB Sudameris, que
+# no tiene acción listada), con lo último publicado a cada fecha (hasta `tolerancia_dias` de antigüedad
+# de la fecha disponible), sin importar si su acción es líquida; la suma de los bancos de Aval no entra
+# a la referencia para no contar dos veces a sus bancos. Con menos de `minimo_pares` bancos la métrica
+# queda vacía. El resto de factores de un banco (valor, crecimiento, momentum, riesgo) sigue la regla
+# general: el sector BC-ESTABLECIMIENTO BANCARIO nunca reúne 8 acciones en el universo líquido, así que
+# se comparan con todo el universo (los holdings, con SOCIEDADES INVERSORAS si ese sector llega a 8).
+#
+# `respaldo`: métrica que se usa mientras la principal falte (el ROE del CUIF mientras no lleguen las
+# cuentas de intangibles para el ROTE).
+bancos:
+  sectores: ["BC-ESTABLECIMIENTO BANCARIO"]
+  incluir_mapeados: true
+  tolerancia_dias: 100
+  minimo_pares: 5
+  factores:
+    calidad:
+      metricas:
+        rote_12m: {origen: fact_metrica_banco, direccion: 1, respaldo: roe_banco_12m}
+        costo_riesgo_12m: {origen: fact_metrica_banco, direccion: -1}
+        eficiencia_12m: {origen: fact_metrica_banco, direccion: -1}
+
 # Ejes de la matriz: qué factores forman cada uno
 matriz:
   fundamental: [valor, calidad, crecimiento]

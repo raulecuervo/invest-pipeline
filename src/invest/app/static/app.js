@@ -540,6 +540,10 @@ paginas.ficha = async (v, especie) => {
       leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ["#5B6B8C", "Media de 200 sesiones", "linea"]]))));
   requestAnimationFrame(pintarPrecio);
 
+  const cajaBanco = el("div");
+  v.append(cajaBanco);
+  api("/api/ficha/" + encodeURIComponent(especie) + "/banco").then((b) => pintarBanco(cajaBanco, b)).catch(() => cajaBanco.remove());
+
   const metricas = d.auditoria.filter((a) => a.nivel === "metrica");
   v.append(el("div", { class: "fila" },
     panel("Métricas del puntaje",
@@ -583,6 +587,59 @@ paginas.ficha = async (v, especie) => {
   v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Comparación con su sector"),
     el("button", { type: "button", class: "boton", onclick: () => csv(`pares_${especie}.csv`, colsPares, d.pares) }, "Exportar CSV")), tabla(colsPares, d.pares)));
 };
+
+// Sección "Banco" de la ficha: plantilla de bancos con el CUIF (gold/fact_metrica_banco)
+function pintarBanco(caja, b) {
+  if (!b || !b.tiene) { caja.remove(); return; }
+  const a = b.actual || {}, ant = b.anterior || {};
+  const hace = (m, f) => ant[m] == null ? null : "hace 12 meses: " + f(ant[m]);
+  const tarjeta = (titulo, m, f, varId) => kpi(titulo, f(a[m]), hace(m, f), "", varId || m);
+  const notas = [];
+  if (b.base === "cuif_suma_bancos") notas.push("Suma simple de los " + b.entidades.split(",").length + " bancos del grupo en el CUIF (sin eliminar operaciones entre ellos).");
+  if (b.es_holding) notas.push("Cifras del banco (CUIF de la Superfinanciera, estados separados), no del holding listado.");
+  if (b.nota) notas.push(b.nota);
+  const cajaSerie = el("div");
+  const colores = { rote_12m: "#3DD68C", roe_banco_12m: "#6E9BFF", nim_12m: "#F5B54A", costo_riesgo_12m: "#FF7A6B", indice_cartera_riesgo: "#B48CFF" };
+  const nombres = { rote_12m: "ROTE", roe_banco_12m: "ROE", nim_12m: "NIM", costo_riesgo_12m: "Costo del riesgo", indice_cartera_riesgo: "Cartera B a E" };
+  const enSerie = Object.keys(colores).filter((m) => b.serie.some((r) => r[m] != null));
+  const colsPares = [
+    { k: "nombre_entidad", t: "Banco", izq: true, f: (r) => el("span", { style: { fontWeight: r.propio ? 700 : 500 } }, r.nombre_entidad + (r.es_holding ? " *" : "")) },
+    { k: "rote_12m", t: "ROTE", f: (r) => pct(r.rote_12m), info: "rote_12m" },
+    { k: "roe_banco_12m", t: "ROE", f: (r) => pct(r.roe_banco_12m), info: "roe_banco_12m" },
+    { k: "nim_12m", t: "NIM", f: (r) => pct(r.nim_12m), info: "nim_12m" },
+    { k: "eficiencia_12m", t: "Eficiencia", f: (r) => pct(r.eficiencia_12m, 0), info: "eficiencia_12m" },
+    { k: "costo_riesgo_12m", t: "Costo riesgo", f: (r) => pct(r.costo_riesgo_12m, 2), info: "costo_riesgo_12m" },
+    { k: "indice_cartera_riesgo", t: "Cartera B–E", f: (r) => pct(r.indice_cartera_riesgo), info: "indice_cartera_riesgo" },
+    { k: "cobertura_cartera_cde", t: "Cobertura", f: (r) => pct(r.cobertura_cartera_cde, 0), info: "cobertura_cartera_cde" },
+    { k: "crecimiento_cartera_12m", t: "Crec. cartera", f: (r) => pct(r.crecimiento_cartera_12m), info: "crecimiento_cartera_12m" },
+    { k: "fecha_corte", t: "Corte", f: (r) => fechaCorta(r.fecha_corte) },
+  ];
+  caja.replaceChildren(
+    el("section", { class: "panel" },
+      el("div", { class: "encabezado" }, el("h2", {}, "Banco · CUIF al " + fecha(b.fecha_corte)),
+        el("span", { class: "nota" }, "conocido desde el " + fecha(b.fecha_disponible))),
+      notas.length ? el("p", { class: "desc" }, notas.join(" ")) : null,
+      el("section", { class: "indicadores", "aria-label": "Rentabilidad del banco" },
+        tarjeta("ROTE 12 meses", "rote_12m", (x) => pct(x)), tarjeta("ROE 12 meses", "roe_banco_12m", (x) => pct(x)),
+        tarjeta("ROA 12 meses", "roa_banco_12m", (x) => pct(x, 2)), tarjeta("Margen de intereses", "nim_12m", (x) => pct(x, 2)),
+        tarjeta("Eficiencia", "eficiencia_12m", (x) => pct(x, 0))),
+      el("section", { class: "indicadores", "aria-label": "Riesgo de crédito" },
+        tarjeta("Costo del riesgo", "costo_riesgo_12m", (x) => pct(x, 2)), tarjeta("Cartera B a E", "indice_cartera_riesgo", (x) => pct(x)),
+        tarjeta("Cartera C a E", "indice_cartera_cde", (x) => pct(x)), tarjeta("Cobertura C a E", "cobertura_cartera_cde", (x) => pct(x, 0))),
+      el("section", { class: "indicadores", "aria-label": "Balance" },
+        tarjeta("Cartera bruta", "cartera_bruta", pesos), tarjeta("Crecimiento cartera", "crecimiento_cartera_12m", (x) => pct(x)),
+        tarjeta("Depósitos", "depositos", pesos), tarjeta("Crecimiento depósitos", "crecimiento_depositos_12m", (x) => pct(x)),
+        tarjeta("Cartera / depósitos", "cartera_depositos", (x) => pct(x, 0))),
+      el("p", { class: "desc" }, "Las métricas sin dato (—) esperan cuentas del CUIF que el conector aún no ha bajado.")),
+    el("div", { class: "fila" },
+      el("section", { class: "panel ancho" }, el("h2", {}, "Banco · 5 años"), cajaSerie,
+        leyenda(enSerie.map((m) => [colores[m], nombres[m], "linea"]))),
+      el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Bancos en el CUIF"),
+        el("button", { type: "button", class: "boton", onclick: () => csv(`bancos_${b.emisor_id}.csv`, colsPares, b.pares) }, "Exportar CSV")),
+        tabla(colsPares, b.pares), el("p", { class: "desc" }, "* holding: cifras de su banco. Último corte de cada entidad."))));
+  requestAnimationFrame(() => lineas(cajaSerie, enSerie.map((m) => ({ nombre: nombres[m], color: colores[m], puntos: b.serie.map((r) => ({ x: r.fecha_corte, y: r[m] })) })),
+    { alto: 240, titulo: "Rentabilidad y riesgo del banco", fy: (x) => pct(x, 0), vacio: "Sin serie de 12 meses todavía." }));
+}
 
 // ------------------------------------------------------------------ cartera
 function elegirCartera(v, alCambiar, pedida) {

@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/indice_cartera_riesgo.md
+id: indice_cartera_riesgo
+nombre: Cartera en riesgo (B a E)
+categoria: bancos
+nivel: intermedio
+formato: porcentaje
+direccion: -1
+tabla: fact_metrica_banco
+columna: valor
+formula: cartera calificada B, C, D y E (subcuentas de 1404, 1408, 1410 y 1412) / cartera bruta
+que_es: La parte de la cartera que la Superfinanciera no califica como riesgo normal (A).
+que_hace: 'Anticipa la mora: un crédito pasa a B antes de vencerse del todo.'
+para_que_sirve: Para ver el deterioro de la cartera antes de que llegue al gasto de provisiones.
+como_leer: Es el indicador de calidad por calificación (cartera riesgosa / bruta) que usa el Banco de la República.
+relacionadas:
+- indice_cartera_cde
+- costo_riesgo_12m
+revisado: false
+version: 1
+metrica: indice_cartera_riesgo

@@ -1,0 +1,25 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/rote_12m.md
+id: rote_12m
+nombre: ROTE (12 meses)
+categoria: bancos
+nivel: avanzado
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: utilidad de 12 meses / promedio de 13 meses del patrimonio tangible (patrimonio − activos intangibles 1911,
+  que incluyen la plusvalía)
+que_es: La rentabilidad del patrimonio quitando la plusvalía y los demás intangibles, que no absorben pérdidas.
+que_hace: Evita que un banco que compró otros (y registró plusvalía) parezca menos rentable solo por eso.
+para_que_sirve: Es la métrica principal de rentabilidad del factor calidad para los bancos y se compara contra el
+  P/VL tangible.
+como_leer: Un ROTE por encima del costo del patrimonio (Ke) crea valor. En estados separados la plusvalía de las
+  filiales queda dentro de la inversión en ellas, no en 1911.
+relacionadas:
+- roe_banco_12m
+- patrimonio_tangible
+- costo_riesgo_12m
+revisado: false
+version: 1
+metrica: rote_12m

@@ -1,0 +1,24 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/eficiencia_12m.md
+id: eficiencia_12m
+nombre: Eficiencia
+categoria: bancos
+nivel: avanzado
+formato: porcentaje
+direccion: -1
+tabla: fact_metrica_banco
+columna: valor
+formula: gastos de personal y administrativos de 12 meses (5120, 5130, 5140, 5145, 5150, 5155, 5160, 5165, 5175,
+  5180, 5190) / margen financiero bruto de 12 meses (ingresos 410000 − recuperaciones 4198 − gastos que no son administrativos
+  ni de deterioro)
+que_es: Cuántos pesos gasta el banco en operar por cada peso de ingreso neto.
+que_hace: 'Mide la productividad: menos es mejor.'
+para_que_sirve: Es una de las métricas de calidad de los bancos (dirección negativa).
+como_leer: Menos es mejor. Incluye impuestos y contribuciones (4x1000, ICA, seguro de depósitos), así que solo es
+  comparable entre bancos colombianos con la misma fórmula.
+relacionadas:
+- nim_12m
+- rote_12m
+revisado: false
+version: 1
+metrica: eficiencia_12m

@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/cartera_bruta.md
+id: cartera_bruta
+nombre: Cartera bruta
+categoria: bancos
+nivel: basico
+formato: pesos
+direccion: 0
+tabla: fact_metrica_banco
+columna: valor
+formula: cartera de vivienda (1404) + consumo (1408) + comercial (1410) + microcrédito (1412), con leasing financiero,
+  antes de provisiones
+que_es: Todo lo que el banco tiene prestado.
+que_hace: Mide el tamaño del negocio de crédito.
+para_que_sirve: Es el denominador del costo del riesgo y de la calidad de la cartera.
+como_leer: 'Cifra del banco en Colombia (estados separados): no incluye las filiales del exterior.'
+relacionadas:
+- crecimiento_cartera_12m
+- cartera_depositos
+revisado: false
+version: 1
+metrica: cartera_bruta

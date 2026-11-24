@@ -417,6 +417,24 @@ tablas:
       metrica: String
       valor: Float64
       unidad: String
+  fact_metrica_banco:
+    capa: gold
+    ruta: fact_metrica_banco
+    descripcion: "Plantilla de bancos con el CUIF mensual: ROE, ROA y ROTE de 12 meses, margen de intereses, eficiencia, costo del riesgo, calidad y cobertura de la cartera, crecimiento de cartera y depósitos (cifras del banco aunque el emisor sea un holding: es_holding)"
+    grano: "emisor × corte mensual × métrica"
+    claves: [emisor_id, fecha_corte, metrica]
+    pagina: "Ficha (sección Banco), Matriz"
+    columnas:
+      emisor_id: String
+      nombre_entidad: String
+      entidades: String
+      fecha_corte: Date
+      fecha_disponible: Date
+      metrica: String
+      valor: Float64
+      unidad: String
+      es_holding: Boolean
+      base: String
   fact_valoracion:
     capa: gold
     ruta: fact_valoracion
@@ -752,6 +770,12 @@ tablas:
       volatilidad_anual: Float64
       drawdown_maximo: Float64
       beta: Float64
+      es_banco: Boolean            # plantilla de bancos: calidad con ROTE, costo del riesgo y eficiencia
+      banco_holding: Boolean       # las cifras de banco son del banco, no del holding listado
+      rote_12m: Float64
+      roe_banco_12m: Float64
+      costo_riesgo_12m: Float64
+      eficiencia_12m: Float64
       puntaje_valor: Float64
       puntaje_calidad: Float64
       puntaje_crecimiento: Float64

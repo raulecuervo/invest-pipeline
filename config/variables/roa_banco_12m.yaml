@@ -1,0 +1,21 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/roa_banco_12m.md
+id: roa_banco_12m
+nombre: ROA del banco (12 meses)
+categoria: bancos
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: utilidad de 12 meses (590000) / promedio de los 13 cierres mensuales del activo (100000)
+que_es: Cuánto ganó el banco por cada peso de activos.
+que_hace: Mide la rentabilidad sin el efecto del apalancamiento.
+para_que_sirve: 'Para comparar bancos con niveles de capital distintos: un ROE alto con ROA bajo viene del apalancamiento.'
+como_leer: 'ROE ≈ ROA × activo / patrimonio: dos bancos con el mismo ROE y distinto ROA difieren en cuánto se apalancan.'
+relacionadas:
+- roe_banco_12m
+- rote_12m
+revisado: false
+version: 1
+metrica: roa_banco_12m

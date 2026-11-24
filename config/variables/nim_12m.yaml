@@ -1,0 +1,23 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/nim_12m.md
+id: nim_12m
+nombre: Margen neto de intereses (NIM)
+categoria: bancos
+nivel: avanzado
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: (ingresos por intereses 4102 + 4103 − gastos por intereses 5102 + 5103 + 5104) de 12 meses / promedio de
+  13 meses de (cartera bruta + operaciones del mercado monetario 120000)
+que_es: Lo que gana el banco entre lo que cobra por prestar y lo que paga por captar, sobre lo que presta.
+que_hace: Mide el poder de fijar precios y el costo del fondeo.
+para_que_sirve: Para ver si la rentabilidad viene del negocio de intermediación o de otras fuentes.
+como_leer: 'Aproximación: no incluye el rendimiento de las inversiones (sus cuentas mezclan intereses y valoración)
+  ni el leasing operativo. Sube con las tasas del BanRep si los créditos se ajustan antes que los depósitos.'
+relacionadas:
+- eficiencia_12m
+- cartera_bruta
+revisado: false
+version: 1
+metrica: nim_12m

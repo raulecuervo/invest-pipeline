@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/crecimiento_depositos_12m.md
+id: crecimiento_depositos_12m
+nombre: Crecimiento de los depósitos
+categoria: bancos
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: depósitos y exigibilidades / los de 12 meses antes − 1
+que_es: Cuánto crecieron en un año los depósitos del público.
+que_hace: Mide la capacidad del banco de fondearse con sus clientes.
+para_que_sirve: Para ver si el crecimiento de la cartera está respaldado por fondeo estable.
+como_leer: 'Los depósitos de ahorro y cuenta corriente son más baratos que los CDT: un banco que crece en CDT paga
+  más por su fondeo.'
+relacionadas:
+- crecimiento_cartera_12m
+- cartera_depositos
+revisado: false
+version: 1
+metrica: crecimiento_depositos_12m

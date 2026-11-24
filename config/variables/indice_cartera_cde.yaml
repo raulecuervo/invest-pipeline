@@ -1,0 +1,23 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/indice_cartera_cde.md
+id: indice_cartera_cde
+nombre: Cartera C a E (aprox. vencida)
+categoria: bancos
+nivel: intermedio
+formato: porcentaje
+direccion: -1
+tabla: fact_metrica_banco
+columna: valor
+formula: cartera calificada C, D y E / cartera bruta
+que_es: La cartera con riesgo apreciable o mayor; se usa como aproximación a la cartera vencida, que el CUIF no
+  separa.
+que_hace: Mide la cartera con problemas serios.
+para_que_sirve: Es el denominador de la cobertura y una señal de calidad de los activos.
+como_leer: 'No es el indicador de cartera vencida por días de mora que publica la Superfinanciera (ese sale de otros
+  formatos): sirve para comparar bancos y su tendencia.'
+relacionadas:
+- indice_cartera_riesgo
+- cobertura_cartera_cde
+revisado: false
+version: 1
+metrica: indice_cartera_cde

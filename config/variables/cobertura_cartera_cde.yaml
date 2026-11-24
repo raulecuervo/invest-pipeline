@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/cobertura_cartera_cde.md
+id: cobertura_cartera_cde
+nombre: Cobertura de la cartera C a E
+categoria: bancos
+nivel: intermedio
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: deterioro (provisión) acumulado de la cartera (1487, 1489, 1491, 1493, 1495, 1498) / cartera C a E
+que_es: Cuántos pesos tiene provisionados el banco por cada peso de cartera con problemas.
+que_hace: Mide el colchón contra pérdidas de crédito ya identificadas.
+para_que_sirve: Una cobertura que baja mientras sube la cartera C a E anticipa más gasto de provisiones.
+como_leer: Más de 100 % quiere decir que la provisión cubre toda la cartera C a E; una cobertura alta da margen
+  para liberar provisiones.
+relacionadas:
+- indice_cartera_cde
+- costo_riesgo_12m
+revisado: false
+version: 1
+metrica: cobertura_cartera_cde

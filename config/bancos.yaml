@@ -1,0 +1,111 @@
+# Plantilla de bancos (src/invest/bancos.py → gold/fact_metrica_banco).
+#
+# Fuente: CUIF mensual de la SFC (silver/fact_cuif_mensual, conector cuif_datos_gov). Los códigos van
+# con 6 dígitos, como los trae datos.gov.co: clase (1) + grupo (1) + cuenta (2) + subcuenta (2), con
+# ceros a la derecha en los niveles superiores (grupo 14 = 140000, cuenta 1408 = 140800, subcuenta
+# 140810). Todas las cuentas que no son de primer nivel (XX0000) deben estar en `cuentas_extra` de la
+# entrada cuif_datos_gov de config/catalogo_fuentes.yaml (una prueba lo verifica); allí está el
+# comentario de cada una y su fuente.
+#
+# Fecha en que se conoce cada corte: corte + `rezago_dias` de la entrada cuif_datos_gov del catálogo
+# (la SFC publica el CUIF entre 45 y 50 días después del corte).
+
+# Agregados: suma de las cuentas listadas. Con `absoluto: true` se suma el valor absoluto de cada
+# cuenta (cuentas correctoras como el deterioro, que según la fuente pueden venir con signo negativo).
+# Un agregado queda vacío si no llegó ninguna de sus cuentas (p. ej. antes de agregarlas al conector).
+agregados:
+  activo: {cuentas: ["100000"]}
+  patrimonio: {cuentas: ["300000"]}
+  utilidad: {cuentas: ["590000"]}                       # acumulada del año
+  ingresos_operacion: {cuentas: ["410000"]}             # acumulado del año
+  gastos_operacion: {cuentas: ["510000"]}               # acumulado del año
+  mercado_monetario: {cuentas: ["120000"]}              # interbancarios, repos y simultáneas activos
+  intangibles: {cuentas: ["191100"], absoluto: true}     # 1911 activos intangibles (incluye la plusvalía 191105), neto de amortización
+  cartera_bruta: {cuentas: ["140400", "140800", "141000", "141200"]}   # vivienda, consumo, comercial, microcrédito (con leasing)
+  cartera_b_e:
+    cuentas: ["140415", "140420", "140425", "140430", "140435", "140440", "140445", "140450",
+              "140810", "140815", "140820", "140825",
+              "141010", "141015", "141020", "141025",
+              "141210", "141215", "141220", "141225"]
+  cartera_c_e:
+    cuentas: ["140425", "140430", "140435", "140440", "140445", "140450",
+              "140815", "140820", "140825",
+              "141015", "141020", "141025",
+              "141215", "141220", "141225"]
+  deterioro_cartera:                                     # saldo acumulado del deterioro (provisión) de la cartera
+    cuentas: ["148700", "148900", "149100", "149300", "149500", "149800"]
+    absoluto: true
+  depositos:
+    cuentas: ["210500", "210600", "210700", "210800", "210900", "211000", "211300", "211600", "211700",
+              "211800", "212000"]
+  ingresos_intereses: {cuentas: ["410200", "410300"]}                  # acumulado del año
+  gastos_intereses: {cuentas: ["510200", "510300", "510400"]}          # acumulado del año
+  gastos_administrativos:                                # personal + administrativos + depreciación y amortización
+    cuentas: ["512000", "513000", "514000", "514500", "515000", "515500", "516000", "516500", "517500",
+              "518000", "519000"]
+  deterioro_gasto_total: {cuentas: ["517000", "517100"]}               # todo el gasto de deterioro (cartera, inversiones, cxc...)
+  recuperaciones_total: {cuentas: ["419800"]}                          # todas las recuperaciones de deterioro
+  deterioro_gasto_cartera: {cuentas: ["517005", "517010", "517105", "517115"]}
+  recuperaciones_cartera: {cuentas: ["419810", "419815", "419825", "419835", "419855"]}
+
+# Mapeo de entidades del CUIF (codigo_entidad, tipo de entidad 1 = establecimiento bancario) a emisores
+# con acciones (gold/dims/dim_emisor). Las cifras son siempre las del BANCO (estados separados que
+# reporta a la SFC), no las del holding listado: `holding: true` lo marca en cada fila
+# (`es_holding`), desde `holding_desde` si el emisor listado era antes el propio banco. Con varias
+# entidades, las cuentas se suman (solo los meses en que reportan todas).
+mapeo:
+  - emisor_id: CO-COTK7
+    nombre: Bancolombia (Grupo Cibest)
+    entidades: ["7"]
+    holding: true
+    holding_desde: 2025-05-19
+    nota: >-
+      Grupo Cibest reemplazó a Bancolombia como emisor (intercambio de acciones; CIBEST y PFCIBEST
+      negocian desde el 19-may-2025). El emisor CO-COTK7 reúne la historia de Bancolombia; desde esa
+      fecha el CUIF describe al banco principal del holding, que además tiene Banistmo, Banco Agrícola,
+      BAM y otras filiales que no están en el CUIF.
+  - emisor_id: CO-COB51
+    nombre: Banco Davivienda
+    entidades: ["39"]
+    holding: false
+    nota: "La preferencial PFDAVVNDA sigue negociando en paralelo con la de Davivienda Group."
+  - emisor_id: CO-PAK01
+    nombre: Davivienda (Davivienda Group)
+    entidades: ["39"]
+    holding: true
+    nota: >-
+      Davivienda Group (holding, emisor extranjero) negocia desde el 21-nov-2025. El CUIF es el de Banco
+      Davivienda; el holding consolida además las filiales del exterior y los negocios integrados de
+      Scotiabank en la región.
+  - emisor_id: CO-COB01
+    nombre: Banco de Bogotá
+    entidades: ["1"]
+    holding: false
+  - emisor_id: CO-COB23
+    nombre: Banco de Occidente
+    entidades: ["23"]
+    holding: false
+  - emisor_id: CO-COB02
+    nombre: Banco Popular
+    entidades: ["2"]
+    holding: false
+  - emisor_id: CO-COB13
+    nombre: BBVA Colombia
+    entidades: ["13"]
+    holding: false
+  - emisor_id: CO-COB52
+    nombre: Banco AV Villas
+    entidades: ["49"]
+    holding: false
+  - emisor_id: CO-COT29
+    nombre: Grupo Aval (sus cuatro bancos)
+    entidades: ["1", "2", "23", "49"]
+    holding: true
+    nota: >-
+      Suma simple de las cuentas de Bogotá, Popular, Occidente y AV Villas: no elimina operaciones entre
+      ellos, no descuenta la participación de los minoritarios y no incluye Corficolombiana, Porvenir ni
+      el resto del conglomerado.
+  - emisor_id: null           # sin acciones en gold/dims/dim_activo: solo como par de comparación
+    nombre: Banco GNB Sudameris
+    entidades: ["12"]
+    holding: false

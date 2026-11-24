@@ -20,7 +20,8 @@
   emisor reporta en dólares, sus cifras por acción se pasan a pesos con la TRM del día.
 
 Los bancos tienen además el CUIF mensual (silver/fact_cuif_mensual); sus métricas propias (ROTE,
-margen de intermediación, calidad de cartera) quedan para la plantilla de bancos.
+margen de intereses, eficiencia, costo del riesgo, calidad de cartera) las arma la plantilla de bancos
+(src/invest/bancos.py → gold/fact_metrica_banco).
 """
 
 from __future__ import annotations

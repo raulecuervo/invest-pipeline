@@ -10,6 +10,11 @@ Los saldos de resultados (clases 4 y 5, y la cuenta 590000) son acumulados del a
 cubre enero a marzo. La API es lenta con este conjunto (unos 40 segundos por consulta), así que
 el tiempo de espera es largo.
 
+Además del primer nivel pide las ``cuentas_extra`` del catálogo (las de la plantilla de bancos,
+config/bancos.yaml). Cuando la lista trae cuentas que nunca se bajaron (se guarda en
+meta/estado_fuentes/cuif_datos_gov.json), la corrida sin ``--desde`` vuelve a pedir todo el histórico
+una sola vez, para que las cuentas nuevas no queden solo con los últimos meses.
+
 Validación: activo = pasivo + patrimonio en cada entidad y mes (tolerancia 1 %). Si no cuadra, las
 filas de ese mes van a cuarentena.
 """
@@ -20,6 +25,7 @@ from datetime import date, datetime, timezone
 
 import polars as pl
 
+from invest import storage
 from invest.ingest import socrata
 from invest.ingest.base import Conector
 
@@ -35,17 +41,30 @@ class ConectorCUIF(Conector):
     claves = ("fecha_corte", "codigo_entidad", "cuenta")
     columna_fecha = "fecha_corte"
 
+    def _extra(self) -> list[str]:
+        return [str(c) for c in (self.meta.get("cuentas_extra") or [])]
+
+    def rango_por_defecto(self, hoy: date | None = None) -> tuple[date, date]:
+        desde, hasta = super().rango_por_defecto(hoy)
+        bajadas = set(storage.leer_estado_fuente(self.fuente_id).get("cuentas_extra") or [])
+        if set(self._extra()) - bajadas:  # cuentas nuevas en el catálogo: todo el histórico, una vez
+            desde = min(desde, date.fromisoformat(str(self.meta.get("historico_desde", "2000-01-01"))))
+        return desde, hasta
+
     def descargar(self, desde: date, hasta: date) -> list[dict]:
         codigos = ",".join(f"'{e['codigo']}'" for e in self.meta["entidades"])
-        extra = self.meta.get("cuentas_extra") or []
+        extra = self._extra()
         cuentas = "cuenta like '__0000'" + (
             " OR cuenta in(" + ",".join(f"'{c}'" for c in extra) + ")" if extra else "")
         where = (
             f"tipo_entidad='1' AND codigo_entidad in({codigos}) AND moneda='0' AND ({cuentas}) "
             f"AND fecha_corte >= '{desde.isoformat()}T00:00:00' AND fecha_corte <= '{hasta.isoformat()}T00:00:00'"
         )
-        return socrata.consultar(self.meta["url"], where=where, order="fecha_corte,codigo_entidad,cuenta",
-                                 timeout=240)
+        registros = socrata.consultar(self.meta["url"], where=where, order="fecha_corte,codigo_entidad,cuenta",
+                                      timeout=240)
+        if desde <= date.fromisoformat(str(self.meta.get("historico_desde", "2000-01-01"))):
+            self.estado_nuevo["cuentas_extra"] = sorted(extra)  # se guarda solo si la corrida termina bien
+        return registros
 
     def interpretar(self, registros: list[dict]) -> pl.DataFrame:
         if not registros:

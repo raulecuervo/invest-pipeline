@@ -36,10 +36,11 @@ def test_segunda_corrida_sin_cambios_salta_todo(datos, capsys):
     # La línea de comandos muestra los saltados y --todo los fuerza
     assert cli.main(["modelo"]) in (0, 1)  # 1 si el contrato tiene problemas (datos mínimos)
     salida = capsys.readouterr().out
-    assert "tecnico: saltado" in salida and "7 saltados" in salida
+    n = len(modelo.PASOS)
+    assert "tecnico: saltado" in salida and f"{n} saltados" in salida
     cli.main(["modelo", "--todo"])
     salida = capsys.readouterr().out
-    assert ": saltado" not in salida and "7 recalculados, 0 saltados" in salida
+    assert ": saltado" not in salida and f"{n} recalculados, 0 saltados" in salida
 
 
 def test_cambiar_precios_recalcula_el_paso_y_sus_dependientes(datos):

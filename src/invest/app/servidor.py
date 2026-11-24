@@ -288,6 +288,61 @@ def ficha(especie: str):
                       "avisos": [a for a in ((avisos or {}).get("alertas") or "").split("; ") if a]})
 
 
+METRICAS_BANCO_PARES = ["rote_12m", "roe_banco_12m", "nim_12m", "eficiencia_12m", "costo_riesgo_12m",
+                         "indice_cartera_riesgo", "cobertura_cartera_cde", "crecimiento_cartera_12m"]
+METRICAS_BANCO_SERIE = ["rote_12m", "roe_banco_12m", "nim_12m", "costo_riesgo_12m", "indice_cartera_riesgo"]
+
+
+@app.get("/api/ficha/{especie}/banco")
+def ficha_banco(especie: str):
+    """Plantilla de bancos del emisor (gold/fact_metrica_banco): último corte, el de 12 meses antes, la
+    serie de 5 años y los pares (una fila por entidad del CUIF). ``tiene: false`` si no es banco."""
+    from invest.config import cargar_yaml
+
+    act = q1("SELECT emisor_id FROM dim_activo WHERE especie = ?", [especie])
+    emisor = (act or {}).get("emisor_id")
+    filas = q("""SELECT nombre_entidad, entidades, fecha_corte, fecha_disponible, metrica, valor, unidad, es_holding, base
+                 FROM fact_metrica_banco WHERE emisor_id = ? ORDER BY fecha_corte""", [emisor]) if emisor else []
+    if not filas:
+        return responder({"tiene": False})
+    ultimo = max(f["fecha_corte"] for f in filas)
+    hace_un_anio = max((f["fecha_corte"] for f in filas
+                        if (f["fecha_corte"].year, f["fecha_corte"].month) == (ultimo.year - 1, ultimo.month)), default=None)
+    actual = {f["metrica"]: f["valor"] for f in filas if f["fecha_corte"] == ultimo}
+    anterior = {f["metrica"]: f["valor"] for f in filas if f["fecha_corte"] == hace_un_anio}
+    cab = next(f for f in filas if f["fecha_corte"] == ultimo)
+    desde = date(ultimo.year - 5, ultimo.month, 1)
+    serie: dict = {}
+    for f in filas:
+        if f["metrica"] in METRICAS_BANCO_SERIE and f["fecha_corte"] >= desde:
+            serie.setdefault(f["fecha_corte"], {"fecha_corte": f["fecha_corte"]})[f["metrica"]] = f["valor"]
+    lista = ", ".join("'" + m + "'" for m in METRICAS_BANCO_PARES)
+    ultimos = q(f"""WITH u AS (SELECT entidades, max(fecha_corte) AS f FROM fact_metrica_banco GROUP BY entidades)
+                   SELECT m.emisor_id, m.nombre_entidad, m.entidades, m.fecha_corte, m.metrica, m.valor, m.es_holding
+                   FROM fact_metrica_banco m JOIN u ON u.entidades = m.entidades AND u.f = m.fecha_corte
+                   WHERE m.metrica IN ({lista}) ORDER BY m.entidades, m.emisor_id""")
+    pares: dict = {}
+    for f in ultimos:
+        # Dos emisores con el mismo banco (Davivienda y Davivienda Group) son un solo par: manda el de la ficha
+        actual_par = pares.get(f["entidades"])
+        if actual_par is None or (f["emisor_id"] == emisor and actual_par["emisor_id"] != emisor):
+            actual_par = pares[f["entidades"]] = {"emisor_id": f["emisor_id"], "nombre_entidad": f["nombre_entidad"],
+                                                  "entidades": f["entidades"], "fecha_corte": f["fecha_corte"],
+                                                  "es_holding": f["es_holding"], "propio": f["emisor_id"] == emisor}
+        if actual_par["emisor_id"] == f["emisor_id"]:
+            actual_par[f["metrica"]] = f["valor"]
+    try:
+        nota = next((m.get("nota") for m in cargar_yaml("bancos.yaml")["mapeo"] if m.get("emisor_id") == emisor), None)
+    except (OSError, KeyError):
+        nota = None
+    return responder({"tiene": True, "emisor_id": emisor, "nombre_entidad": cab["nombre_entidad"],
+                      "entidades": cab["entidades"], "es_holding": cab["es_holding"], "base": cab["base"],
+                      "fecha_corte": ultimo, "fecha_disponible": cab["fecha_disponible"], "corte_anterior": hace_un_anio,
+                      "actual": actual, "anterior": anterior, "serie": sorted(serie.values(), key=lambda r: r["fecha_corte"]),
+                      "pares": sorted(pares.values(), key=lambda r: -(r.get("rote_12m") or r.get("roe_banco_12m") or -9)),
+                      "nota": nota})
+
+
 @app.get("/api/ficha/{especie}/precio")
 def ficha_precio(especie: str, dias: int = 365):
     filas = q("""

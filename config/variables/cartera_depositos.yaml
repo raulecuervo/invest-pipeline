@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/cartera_depositos.md
+id: cartera_depositos
+nombre: Cartera / depósitos
+categoria: bancos
+nivel: intermedio
+formato: porcentaje
+direccion: 0
+tabla: fact_metrica_banco
+columna: valor
+formula: cartera bruta / depósitos y exigibilidades (2105 a 2120)
+que_es: Cuánto presta el banco por cada peso que le depositan.
+que_hace: Mide la dependencia de fondeo distinto de los depósitos (bonos, créditos de otros bancos).
+para_que_sirve: Para evaluar la liquidez estructural.
+como_leer: Por encima de 100 % el banco presta más de lo que capta y depende de otras fuentes de fondeo, más caras
+  y volátiles.
+relacionadas:
+- crecimiento_depositos_12m
+- depositos
+revisado: false
+version: 1
+metrica: cartera_depositos

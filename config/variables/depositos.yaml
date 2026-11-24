@@ -1,0 +1,23 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/depositos.md
+id: depositos
+nombre: Depósitos
+categoria: bancos
+nivel: basico
+formato: pesos
+direccion: 0
+tabla: fact_metrica_banco
+columna: valor
+formula: cuenta corriente, ahorro, CDT y demás depósitos y exigibilidades (2105, 2106, 2107, 2108, 2109, 2110, 2113,
+  2116, 2117, 2118, 2120)
+que_es: El dinero que el público y las empresas tienen en el banco.
+que_hace: Mide la principal fuente de fondeo.
+para_que_sirve: Para el crecimiento de los depósitos y la relación cartera / depósitos.
+como_leer: 'Es un pasivo, pero en un banco es el negocio: por eso el apalancamiento genérico no se usa para los
+  bancos.'
+relacionadas:
+- crecimiento_depositos_12m
+- cartera_depositos
+revisado: false
+version: 1
+metrica: depositos

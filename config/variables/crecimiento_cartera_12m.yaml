@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/crecimiento_cartera_12m.md
+id: crecimiento_cartera_12m
+nombre: Crecimiento de la cartera
+categoria: bancos
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_banco
+columna: valor
+formula: cartera bruta / cartera bruta 12 meses antes − 1
+que_es: Cuánto creció en un año lo que el banco presta.
+que_hace: Mide la expansión del negocio.
+para_que_sirve: Para ver si el banco gana o pierde participación frente a sus pares.
+como_leer: 'Crecer mucho más rápido que el sistema puede significar que relajó sus estándares: mírelo junto al costo
+  del riesgo de los años siguientes. Las fusiones (Davivienda con Scotiabank) lo saltan de una vez.'
+relacionadas:
+- crecimiento_depositos_12m
+- cartera_bruta
+revisado: false
+version: 1
+metrica: crecimiento_cartera_12m

@@ -13,6 +13,7 @@ import polars as pl
 import yaml
 
 from invest import storage
+from invest.bancos import METRICAS as METRICAS_BANCO
 from invest.config import CONFIG_DIR, cargar_yaml
 
 CAMPOS = ["id", "nombre", "categoria", "nivel", "formato", "direccion", "tabla", "columna", "metrica", "serie_id",
@@ -54,6 +55,8 @@ def problemas(variables: list[dict] | None = None) -> list[str]:
             salida.append(f"{v['id']}: la serie {v.get('serie_id')} no está en config/indicadores_macro.yaml")
         if v.get("tabla") == "fact_metrica_fundamental" and v.get("metrica") not in metricas_conocidas:
             salida.append(f"{v['id']}: métrica desconocida {v.get('metrica')}")
+        if v.get("tabla") == "fact_metrica_banco" and v.get("metrica") not in METRICAS_BANCO:
+            salida.append(f"{v['id']}: métrica de banco desconocida {v.get('metrica')}")
         for r in v.get("relacionadas") or []:
             if r not in ids:
                 salida.append(f"{v['id']}: la relacionada {r} no tiene archivo")
