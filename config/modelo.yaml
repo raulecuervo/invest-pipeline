@@ -520,6 +520,10 @@ tablas:
       p_u: Float64
       rendimiento_utilidad: Float64
       rendimiento_dividendo_12m: Float64
+      ev: Float64
+      ebitda_12m: Float64
+      ev_ebitda: Float64
+      deuda_neta_ebitda: Float64
   fact_valoracion_diaria:
     capa: gold
     ruta: fact_valoracion_diaria

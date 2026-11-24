@@ -37,7 +37,10 @@ def problemas(variables: list[dict] | None = None) -> list[str]:
         cargar_yaml("indicadores_macro.yaml").get("derivados", {}))
     metricas_conocidas = {"vpa", "upa_12m", "roe_12m", "dividendo_accion", "payout", "crecimiento_upa_12m",
                           "ingresos_12m", "crecimiento_ingresos_12m", "utilidad_controladora_12m",
-                          "roe_consolidado_12m", "margen_neto_12m", "apalancamiento", "efectivo_activos"}
+                          "roe_consolidado_12m", "margen_neto_12m", "apalancamiento", "efectivo_activos",
+                          "utilidad_operacional_12m", "ebitda_12m", "margen_bruto_12m", "margen_operacional_12m",
+                          "margen_ebitda_12m", "deuda_financiera", "deuda_neta", "deuda_neta_ebitda",
+                          "interes_minoritario"}
     ids = {v["id"] for v in variables}
     salida = []
     for v in variables:

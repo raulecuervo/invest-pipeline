@@ -431,6 +431,9 @@ paginas.screener = async (v) => {
     { k: "p_u", t: "P/U", f: (r) => veces(r.p_u, 1), info: "p_u" },
     { k: "rendimiento_dividendo_12m", t: "Div. 12m", f: (r) => pct(r.rendimiento_dividendo_12m), info: "rendimiento_dividendo_12m" },
     { k: "roe_12m", t: "ROE", f: (r) => pct(r.roe_12m), info: "roe_12m" },
+    { k: "ev_ebitda", t: "EV/EBITDA", f: (r) => veces(r.ev_ebitda, 1), info: "ev_ebitda" },
+    { k: "deuda_neta_ebitda", t: "Deuda n./EBITDA", f: (r) => veces(r.deuda_neta_ebitda, 1), info: "deuda_neta_ebitda" },
+    { k: "margen_ebitda_12m", t: "Mg. EBITDA", f: (r) => pct(r.margen_ebitda_12m), info: "margen_ebitda_12m" },
     { k: "momentum_12_1", t: "Mom. 12-1", f: (r) => pct(r.momentum_12_1), info: "momentum_12_1" },
     { k: "capitalizacion", t: "Capitalización", f: (r) => pesos(r.capitalizacion) },
     { k: "tercio_validado", t: "Validados", f: (r) => r.tercio_validado || "—", info: "percentil_validado" },
@@ -585,6 +588,7 @@ paginas.ficha = async (v, especie) => {
     { k: "precio", t: "Precio", f: (r) => num(r.precio, r.precio < 100 ? 2 : 0) },
     { k: "p_vl", t: "P/VL", f: (r) => veces(r.p_vl) }, { k: "p_u", t: "P/U", f: (r) => veces(r.p_u, 1) },
     { k: "roe_12m", t: "ROE", f: (r) => pct(r.roe_12m) }, { k: "rendimiento_dividendo_12m", t: "Div. 12m", f: (r) => pct(r.rendimiento_dividendo_12m) },
+    { k: "ev_ebitda", t: "EV/EBITDA", f: (r) => veces(r.ev_ebitda, 1) }, { k: "deuda_neta_ebitda", t: "Deuda n./EBITDA", f: (r) => veces(r.deuda_neta_ebitda, 1) },
     { k: "en_universo", t: "Líquida", f: (r) => r.en_universo ? "sí" : "no" },
     { k: "puntaje_global", t: "Puntaje", f: (r) => notaPuntaje(r.puntaje_global) },
   ];

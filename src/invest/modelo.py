@@ -41,10 +41,14 @@ VISTAS = {
         FROM fact_retorno_diario r
         WINDOW w AS (PARTITION BY especie ORDER BY fecha ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)""",
     "v_ficha_actual": """
-        SELECT m.*, a.nemotecnico, e.nombre_corto AS emisor_corto, e.nombre AS emisor_nombre
+        SELECT m.*, a.nemotecnico, e.nombre_corto AS emisor_corto, e.nombre AS emisor_nombre,
+               v.ev_ebitda, v.deuda_neta_ebitda
         FROM fact_matriz m
         LEFT JOIN dim_activo a USING (especie)
         LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
+        LEFT JOIN (SELECT especie, ev_ebitda, deuda_neta_ebitda FROM fact_valoracion
+                   WHERE fecha = (SELECT max(fecha) FROM fact_valoracion
+                                  WHERE fecha <= (SELECT max(fecha) FROM fact_matriz))) v ON v.especie = m.especie
         WHERE m.fecha = (SELECT max(fecha) FROM fact_matriz)""",
     "v_mapa_mercado": """
         WITH t AS (

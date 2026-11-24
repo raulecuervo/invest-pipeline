@@ -242,9 +242,23 @@ def screener():
     fecha = q1("SELECT max(fecha) AS f FROM fact_matriz")
     if not fecha or not fecha["f"]:
         return responder({"filas": [], "screeners": []})
-    filas = q("""SELECT m.*, a.nemotecnico, e.nombre_corto FROM fact_matriz m
-                 LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
-                 WHERE m.fecha = ? ORDER BY m.puntaje_global DESC NULLS LAST""", [fecha["f"]])
+    # EV/EBITDA y margen EBITDA: solo si la base ya se reconstruyó con ellos (invest modelo)
+    if _graf_tabla_existe("fact_valoracion", ("ev_ebitda", "deuda_neta_ebitda")) and \
+            _graf_tabla_existe("fact_metrica_fundamental", ("metrica", "valor", "fecha_corte", "fecha_disponible")):
+        filas = q("""SELECT m.*, a.nemotecnico, e.nombre_corto, v.ev_ebitda, v.deuda_neta_ebitda, mg.margen_ebitda_12m
+                     FROM fact_matriz m
+                     LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
+                     LEFT JOIN (SELECT especie, ev_ebitda, deuda_neta_ebitda FROM fact_valoracion
+                                WHERE fecha = (SELECT max(fecha) FROM fact_valoracion WHERE fecha <= ?)) v USING (especie)
+                     LEFT JOIN (SELECT emisor_id, arg_max(valor, fecha_corte) AS margen_ebitda_12m FROM fact_metrica_fundamental
+                                WHERE metrica = 'margen_ebitda_12m' AND base = 'consolidado' AND fecha_disponible <= ?
+                                  AND fecha_corte >= CAST(? AS DATE) - INTERVAL 460 DAY
+                                GROUP BY emisor_id) mg ON mg.emisor_id = m.emisor_id
+                     WHERE m.fecha = ? ORDER BY m.puntaje_global DESC NULLS LAST""", [fecha["f"]] * 4)
+    else:
+        filas = q("""SELECT m.*, a.nemotecnico, e.nombre_corto FROM fact_matriz m
+                     LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
+                     WHERE m.fecha = ? ORDER BY m.puntaje_global DESC NULLS LAST""", [fecha["f"]])
     corrida = q("SELECT screener_id, especie, nueva FROM fact_screener_corrida WHERE fecha = ?", [fecha["f"]])
     anterior = q1("SELECT max(fecha) AS f FROM fact_screener_corrida WHERE fecha < ?", [fecha["f"]])
     salieron = []
@@ -301,8 +315,10 @@ def ficha(especie: str):
                    [cab["emisor_id"]])
     metricas = q("""SELECT metrica, base, fecha_corte, fecha_disponible, valor, unidad FROM fact_metrica_fundamental
                     WHERE emisor_id = ? ORDER BY fecha_corte DESC""", [cab["emisor_id"]])
-    pares = q("""SELECT especie, nemotecnico, emisor_corto, precio, p_vl, p_u, roe_12m, rendimiento_dividendo_12m,
-                        puntaje_global, en_universo
+    ev = "ev_ebitda, deuda_neta_ebitda" if _graf_tabla_existe("v_ficha_actual", ("ev_ebitda", "deuda_neta_ebitda")) \
+        else "NULL AS ev_ebitda, NULL AS deuda_neta_ebitda"
+    pares = q(f"""SELECT especie, nemotecnico, emisor_corto, precio, p_vl, p_u, roe_12m, rendimiento_dividendo_12m,
+                        {ev}, puntaje_global, en_universo
                  FROM v_ficha_actual WHERE sector_sfc = ? OR especie = ? ORDER BY capitalizacion DESC NULLS LAST""",
                  [cab["sector_sfc"], especie])
     avisos = q1("SELECT alertas FROM fact_ficha_accion WHERE especie = ?", [especie])

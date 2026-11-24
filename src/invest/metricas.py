@@ -11,11 +11,16 @@
   (Supersociedades, respaldo de quienes no tienen XBRL): ingresos, ``apalancamiento``,
   ``margen_neto_12m``, ``roe_anual`` y ``crecimiento_ingresos_12m`` de cada cierre. Base **consolidada** (XBRL): utilidad de la
   controladora e ingresos de 12 meses, ``roe_consolidado_12m``, ``margen_neto_12m``,
-  ``apalancamiento`` (pasivos / activos) y ``efectivo_activos``.
+  ``apalancamiento`` (pasivos / activos) y ``efectivo_activos``; y, salvo bancos, aseguradoras y holdings
+  financieros (``valoracion_empresa.excluir_financieros`` en config/convenciones.yaml), utilidad
+  operacional y ``ebitda_12m`` (utilidad operacional + depreciación y amortización del estado de flujos),
+  ``margen_bruto_12m``, ``margen_operacional_12m``, ``margen_ebitda_12m``, ``deuda_financiera``,
+  ``deuda_neta`` (menos el efectivo), ``deuda_neta_ebitda`` e ``interes_minoritario``.
   Las cifras de resultados de los informes son acumuladas del año; las de 12 meses se arman como
   acumulado del año + año anterior completo − acumulado del mismo trimestre del año anterior.
 - ``gold/fact_valoracion`` (especie × fin de mes, y la última sesión): precio, capitalización,
-  ``p_vl``, ``p_u``, rendimiento de la utilidad, rendimiento por dividendo de 12 meses (dividendos en
+  ``p_vl``, ``p_u``, valor de la empresa (``ev``: capitalización de todas las clases del emisor + deuda
+  neta + interés minoritario) y ``ev_ebitda``, rendimiento de la utilidad, rendimiento por dividendo de 12 meses (dividendos en
   efectivo con fecha ex en los últimos 365 días sobre el precio) y el ROE conocido a esa fecha. Si el
   emisor reporta en dólares, sus cifras por acción se pasan a pesos con la TRM del día.
 
@@ -31,6 +36,7 @@ from datetime import timedelta
 import polars as pl
 
 from invest import storage
+from invest.config import convenciones
 from invest.factores import fines_de_mes
 
 ESQUEMA = {"emisor_id": pl.Utf8, "fecha_corte": pl.Date, "fecha_disponible": pl.Date, "base": pl.Utf8,
@@ -89,6 +95,31 @@ def _cociente(num: pl.DataFrame, den: pl.DataFrame, solo_den_positivo: bool = Tr
                                                                   "valor", "unidad")
 
 
+def _suma(*partes: pl.DataFrame) -> pl.DataFrame:
+    """Suma por emisor y corte de las partes que existan (una parte ausente cuenta como cero)."""
+    partes = [p.with_columns(pl.col("fecha_corte").dt.month_end()) for p in partes if not p.is_empty()]
+    if not partes:
+        return pl.DataFrame(schema={k: ESQUEMA[k] for k in ("emisor_id", "fecha_corte", "fecha_disponible", "valor", "unidad")})
+    return (pl.concat([p.select("emisor_id", "fecha_corte", "fecha_disponible", "valor", "unidad") for p in partes])
+            .group_by("emisor_id", "fecha_corte")
+            .agg(pl.col("fecha_disponible").max(), pl.col("valor").sum(), pl.col("unidad").first()))
+
+
+def _resta(a: pl.DataFrame, b: pl.DataFrame, signo: float = -1.0) -> pl.DataFrame:
+    """a − b (o a + b con ``signo=1``) por emisor y corte, solo donde existen los dos."""
+    t = a.with_columns(pl.col("fecha_corte").dt.month_end()).join(
+        b.with_columns(pl.col("fecha_corte").dt.month_end()).select(
+            "emisor_id", "fecha_corte", pl.col("valor").alias("_b"), pl.col("fecha_disponible").alias("_fd")),
+        on=["emisor_id", "fecha_corte"])
+    return t.with_columns((pl.col("valor") + signo * pl.col("_b")).alias("valor"),
+                          pl.max_horizontal("fecha_disponible", "_fd").alias("fecha_disponible")).select(
+        "emisor_id", "fecha_corte", "fecha_disponible", "valor", "unidad")
+
+
+def financieros() -> list[str]:
+    return list(convenciones().get("valoracion_empresa", {}).get("excluir_financieros", []))
+
+
 def _payout(dividendo: pl.DataFrame, upa_anual: pl.DataFrame) -> pl.DataFrame:
     """Dividendo decretado en el año t sobre la utilidad por acción del cierre del año t-1."""
     cierre = upa_anual.filter(pl.col("fecha_corte").dt.month() == 12).select(
@@ -116,6 +147,15 @@ def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
     util_ctrl12 = doce_meses(con("utilidad_controladora"))
     util_tot12 = doce_meses(con("utilidad_total"))
     ingresos_c12 = doce_meses(con("ingresos_consolidados"))
+    # Valor de la empresa: solo sector real (ver docstring)
+    excluir = financieros()
+    real = lambda c: con(c).filter(~pl.col("emisor_id").is_in(excluir))  # noqa: E731
+    ingresos_r12 = ingresos_c12.filter(~pl.col("emisor_id").is_in(excluir))
+    uop12 = doce_meses(real("utilidad_operacional"))
+    ebitda12 = _resta(uop12, doce_meses(real("depreciacion_amortizacion")), signo=1.0)
+    deuda = _suma(real("obligaciones_financieras_corrientes"), real("obligaciones_financieras_no_corrientes"),
+                  real("titulos_emitidos"), real("titulos_emitidos_corrientes"), real("titulos_emitidos_no_corrientes"))
+    deuda_neta = _resta(deuda, real("efectivo"))
     partes = {
         ("separado", "vpa"): vpa,
         ("separado", "upa_12m"): upa12,
@@ -135,6 +175,15 @@ def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
         ("consolidado", "apalancamiento"): _cociente(con("pasivos"), con("activos")),
         ("consolidado", "efectivo_activos"): _cociente(con("efectivo"), con("activos")),
         ("consolidado", "crecimiento_ingresos_12m"): _crecimiento(ingresos_c12),
+        ("consolidado", "utilidad_operacional_12m"): uop12,
+        ("consolidado", "ebitda_12m"): ebitda12,
+        ("consolidado", "margen_bruto_12m"): _cociente(doce_meses(real("utilidad_bruta")), ingresos_r12),
+        ("consolidado", "margen_operacional_12m"): _cociente(uop12, ingresos_r12),
+        ("consolidado", "margen_ebitda_12m"): _cociente(ebitda12, ingresos_r12),
+        ("consolidado", "deuda_financiera"): deuda,
+        ("consolidado", "deuda_neta"): deuda_neta,
+        ("consolidado", "deuda_neta_ebitda"): _cociente(deuda_neta, ebitda12),
+        ("consolidado", "interes_minoritario"): _resta(real("patrimonio_total"), real("patrimonio_controladora")),
     }
     filas = [df.with_columns(pl.lit(base).alias("base"), pl.lit(m).alias("metrica"),
                              pl.col("fecha_corte").dt.month_end())
@@ -177,6 +226,30 @@ def por_accion_asof(v: pl.DataFrame, metricas: pl.DataFrame,
     return v
 
 
+def valor_empresa(v: pl.DataFrame, metricas: pl.DataFrame) -> pl.DataFrame:
+    """Agrega a ``v`` (especie × fecha, con ``capitalizacion`` y ``trm``) el valor de la empresa del emisor y
+    su EV/EBITDA, con las cifras consolidadas conocidas a cada fecha (as-of; más de 460 días: nulo).
+
+    EV = capitalización de todas las clases del emisor con precio + deuda neta + interés minoritario.
+    Montos en dólares (Canacol) se pasan a pesos con la TRM del día. Bancos y holdings financieros: nulo."""
+    cap = v.group_by("emisor_id", "fecha").agg(pl.col("capitalizacion").sum().alias("_cap_emisor"),
+                                                 pl.col("capitalizacion").is_null().any().alias("_cap_incompleta"))
+    v = v.join(cap, on=["emisor_id", "fecha"], how="left")
+    for alias in ("ebitda_12m", "deuda_neta", "interes_minoritario", "deuda_neta_ebitda"):
+        m = (metricas.filter((pl.col("metrica") == alias) & (pl.col("base") == "consolidado")).sort("fecha_disponible")
+             .select("emisor_id", "fecha_disponible", pl.col("valor").alias(alias), pl.col("unidad").alias(f"_u_{alias}"),
+                     pl.col("fecha_corte").alias(f"_corte_{alias}")))
+        v = v.sort("fecha").join_asof(m, left_on="fecha", right_on="fecha_disponible", by="emisor_id",
+                                      strategy="backward", check_sortedness=False).drop("fecha_disponible")
+        vigente = (pl.col("fecha") - pl.col(f"_corte_{alias}")).dt.total_days() <= 460
+        en_pesos = pl.when(pl.col(f"_u_{alias}") == "usd").then(pl.col(alias) * pl.col("trm")).otherwise(pl.col(alias))
+        v = v.with_columns(pl.when(vigente).then(en_pesos).otherwise(None).alias(alias))
+    ev = pl.col("_cap_emisor") + pl.col("deuda_neta") + pl.col("interes_minoritario").fill_null(0.0)
+    v = v.with_columns(pl.when(~pl.col("_cap_incompleta")).then(ev).otherwise(None).alias("ev"))
+    return v.with_columns(
+        pl.when(pl.col("ebitda_12m") > 0).then(pl.col("ev") / pl.col("ebitda_12m")).otherwise(None).alias("ev_ebitda"))
+
+
 def fact_valoracion(metricas: pl.DataFrame | None = None) -> pl.DataFrame | None:
     precios = storage.leer_tabla("gold", "fact_precio_diario")
     if precios is None or precios.is_empty():
@@ -199,6 +272,7 @@ def fact_valoracion(metricas: pl.DataFrame | None = None) -> pl.DataFrame | None
     v = v.join(suma, on=["especie", "fecha"], how="left")
     # Métricas por acción conocidas a la fecha (separadas), as-of por fecha_disponible
     v = por_accion_asof(v, metricas)
+    v = valor_empresa(v, metricas)
     v = v.with_columns(
         (pl.col("precio") / pl.col("vpa")).alias("p_vl"),
         pl.when(pl.col("upa_12m") > 0).then(pl.col("precio") / pl.col("upa_12m")).otherwise(None).alias("p_u"),
@@ -209,7 +283,7 @@ def fact_valoracion(metricas: pl.DataFrame | None = None) -> pl.DataFrame | None
     return v.select(
         "fecha", "especie", "emisor_id", "fecha_precio", "precio", "capitalizacion", "capitalizacion_usd",
         "vpa", "corte_vpa", "upa_12m", "corte_upa", "roe_12m", "p_vl", "p_u", "rendimiento_utilidad",
-        "rendimiento_dividendo_12m",
+        "rendimiento_dividendo_12m", "ev", "ebitda_12m", "ev_ebitda", "deuda_neta_ebitda",
     ).sort(["especie", "fecha"])
 
 

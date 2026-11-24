@@ -493,3 +493,32 @@ def test_pdf_resubido_vale_el_plazo():
     ], schema=ec.ESQUEMA_SILVER | {"ingest_ts": pl.Datetime("us", "UTC")})
     df = fundamentales.desde_pdf_compania(ee).sort("fecha_corte")
     assert df.get_column("fecha_disponible").to_list() == [date(2023, 3, 31), date(2025, 2, 7)]
+
+
+def test_incluye_el_estado_de_flujos_si_hay_espacio(cfg):
+    flujos = ["Estado de flujos de efectivo consolidado", "Por los doce meses terminados el 31 de diciembre",
+              "Utilidad neta del periodo 1.100.000", "Depreciacion y amortizacion 650.300 600.100", *_relleno(14)]
+    pdf = pdf_paginas([["Portada"], *paginas_estados(NUTRESA), flujos, ["Nota 1", *_relleno(20)]])
+    textos = ec.textos_paginas(pdf)
+    assert ec.localizar_paginas(textos, cfg) == [1, 2, 3, 4]
+    con_limite = {**cfg, "limites": {**cfg["limites"], "max_paginas_por_documento": 3}}
+    assert ec.localizar_paginas(textos, con_limite) == [1, 2, 3]  # sin espacio, el de flujos queda fuera
+
+
+def test_documento_leido_con_version_anterior_se_vuelve_a_leer(cfg, carpeta_datos, monkeypatch):
+    web = Web({INDICE_NUTRESA: HTML_NUTRESA, PDF_NUTRESA: (documento(), "Thu, 19 Feb 2026 22:10:00 GMT")})
+    correr(web, ClienteFalso({MA: [registro()], MB: [registro()]}), monkeypatch)
+    log = storage.leer_tabla("silver", ec.TABLA_EXTRACCION)
+    assert ec.version_de(log.row(0, named=True)) == ec.VERSION_LECTURA
+    # Como lo dejó la versión 1 (sin la marca): se lee otra vez, una sola vez
+    viejo = log.with_columns(pl.col("json_a").str.replace(r', "version_lectura": \d+', ""),
+                             pl.col("json_b").str.replace(r', "version_lectura": \d+', ""),
+                             pl.col("json_final").str.replace(r', "version_lectura": \d+', ""))
+    assert ec.version_de(viejo.row(0, named=True)) == 1
+    storage.escribir_por_anio("silver", ec.TABLA_EXTRACCION, viejo, "fecha_referencia")
+    cliente = ClienteFalso({MA: [registro()], MB: [registro()]})
+    correr(web, cliente, monkeypatch)
+    assert len(cliente.llamadas) == 2
+    otra = ClienteFalso({MA: [], MB: []})
+    correr(web, otra, monkeypatch)
+    assert otra.llamadas == []

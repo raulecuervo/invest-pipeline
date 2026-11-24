@@ -80,6 +80,16 @@ XBRL = {
     "ifrs:ProfitLoss": "utilidad_total",
     "ifrs:ProfitLossAttributableToOwnersOfParent": "utilidad_controladora",
     "ifrs:BasicEarningsLossPerShare": "upa_basica",
+    # Para EBITDA, márgenes y deuda (24-nov-2026). La depreciación y amortización sale del estado de flujos
+    # (ajuste a la utilidad), que la reportan los seis emisores del sector real con XBRL; la deuda, de las
+    # líneas de obligaciones financieras de la taxonomía de la SFC (incluyen los bonos de Ecopetrol, ISA y
+    # GEB; Promigas reporta aparte sus títulos emitidos). No incluye arrendamientos.
+    "ifrs:GrossProfit": "utilidad_bruta",
+    "ifrs:ProfitLossFromOperatingActivities": "utilidad_operacional",
+    "ifrs:AdjustmentsForDepreciationAndAmortisationExpense": "depreciacion_amortizacion",
+    "sfc:ObligacionesFinancierasCorrientes": "obligaciones_financieras_corrientes",
+    "sfc:ObligacionesFinancierasNoCorrientes": "obligaciones_financieras_no_corrientes",
+    "sfc:TitulosEmitidos": "titulos_emitidos",
 }
 
 
@@ -449,7 +459,11 @@ def desde_pdf_compania(ee: pl.DataFrame | None) -> pl.DataFrame:
     respaldo = pl.when(descubierto.is_not_null() & (descubierto < plazo) & (descubierto >= pl.col("fecha_corte"))) \
         .then(descubierto).otherwise(plazo)
     return (ee.filter((pl.col("estado") == "consenso") & pl.col("valor").is_not_null()
-                      & pl.col("concepto").is_in(list(XBRL.values())))
+                      & pl.col("concepto").is_in(list(XBRL.values()) + ["titulos_emitidos_corrientes",
+                                                                         "titulos_emitidos_no_corrientes"]))
+            # La depreciación va positiva aunque el documento la muestre entre paréntesis
+            .with_columns(pl.when(pl.col("concepto") == "depreciacion_amortizacion").then(pl.col("valor").abs())
+                          .otherwise(pl.col("valor")).alias("valor"))
             .with_columns(pl.coalesce(detectada, respaldo).alias("fecha_disponible"),
                           pl.lit("consolidado").alias("base"), pl.lit("pdf_compania").alias("fuente"))
             .unique(subset=["emisor_id", "fecha_corte", "concepto"], keep="last")

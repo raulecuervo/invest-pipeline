@@ -35,7 +35,7 @@ agentes:            # si se omite, se usan los de config/extraccion.yaml
 
 limites:
   max_documentos_por_corrida: 6     # documentos enviados a la API por corrida (el resto queda pendiente)
-  max_paginas_por_documento: 8      # páginas enviadas por documento
+  max_paginas_por_documento: 10     # páginas enviadas por documento (8 hasta el 24-nov-2026; +2 por el estado de flujos)
   max_descargas_por_corrida: 20     # PDF nuevos bajados por corrida
   tamano_maximo_mb: 40              # PDF más grandes no se bajan (GitHub avisa desde 50 MB por archivo)
   trimestres_plantilla: 4           # cortes hacia atrás que se prueban con las plantillas de URL
@@ -66,6 +66,13 @@ paginas:
     claves: ["por accion", "per share", "atribuible", "attributable"]
     cierre: ["por accion", "per share"]
     paginas_extra: 1
+  flujos:       # solo si hay espacio: la depreciación y amortización para el EBITDA
+    titulos: ["estado de flujos de efectivo", "estados de flujos de efectivo", "estado consolidado de flujos de efectivo",
+              "estados consolidados de flujos de efectivo", "estado de flujo de efectivo", "statement of cash flows",
+              "statements of cash flows"]
+    claves: ["depreciacion", "depreciation", "amortizacion", "amortization"]
+    cierre: []
+    paginas_extra: 0
   patrimonio:   # solo si hay espacio: algunos (Éxito) no traen la controladora en el balance
     titulos: ["cambios en el patrimonio", "changes in equity", "changes in shareholders"]
     claves: ["controladora", "controlling", "owners of the parent", "no controladora", "non-controlling"]

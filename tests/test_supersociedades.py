@@ -151,3 +151,35 @@ def test_utilidad_por_accion_imposible_frente_al_valor_patrimonial():
                       schema=fundamentales.ESQUEMA)
     limpio = fundamentales.descartar_upa_imposible(df)
     assert limpio.filter(pl.col("concepto") == "utilidad_accion").get_column("valor").to_list() == [0.01, -0.02]  # 2026-09 sin VPA cercano: no se controla
+
+
+def test_ebitda_deuda_neta_y_ev(carpeta_datos):
+    from invest import metricas
+
+    def fila(corte, concepto, valor, emisor="CO-COE15"):
+        return {"emisor_id": emisor, "fecha_corte": corte, "fecha_disponible": corte, "concepto": concepto, "valor": valor,
+                "unidad": "pesos", "base": "consolidado", "fuente": "xbrl"}
+    filas = []
+    for emisor in ("CO-COE15", "CO-COT29"):  # ISA y Grupo Aval (financiero: excluido)
+        for corte, uop, da in ((date(2024, 12, 31), 8.0, 1.0), (date(2025, 9, 30), 6.0, 0.75), (date(2025, 12, 31), 9.0, 1.2),
+                               (date(2026, 9, 30), 7.0, 0.9)):
+            filas += [fila(corte, "utilidad_operacional", uop, emisor), fila(corte, "depreciacion_amortizacion", da, emisor),
+                      fila(corte, "ingresos_consolidados", 20.0, emisor)]
+        filas += [fila(date(2026, 9, 30), "obligaciones_financieras_corrientes", 3.0, emisor),
+                  fila(date(2026, 9, 30), "obligaciones_financieras_no_corrientes", 30.0, emisor),
+                  fila(date(2026, 9, 30), "efectivo", 5.0, emisor),
+                  fila(date(2026, 9, 30), "patrimonio_total", 40.0, emisor),
+                  fila(date(2026, 9, 30), "patrimonio_controladora", 30.0, emisor)]
+    m = metricas.fact_metrica_fundamental(pl.DataFrame(filas, schema=fundamentales.ESQUEMA))
+    isa = {r["metrica"]: r["valor"] for r in m.filter((pl.col("emisor_id") == "CO-COE15")
+                                                     & (pl.col("fecha_corte") == date(2026, 9, 30))).iter_rows(named=True)}
+    # 12 meses a sep-2026: (7 + 9 − 6) + (0,9 + 1,2 − 0,75) = 10 + 1,35
+    assert abs(isa["ebitda_12m"] - 11.35) < 1e-9
+    assert isa["deuda_neta"] == 28.0 and isa["interes_minoritario"] == 10.0
+    assert abs(isa["deuda_neta_ebitda"] - 28.0 / 11.35) < 1e-9
+    assert m.filter((pl.col("emisor_id") == "CO-COT29") & (pl.col("metrica") == "ebitda_12m")).is_empty()
+    v = pl.DataFrame({"fecha": [date(2026, 11, 20)] * 2, "especie": ["a", "b"], "emisor_id": ["CO-COE15"] * 2,
+                      "capitalizacion": [50.0, 10.0], "trm": [4000.0] * 2})
+    r = metricas.valor_empresa(v, m.with_columns(pl.col("fecha_corte").alias("fecha_disponible")))
+    assert r.get_column("ev").to_list() == [98.0, 98.0]  # 60 de capitalización (dos clases) + 28 + 10
+    assert abs(r.get_column("ev_ebitda").to_list()[0] - 98.0 / 11.35) < 1e-9

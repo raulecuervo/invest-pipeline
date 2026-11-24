@@ -1,0 +1,23 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/deuda_neta_ebitda.md
+id: deuda_neta_ebitda
+nombre: Deuda neta / EBITDA
+categoria: calidad
+nivel: intermedio
+formato: veces
+direccion: -1
+tabla: fact_metrica_fundamental
+columna: valor
+formula: (obligaciones financieras corrientes y no corrientes + títulos emitidos − efectivo) / EBITDA consolidado de
+  12 meses
+que_es: Cuántos años de EBITDA se necesitarían para pagar la deuda financiera, descontando la caja.
+que_hace: Mide el apalancamiento frente a la capacidad de generar caja, no frente a los activos.
+para_que_sirve: Para ver qué tan expuesta está la empresa a subidas de tasas o a un mal año.
+como_leer: 'Por debajo de 2 suele ser cómodo; por encima de 4 es alto para una empresa cíclica, aunque una
+  regulada (energía, gas) soporta más. Negativo = tiene más caja que deuda. No aplica a bancos.'
+relacionadas:
+- ev_ebitda
+- apalancamiento
+metrica: deuda_neta_ebitda
+revisado: false
+version: 1

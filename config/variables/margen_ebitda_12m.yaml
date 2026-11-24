@@ -1,0 +1,22 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/margen_ebitda_12m.md
+id: margen_ebitda_12m
+nombre: Margen EBITDA de 12 meses
+categoria: calidad
+nivel: basico
+formato: porcentaje
+direccion: 1
+tabla: fact_metrica_fundamental
+columna: valor
+formula: EBITDA consolidado de 12 meses / ingresos consolidados de 12 meses
+que_es: De cada peso vendido, cuánto queda como caja operativa antes de intereses, impuestos e inversiones.
+que_hace: Mide la rentabilidad del negocio sin la estructura de deuda ni la depreciación.
+para_que_sirve: Para comparar la eficiencia operativa entre empresas del mismo sector y ver si mejora o empeora.
+como_leer: Un margen más alto es mejor dentro del mismo sector; entre sectores no se compara (una transmisora tiene
+  márgenes mucho mayores que un comerciante). No aplica a bancos.
+relacionadas:
+- ev_ebitda
+- deuda_neta_ebitda
+metrica: margen_ebitda_12m
+revisado: false
+version: 1

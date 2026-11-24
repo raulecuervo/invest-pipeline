@@ -61,9 +61,18 @@ CARPETA_ANEXOS = "companias"
 REINTENTAR = {"error", "sin_paginas", "sin_texto"}
 
 CONCEPTOS = ["activos", "pasivos", "patrimonio_total", "patrimonio_controladora", "efectivo",
-             "ingresos_consolidados", "utilidad_total", "utilidad_controladora", "upa_basica"]
-BALANCE = {"activos", "pasivos", "patrimonio_total", "patrimonio_controladora", "efectivo"}
-RESULTADOS = {"ingresos_consolidados", "utilidad_total", "utilidad_controladora", "upa_basica"}
+             "ingresos_consolidados", "utilidad_total", "utilidad_controladora", "upa_basica",
+             # Desde la versión 2 de la lectura (24-nov-2026): EBITDA, márgenes y deuda
+             "utilidad_bruta", "utilidad_operacional", "depreciacion_amortizacion",
+             "obligaciones_financieras_corrientes", "obligaciones_financieras_no_corrientes",
+             "titulos_emitidos_corrientes", "titulos_emitidos_no_corrientes"]
+DEUDA = {"obligaciones_financieras_corrientes", "obligaciones_financieras_no_corrientes",
+         "titulos_emitidos_corrientes", "titulos_emitidos_no_corrientes"}
+BALANCE = {"activos", "pasivos", "patrimonio_total", "patrimonio_controladora", "efectivo"} | DEUDA
+RESULTADOS = {"ingresos_consolidados", "utilidad_total", "utilidad_controladora", "upa_basica",
+              "utilidad_bruta", "utilidad_operacional", "depreciacion_amortizacion"}
+# Un documento leído con una versión anterior se vuelve a leer (dentro del tope de documentos por corrida)
+VERSION_LECTURA = 2
 POR_ACCION = {"upa_basica"}
 FACTOR = {"pesos": 1.0, "miles": 1e3, "millones": 1e6, "miles_de_millones": 1e9}
 MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre",
@@ -138,7 +147,16 @@ REGLAS = """Reglas:
   ordinarias (ventas, ingresos operacionales o de contratos con clientes; si hay varias líneas, su
   total); utilidad_total = resultado neto del periodo (utilidad o pérdida); utilidad_controladora =
   la parte atribuible a los propietarios de la controladora; upa_basica = utilidad básica por acción
-  (la total; si solo aparece la de operaciones continuas, esa).
+  (la total; si solo aparece la de operaciones continuas, esa); utilidad_bruta = utilidad (ganancia)
+  bruta, si el estado de resultados la trae; utilidad_operacional = utilidad (ganancia) operacional o
+  "resultado de actividades de operación", antes de ingresos y gastos financieros; depreciacion_amortizacion
+  = depreciación y amortización del estado de flujos de efectivo (la línea de ajuste a la utilidad; si
+  vienen en dos líneas, depreciación y amortización por separado, deja null: no las sumes);
+  obligaciones_financieras_corrientes y obligaciones_financieras_no_corrientes = las líneas de
+  obligaciones financieras, préstamos u "otros pasivos financieros" del pasivo corriente y no corriente;
+  titulos_emitidos_corrientes y titulos_emitidos_no_corrientes = bonos o títulos emitidos, solo si el
+  balance los muestra en líneas propias, aparte de las obligaciones financieras. No incluyas pasivos por
+  arrendamientos.
 - pagina: número de página del PDF adjunto (empieza en 1); rotulo: nombre de la línea copiado.
 Registra el resultado con la herramienta registrar_estados_financieros."""
 
@@ -370,13 +388,15 @@ def _contiene(texto: str, frases: list[str]) -> bool:
 def localizar_paginas(textos: list[str], cfg: dict) -> list[int]:
     """Índices (desde 0) de las páginas de los estados principales, como máximo
     ``max_paginas_por_documento``: situación financiera y resultados (consolidados si los hay) y, si
-    queda espacio, cambios en el patrimonio."""
+    queda espacio, flujos de efectivo (por la depreciación) y cambios en el patrimonio."""
     maximo = int(cfg.get("limites", {}).get("max_paginas_por_documento", 8))
     norm = [normalizar(t) for t in textos]
     otros_titulos = [t for clase in cfg["paginas"].values() for t in clase["titulos"]] + [
         "flujos de efectivo", "flujo de efectivo", "cash flows", "otro resultado integral"]
     elegidas: list[int] = []
-    for clase in ("situacion", "resultados", "patrimonio"):
+    for clase in ("situacion", "resultados", "flujos", "patrimonio"):
+        if clase not in cfg["paginas"]:
+            continue
         reglas = cfg["paginas"][clase]
         mejor, puntaje = None, None
         for i, t in enumerate(norm):
@@ -400,7 +420,7 @@ def localizar_paginas(textos: list[str], cfg: dict) -> list[int]:
                 break
             j += 1
             bloque.append(j)
-        if clase == "patrimonio" and len(elegidas) + len(bloque) > maximo:
+        if clase in ("flujos", "patrimonio") and len(elegidas) + len(bloque) > maximo:
             continue
         elegidas += bloque
     return sorted(elegidas)[:maximo]
@@ -523,7 +543,7 @@ def controles(r: dict, emisor: dict, cfg: dict) -> tuple[dict[str, str], list[st
     ec = v["patrimonio_controladora"]
     if ec is not None and e is not None and ec > e + float(cfg.get("tolerancia_controladora", 0.005)) * abs(e):
         marcar(["patrimonio_controladora"], "control_controladora")
-    for c in ("activos", "pasivos", "efectivo", "ingresos_consolidados"):
+    for c in ("activos", "pasivos", "efectivo", "ingresos_consolidados", *sorted(DEUDA)):
         if v[c] is not None and (v[c] < 0 or (c == "activos" and v[c] == 0)):
             marcar([c], "control_signo")
     if v["efectivo"] is not None and a is not None and v["efectivo"] > a:
@@ -595,6 +615,17 @@ ESQUEMA_EXTRACCION = {
 def unidad_de(moneda: str, concepto: str) -> str:
     base = "usd" if moneda == "USD" else "pesos"
     return f"{base}_por_accion" if concepto in POR_ACCION else base
+
+
+def version_de(reg: dict) -> int:
+    """Versión de la lectura con que se leyó un documento (las anteriores a la 2 no la guardaban)."""
+    for k in ("json_a", "json_final", "json_b"):
+        if reg.get(k):
+            try:
+                return int(json.loads(reg[k]).get("version_lectura") or 1)
+            except (ValueError, AttributeError):
+                return 1
+    return 1
 
 
 def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict) -> list[dict]:
@@ -822,6 +853,9 @@ class ConectorEstadosCompania(Conector):
                 contexto = (f"Emisor: {em['nombre']}\nMoneda en que reporta: {em.get('moneda', 'COP')}\n"
                             f"Corte probable según el nombre del archivo: {doc['corte'] or 'desconocido'}")
                 r = extraer_documento(pdf, contexto, agente_a, agente_b, self.cfg)
+                for j in (r.a, r.b, r.final):
+                    if isinstance(j, dict):
+                        j["version_lectura"] = VERSION_LECTURA
                 total = numero_paginas(pdf)
                 filas.append({**base, "estado": r.estado, "rondas": r.rondas, "paginas": ",".join(map(str, r.paginas)),
                               "paginas_total": total, "diferencias": "\n".join(r.diferencias), "alertas": "\n".join(r.alertas),
@@ -865,6 +899,10 @@ class ConectorEstadosCompania(Conector):
         # Se repiten los errores y lo que no llegó a la API (sin páginas reconocibles: no cuesta)
         pendientes = [d for d in docs if (d["documento_id"], d["huella_pdf"]) not in leidos
                       or leidos[(d["documento_id"], d["huella_pdf"])]["estado"] in REINTENTAR]
+        # Leídos con una versión anterior de la lectura (menos conceptos): después de los nuevos
+        pendientes += [d for d in docs if (d["documento_id"], d["huella_pdf"]) in leidos
+                       and leidos[(d["documento_id"], d["huella_pdf"])]["estado"] not in REINTENTAR
+                       and version_de(leidos[(d["documento_id"], d["huella_pdf"])]) < VERSION_LECTURA]
         nuevas = self._leer(pendientes)
         if nuevas:
             storage.upsert_por_anio("silver", TABLA_EXTRACCION, pl.DataFrame(nuevas, schema=ESQUEMA_EXTRACCION),
@@ -877,10 +915,11 @@ class ConectorEstadosCompania(Conector):
         registros = []
         for d in docs:
             reg = leidos.get((d["documento_id"], d["huella_pdf"]))
-            if reg is None or reg["estado"] == "error" or (incorporados.get(d["documento_id"]) == d["huella_pdf"] and not self.forzado):
+            marca = f"{d['huella_pdf']}:v{version_de(reg)}" if reg is not None else None
+            if reg is None or reg["estado"] == "error" or (incorporados.get(d["documento_id"]) == marca and not self.forzado):
                 continue
             registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg)
-            incorporados[d["documento_id"]] = d["huella_pdf"]
+            incorporados[d["documento_id"]] = marca
         resumen = {k: v for k, v in self.conteo.items() if v}
         if resumen:
             self.notas.append(", ".join(f"{k} {v}" for k, v in resumen.items()))

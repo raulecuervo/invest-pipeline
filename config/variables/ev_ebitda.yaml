@@ -1,0 +1,27 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. La página Saber más irá en contenido/aprendizaje/ev_ebitda.md
+id: ev_ebitda
+nombre: Valor de la empresa / EBITDA (EV/EBITDA)
+categoria: valoracion
+nivel: intermedio
+formato: veces
+direccion: -1
+tabla: fact_valoracion
+columna: ev_ebitda
+formula: (capitalización de todas las clases de acciones + deuda financiera − efectivo + interés minoritario) /
+  EBITDA consolidado de los últimos 12 meses (utilidad operacional + depreciación y amortización)
+que_es: Cuántos años de caja operativa (antes de intereses, impuestos e inversiones) cuesta comprar toda la empresa,
+  con su deuda.
+que_hace: Compara empresas con distinta deuda, porque mira a los accionistas y a los acreedores a la vez.
+para_que_sirve: Para comparar qué tan cara está una empresa frente a otras del mismo sector, sin que la deuda o los
+  impuestos distorsionen como en el P/U.
+como_leer: 'Más bajo = más barata por cada peso de EBITDA. Solo es comparable dentro de un sector (una
+  transmisora de energía vale más veces que una petrolera). No aplica a bancos ni holdings financieros. No incluye
+  arrendamientos ni los dividendos de asociadas (pesan en GEB o Grupo Argos). Sale del XBRL consolidado: hoy solo
+  hay seis emisores del sector real con estos datos.'
+relacionadas:
+- deuda_neta_ebitda
+- margen_ebitda_12m
+- p_u
+revisado: false
+version: 1
