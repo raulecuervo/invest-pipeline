@@ -22,6 +22,7 @@ import polars as pl
 import yaml
 
 from invest import storage
+from invest import sucesiones
 from invest.config import CONFIG_DIR
 
 ESQUEMA = {
@@ -70,7 +71,7 @@ def construir() -> tuple[pl.DataFrame, dict]:
     dias = int(cfg.get("ventana_precio_dias", 10))
     eventos = cfg.get("eventos") or []
     resumen = {"eventos": len(eventos), "precio_mercado": 0, "precio_referencia": 0, "sin_precio": 0}
-    crudo = storage.leer_tabla("silver", "fact_precio_sfc")
+    crudo = sucesiones.precios_sfc()
     por_especie: dict[str, list[tuple[date, float]]] = {}
     if crudo is not None and not crudo.is_empty():
         for e, grupo in negociados(crudo.select("fecha", "especie", "precio_promedio", "valor_transado")) \

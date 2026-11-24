@@ -43,6 +43,7 @@ from datetime import timedelta
 import polars as pl
 
 from invest import eventos, storage
+from invest import sucesiones
 from invest.config import convenciones, data_dir
 
 FACTORES_REDONDOS = [2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 40, 50, 100, 200, 250, 500, 1000]
@@ -107,7 +108,7 @@ def _numero(texto: str) -> float | None:
 
 def detectar() -> pl.DataFrame:
     """Saltos atípicos con su clasificación y el evento que los respalda (si lo hay)."""
-    precios = storage.leer_tabla("silver", "fact_precio_sfc")
+    precios = sucesiones.precios_sfc()
     vacio = pl.DataFrame(schema={c: pl.Utf8 for c in COLUMNAS})
     if precios is None or precios.is_empty():
         return vacio

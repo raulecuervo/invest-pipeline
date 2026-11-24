@@ -513,6 +513,53 @@ def cotejo_pdf_xbrl(pdf: pl.DataFrame, xbrl: pl.DataFrame) -> pl.DataFrame:
         .select(list(ESQUEMA_COTEJO_PDF)).cast(ESQUEMA_COTEJO_PDF).sort([*llave, "concepto"]))
 
 
+TOLERANCIA_CUIF = 0.02   # la cifra derivada del CUIF debe repetir la de los anexos (mediana) para usarse
+
+
+def desde_cuif(anexos_fund: pl.DataFrame, cuif: pl.DataFrame | None, mapeo: list[dict] | None = None) -> pl.DataFrame:
+    """Valor patrimonial y utilidad por acción de los bancos en los cortes en que el SIMEV no publica
+    anexos (los diciembres de Bogotá, Davivienda, Occidente, BBVA, Popular y AV Villas, 2016-2025).
+
+    patrimonio (300000) o utilidad acumulada del año (590000) del CUIF del mismo mes / acciones en
+    circulación del anexo 211 más cercano (a menos de 200 días). Solo para bancos que no son holding
+    (``config/bancos.yaml``) y solo si, en los cortes con anexo, la derivada repite la cifra del anexo
+    (mediana dentro de ``TOLERANCIA_CUIF``): con Banco de Bogotá sep-2025 da 47.021,41, igual al anexo.
+    Disponible 50 días después del corte, como el CUIF."""
+    vacio = pl.DataFrame(schema=ESQUEMA)
+    if cuif is None or cuif.is_empty() or anexos_fund.is_empty():
+        return vacio
+    if mapeo is None:
+        from invest.config import cargar_yaml
+        mapeo = cargar_yaml("bancos.yaml").get("mapeo") or []
+    bancos = {m["emisor_id"]: m["entidades"][0] for m in mapeo
+              if m.get("emisor_id") and not m.get("holding") and len(m.get("entidades") or []) == 1}
+    if not bancos:
+        return vacio
+    acciones = (anexos_fund.filter(pl.col("concepto") == "acciones_circulacion")
+                .select("emisor_id", pl.col("fecha_corte").alias("_fa"), pl.col("valor").alias("_acc")))
+    filas = []
+    for concepto, cuenta in (("valor_patrimonial_accion", "300000"), ("utilidad_accion", "590000")):
+        base = (cuif.filter(pl.col("cuenta") == cuenta, pl.col("codigo_entidad").is_in(list(bancos.values())),
+                            pl.col("fecha_corte").dt.month().is_in([3, 6, 9, 12]))
+                .with_columns(pl.col("codigo_entidad").replace_strict({v: k for k, v in bancos.items()}, default=None)
+                              .alias("emisor_id"), pl.col("fecha_corte").dt.month_end())
+                .select("emisor_id", "fecha_corte", "valor"))
+        d = (base.join(acciones, on="emisor_id")
+             .with_columns((pl.col("_fa") - pl.col("fecha_corte")).dt.total_days().abs().alias("_dist"))
+             .filter(pl.col("_dist") <= 200).sort("_dist").unique(["emisor_id", "fecha_corte"], keep="first")
+             .with_columns((pl.col("valor") / pl.col("_acc")).alias("valor")))
+        propio = anexos_fund.filter(pl.col("concepto") == concepto).select("emisor_id", "fecha_corte", pl.col("valor").alias("_anexo"))
+        calib = (d.join(propio, on=["emisor_id", "fecha_corte"]).filter(pl.col("valor") != 0)
+                 .group_by("emisor_id").agg((pl.col("_anexo") / pl.col("valor")).median().alias("_r"), pl.len().alias("_n")))
+        buenos = calib.filter(((pl.col("_r") - 1).abs() <= TOLERANCIA_CUIF) & (pl.col("_n") >= 2)).get_column("emisor_id").to_list()
+        faltan = d.filter(pl.col("emisor_id").is_in(buenos)).join(propio, on=["emisor_id", "fecha_corte"], how="anti")
+        filas.append(faltan.select(
+            "emisor_id", "fecha_corte", (pl.col("fecha_corte") + timedelta(days=50)).alias("fecha_disponible"),
+            pl.lit(concepto).alias("concepto"), "valor", pl.lit("pesos_por_accion").alias("unidad"),
+            pl.lit("separado").alias("base"), pl.lit("cuif_derivado").alias("fuente")))
+    return pl.concat(filas).select(list(ESQUEMA)).cast(ESQUEMA) if filas else vacio
+
+
 def construir() -> tuple[pl.DataFrame | None, dict]:
     anexos = storage.leer_tabla("silver", "fact_anexo_sfc")
     xbrl = storage.leer_tabla("silver", "fact_xbrl_sfc")
@@ -520,7 +567,9 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
     ee = storage.leer_tabla("silver", "fact_ee_compania")
     del_xbrl = desde_xbrl(xbrl)
     del_pdf = desde_pdf_compania(ee)
-    df = pl.concat([desde_anexos(anexos), del_xbrl, desde_supersociedades(ss),
+    de_anexos = desde_anexos(anexos)
+    del_cuif = desde_cuif(de_anexos, storage.leer_tabla("silver", "fact_cuif_mensual"))
+    df = pl.concat([de_anexos, del_cuif, del_xbrl, desde_supersociedades(ss),
                     con_prioridad_xbrl(del_pdf, del_xbrl)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
     if df.is_empty():
         return None, {}
@@ -534,6 +583,7 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
     return df, {
         "cotejo_ok": c.filter(pl.col("estado") == "ok").height,
         "cotejo_revisar": c.filter(pl.col("estado") == "revisar").height,
+        "bancos_desde_cuif": del_cuif.height,
         "con_respaldo_anual": df.filter(pl.col("base") == "separado_anual").get_column("emisor_id").n_unique(),
         "emisores": df.get_column("emisor_id").n_unique(),
         "cortes": df.get_column("fecha_corte").n_unique(),

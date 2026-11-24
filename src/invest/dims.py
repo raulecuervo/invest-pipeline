@@ -11,7 +11,7 @@ from datetime import date
 import polars as pl
 
 from invest import (distribuciones, dividendos, dividendos_web, eventos, fundamentales, liquidez, macro, mercado,
-                    retornos, splits, storage)
+                    retornos, splits, storage, sucesiones)
 from invest.calendario import es_habil, limites
 from invest.config import catalogo_fuentes, dimensiones
 
@@ -86,7 +86,7 @@ def dim_activo() -> pl.DataFrame | None:
         base = base.join(ultima_ficha, on="especie", how="left")
     else:
         base = base.with_columns(pl.lit(None, pl.Utf8).alias("sector_sfc"), pl.lit(None, pl.Utf8).alias("iba_categoria"))
-    precios = storage.leer_tabla("silver", "fact_precio_sfc")
+    precios = sucesiones.precios_sfc()
     if precios is not None and not precios.is_empty():
         rango = precios.group_by("especie").agg(
             pl.col("fecha").min().alias("primera_negociacion"),

@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import polars as pl
 
-from invest import biff2, storage
+from invest import biff2, storage, sucesiones
 from invest.ingest import http
 from invest.ingest.base import Conector
 
@@ -323,7 +323,24 @@ class ConectorSFCPrecios(Conector):
         operaciones = {} if self.forzado else ultima_operacion_segun_ficha()
         registros: list[dict] = []
         omitidas = sin_operacion = sin_cambio = faltantes = 0
-        for especie in especies_vigentes():
+        # Antecesoras de una sucesión (config/sucesiones.yaml): la SFC ya no las lista; se bajan una vez
+        antecesoras = [e for e in sucesiones.especies_antecesoras() if e not in ultimas or self.forzado]
+        for especie in especies_vigentes() + antecesoras:
+            if especie in antecesoras:
+                for sufijo, obligatorio in (("ant", True), ("2025", False)):
+                    try:
+                        contenido = self.bajar(BASE + f"{especie}_{sufijo}.xls", reintentos=2)
+                    except http.AccesoDenegado:
+                        raise
+                    except http.ErrorHTTP:
+                        faltantes += 1 if obligatorio else 0
+                        continue
+                    if contenido:
+                        self.crudos[f"{especie}_{sufijo}.xls"] = contenido
+                        registros += [{"especie": especie, "codigo_titulo": f.get("cd_titulo"), "fecha": fecha_dmy(f.get("fc_oper")),
+                                       "precio_promedio": numero(f.get("pr_ponderado")), "valor_transado": numero(f.get("vr_transado"))}
+                                      for f in biff2.leer_tabla(contenido)]
+                continue
             if not historica and _inactiva(ultimas.get(especie), hoy):
                 omitidas += 1
                 continue

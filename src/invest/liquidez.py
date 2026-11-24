@@ -17,11 +17,12 @@ from __future__ import annotations
 import polars as pl
 
 from invest import storage
+from invest import sucesiones
 from invest.config import convenciones
 
 
 def construir() -> tuple[pl.DataFrame | None, dict]:
-    precios = storage.leer_tabla("silver", "fact_precio_sfc")
+    precios = sucesiones.precios_sfc()
     if precios is None or precios.is_empty():
         return None, {}
     cfg = convenciones()["liquidez"]

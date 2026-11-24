@@ -23,6 +23,8 @@
 from __future__ import annotations
 
 import argparse
+
+import polars as pl
 import sys
 from datetime import date
 
@@ -103,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("--abierta", type=int, default=120, help="segundos que la ventana queda abierta por emisor")
     pv.add_argument("--sin-procesar", action="store_true", help="solo guarda los PDF; no corre estados_compania")
 
+    sub.add_parser("cobertura", help="Qué documentos faltan por emisor y por dónde conseguirlos (revision/cobertura_documentos.csv)")
+
     pins = sub.add_parser("inspeccionar", help="Prueba en vivo la estructura de la SFC (no guarda)")
     pins.add_argument("especie", nargs="?", default="coc04paao008")
 
@@ -130,6 +134,16 @@ def main(argv: list[str] | None = None) -> int:
     if a.comando == "dims":
         for nombre, ruta in dims.construir().items():
             print(f"  {nombre}: {ruta}")
+        return 0
+
+    if a.comando == "cobertura":
+        from invest import cobertura
+
+        t, ruta = cobertura.escribir()
+        con_vacios = t.filter(pl.col("diagnostico") != "")
+        print(f"{t.height} emisores; {con_vacios.height} con algún vacío. Detalle: {ruta}")
+        for r in con_vacios.iter_rows(named=True):
+            print(f"  {r['nombre'][:28]:28} {r['diagnostico']}")
         return 0
 
     if a.comando == "estados-ventana":

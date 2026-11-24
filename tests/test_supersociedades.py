@@ -183,3 +183,24 @@ def test_ebitda_deuda_neta_y_ev(carpeta_datos):
     r = metricas.valor_empresa(v, m.with_columns(pl.col("fecha_corte").alias("fecha_disponible")))
     assert r.get_column("ev").to_list() == [98.0, 98.0]  # 60 de capitalización (dos clases) + 28 + 10
     assert abs(r.get_column("ev_ebitda").to_list()[0] - 98.0 / 11.35) < 1e-9
+
+
+def test_bancos_desde_el_cuif_en_los_diciembres_sin_anexo():
+    def f(corte, concepto, valor, emisor="CO-COB01"):
+        return {"emisor_id": emisor, "fecha_corte": corte, "fecha_disponible": corte, "concepto": concepto, "valor": valor,
+                "unidad": "pesos_por_accion", "base": "separado", "fuente": "anexo_211"}
+    anexos = pl.DataFrame([f(date(2025, 6, 30), "acciones_circulacion", 100.0), f(date(2025, 9, 30), "acciones_circulacion", 100.0),
+                           f(date(2025, 6, 30), "valor_patrimonial_accion", 50.0), f(date(2025, 9, 30), "valor_patrimonial_accion", 52.0),
+                           f(date(2025, 6, 30), "utilidad_accion", 9.0), f(date(2025, 9, 30), "utilidad_accion", 3.0)],
+                          schema=fundamentales.ESQUEMA)
+    cuif = pl.DataFrame({"fecha_corte": [date(2025, 6, 30), date(2025, 9, 30), date(2025, 12, 31)] * 2,
+                         "codigo_entidad": ["1"] * 6, "cuenta": ["300000"] * 3 + ["590000"] * 3,
+                         "valor": [5000.0, 5200.0, 5500.0, 400.0, 600.0, 800.0]})
+    mapeo = [{"emisor_id": "CO-COB01", "entidades": ["1"], "holding": False},
+             {"emisor_id": "CO-COT29", "entidades": ["1"], "holding": True}]
+    r = fundamentales.desde_cuif(anexos, cuif, mapeo)
+    # El valor patrimonial derivado repite el del anexo (50 y 52): se usa en dic-2025. La utilidad derivada
+    # (4 y 6) no repite la del anexo (9 y 3): no se usa
+    assert r.select("emisor_id", "fecha_corte", "concepto", "valor", "fuente").rows() == [
+        ("CO-COB01", date(2025, 12, 31), "valor_patrimonial_accion", 55.0, "cuif_derivado")]
+    assert r.get_column("fecha_disponible").to_list() == [date(2026, 2, 19)]

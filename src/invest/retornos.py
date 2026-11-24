@@ -42,6 +42,7 @@ from datetime import date
 import polars as pl
 
 from invest import storage
+from invest import sucesiones
 from invest.distribuciones import negociados, por_especie_y_fecha
 from invest.calendario import dia_habil_siguiente_o_mismo, restar_dias_habiles
 from invest.config import convenciones
@@ -164,7 +165,7 @@ def _trm() -> dict[date, float]:
 def construir() -> tuple[pl.DataFrame | None, dict]:
     """gold/fact_retorno_diario, por año y solo lo que cambia. Devuelve (tabla, resumen)."""
     resumen: dict = {}
-    precios = storage.leer_tabla("silver", "fact_precio_sfc")
+    precios = sucesiones.precios_sfc()
     if precios is None or precios.is_empty():
         return None, resumen
     precios = precios.select("fecha", "especie", "precio_promedio", "valor_transado")

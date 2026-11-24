@@ -1,0 +1,35 @@
+# Sucesiones: una acción que reemplaza a otra 1 a 1 (o con otra relación) sin que el accionista venda.
+#
+# El caso: Grupo Cibest (mayo de 2025). Los accionistas de Bancolombia recibieron el mismo número de
+# acciones de Grupo Cibest, ordinarias por ordinarias y preferenciales por preferenciales; Deceval
+# canceló las de Bancolombia el 16-may-2025 y CIBEST y PFCIBEST negocian desde el 19-may-2025. La SFC
+# retiró a Bancolombia de su índice de especies, así que su historia (1998-2025) no llega por el
+# conector de precios: se pega aquí al comienzo de la serie de la sucesora.
+#
+# Campos:
+#   especie            la sucesora (código SFC)
+#   antecesora         nemotecnico, nombre y especie_sfc (código de la SFC si se conoce; con él, el
+#                      conector de precios baja una vez sus archivos de años anteriores)
+#   ultimo_dia         última rueda de la antecesora
+#   acciones_por_accion  acciones de la sucesora por cada acción de la antecesora (precio antecesora /
+#                      relación = precio comparable de la sucesora)
+#   respaldo_csv       si la SFC ya no tiene los archivos: invest-data/fuentes_web/precios/<archivo>
+#                      con columnas fecha (AAAA-MM-DD), precio y, si se tiene, valor_transado
+#   fuente             de dónde sale la relación
+#
+# Revisado por Claude el 24-nov-2026 con La República (13-may-2025) y Valora Analitik (19-may-2025).
+
+sucesiones:
+  - especie: cotk7paao003          # CIBEST
+    antecesora: {nemotecnico: BCOLOMBIA, nombre: "AO BANCOLOMBIA S.A.", especie_sfc: null}
+    ultimo_dia: 2025-05-16
+    acciones_por_accion: 1
+    respaldo_csv: BCOLOMBIA.csv
+    fuente: "La República 13-may-2025 y Valora Analitik 19-may-2025: mismo número de acciones, ordinarias por ordinarias"
+
+  - especie: cotk7paad014          # PFCIBEST
+    antecesora: {nemotecnico: PFBCOLOM, nombre: "ADP BANCOLOMBIA S.A.", especie_sfc: null}
+    ultimo_dia: 2025-05-16
+    acciones_por_accion: 1
+    respaldo_csv: PFBCOLOM.csv
+    fuente: "La República 13-may-2025 y Valora Analitik 19-may-2025: preferenciales por preferenciales; el ADR CIB sigue siendo 4 preferenciales"

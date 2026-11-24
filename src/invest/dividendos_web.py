@@ -39,6 +39,7 @@ import polars as pl
 import yaml
 
 from invest import storage
+from invest import sucesiones
 from invest.calendario import dia_habil_siguiente_o_mismo, es_habil
 from invest.config import CONFIG_DIR, data_dir
 
@@ -240,7 +241,7 @@ def detectar() -> tuple[pl.DataFrame, dict]:
     nombres = {} if activos is None else dict(activos.select("especie", "nombre").iter_rows())
     emisores = {} if activos is None else dict(activos.select("especie", "emisor_id").iter_rows())
     splits_tabla = storage.leer_tabla("gold", "fact_split")
-    precios = storage.leer_tabla("silver", "fact_precio_sfc")
+    precios = sucesiones.precios_sfc()
     eventos = storage.leer_tabla("gold", "fact_evento_corporativo")
     resumen = {"activos": 0, "pagos": 0, "duplicados": 0, "verificado": 0, "revisar": 0}
     salida = []
