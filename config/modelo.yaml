@@ -355,7 +355,7 @@ tablas:
   fact_fundamental:
     capa: gold
     ruta: fact_fundamental
-    descripcion: "Cifras de los estados financieros (anexos separados y XBRL consolidado del SIMEV; separados anuales de Supersociedades como respaldo) con fecha desde la que se conocían"
+    descripcion: "Cifras de los estados financieros (anexos separados y XBRL consolidado del SIMEV; consolidados de los PDF de cada compañía donde no hay XBRL, fuente pdf_compania; separados anuales de Supersociedades como respaldo) con fecha desde la que se conocían"
     grano: "emisor × corte × base × concepto × fuente"
     claves: [emisor_id, fecha_corte, base, concepto, fuente]
     pagina: "Ficha"
@@ -384,6 +384,67 @@ tablas:
       diferencia: Float64
       estado: String
       nota: String
+  fact_cotejo_pdf_compania:
+    capa: gold
+    ruta: fact_cotejo_pdf_compania
+    descripcion: "Control del lector de PDF: cifras consolidadas de los estados publicados por la compañía contra las del XBRL, donde existen las dos (p. ej. Ecopetrol)"
+    grano: "emisor × corte × concepto"
+    claves: [emisor_id, fecha_corte, concepto]
+    pagina: "Salud de datos"
+    columnas:
+      emisor_id: String
+      fecha_corte: Date
+      concepto: String
+      pdf_compania: Float64
+      xbrl: Float64
+      diferencia: Float64
+      unidad: String
+      estado: String
+  fact_ee_compania:
+    capa: silver
+    ruta: fact_ee_compania
+    descripcion: "Estados consolidados publicados por cada compañía (PDF) leídos con dos agentes: solo lo que tuvo consenso y pasó los controles; montos en pesos (usd para Mineros)"
+    grano: "emisor × corte × concepto"
+    claves: [emisor_id, fecha_corte, concepto]
+    pagina: "Ficha"
+    columnas:
+      emisor_id: String
+      fecha_corte: Date
+      concepto: String
+      valor: Float64
+      unidad: String
+      valor_documento: Float64
+      unidades_documento: String
+      archivo: String
+      pagina: Int64
+      fecha_publicacion: Date
+      origen_fecha_publicacion: String
+      fecha_descubierto: Date
+      estado: String
+      documento_id: String
+      fuente_id: String
+  fact_ee_compania_extraccion:
+    capa: silver
+    ruta: fact_ee_compania_extraccion
+    descripcion: "Lecturas de los dos agentes por documento (estados de la compañía): páginas enviadas, estado, diferencias y respuestas completas"
+    grano: "documento"
+    claves: [documento_id]
+    pagina: "consultas avanzadas"
+    columnas:
+      documento_id: String
+      emisor_id: String
+      fecha_referencia: Date
+      archivos: String
+      huella_pdf: String
+      paginas: String
+      paginas_total: Int64
+      estado: String
+      rondas: Int64
+      diferencias: String
+      json_a: String
+      json_b: String
+      modelo_a: String
+      modelo_b: String
   fact_ee_anual_supersociedades:
     capa: silver
     ruta: fact_ee_anual_supersociedades

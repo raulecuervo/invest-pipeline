@@ -15,10 +15,21 @@ Une dos fuentes del SIMEV (``ingest/sfc_niif.py``) en ``gold/fact_fundamental``:
   separado_anual``, ``fuente = supersociedades``), con precisión de ± 5.000 millones y
   ``fecha_disponible`` = 30 de junio del año siguiente. Cubre a los emisores sin XBRL.
 
+- **Estados publicados por la compañía** (``silver/fact_ee_compania``, ``ingest/estados_compania.py``):
+  los mismos conceptos consolidados que el XBRL, leídos de los PDF de cada compañía con dos agentes
+  (``base = consolidado``, ``fuente = pdf_compania``). Si para un emisor y corte hay XBRL, manda el
+  XBRL y no entra ninguna cifra del PDF de ese corte (las métricas toman un valor por corte). Los
+  emisores ``solo_cotejo`` de ``config/estados_compania.yaml`` (Ecopetrol) no entran: sirven para
+  medir el lector. ``fecha_disponible`` = fecha de publicación detectada (``Last-Modified`` o la
+  carpeta de carga); si no se conoce, corte + ``dias_disponible_pdf_intermedio`` (o
+  ``dias_disponible_pdf_cierre`` en diciembre), o la fecha en que se descubrió el PDF si fue antes.
+
 ``cotejo()`` compara las fuentes entre sí (``gold/fact_cotejo_fundamental``): el patrimonio que dan
 los anexos (valor patrimonial por acción × acciones en circulación) contra el de Supersociedades, y
 lo mismo con la utilidad (utilidad por acción × acciones; aproximada si las acciones cambiaron en el
-año, porque la utilidad por acción usa el promedio ponderado).
+año, porque la utilidad por acción usa el promedio ponderado). ``cotejo_pdf_xbrl()`` compara las
+cifras de los PDF de la compañía con las del XBRL donde existen las dos
+(``gold/fact_cotejo_pdf_compania``): así se valida el lector con Ecopetrol, ISA u otros con XBRL.
 
 Unidades: todo en pesos (el XBRL viene en miles y se multiplica por 1.000), salvo Canacol, que
 reporta en dólares (``unidad`` = ``usd``). Las cifras por acción quedan en pesos por acción.
@@ -292,18 +303,89 @@ def cotejo(fund: pl.DataFrame) -> pl.DataFrame:
     return pl.concat(partes).cast(esquema).sort(["emisor_id", "fecha_corte", "concepto"])
 
 
+def desde_pdf_compania(ee: pl.DataFrame | None) -> pl.DataFrame:
+    """Cifras con consenso de los estados publicados por la compañía (todas, también las de control)."""
+    if ee is None or ee.is_empty():
+        return pl.DataFrame(schema=ESQUEMA)
+    cfg = convenciones().get("fundamentales", {})
+    intermedio = int(cfg.get("dias_disponible_pdf_intermedio", 60))
+    cierre = int(cfg.get("dias_disponible_pdf_cierre", 90))
+    plazo = (pl.when(pl.col("fecha_corte").dt.month() == 12).then(pl.col("fecha_corte") + timedelta(days=cierre))
+             .otherwise(pl.col("fecha_corte") + timedelta(days=intermedio)))
+    descubierto = pl.col("fecha_descubierto") if "fecha_descubierto" in ee.columns else pl.lit(None, pl.Date)
+    detectada = pl.when(pl.col("fecha_publicacion") >= pl.col("fecha_corte")).then(pl.col("fecha_publicacion"))
+    # Sin fecha detectada: el plazo conservador, salvo que el PDF ya se tuviera antes (se publicó a más tardar ese día)
+    respaldo = pl.when(descubierto.is_not_null() & (descubierto < plazo) & (descubierto >= pl.col("fecha_corte"))) \
+        .then(descubierto).otherwise(plazo)
+    return (ee.filter((pl.col("estado") == "consenso") & pl.col("valor").is_not_null()
+                      & pl.col("concepto").is_in(list(XBRL.values())))
+            .with_columns(pl.coalesce(detectada, respaldo).alias("fecha_disponible"),
+                          pl.lit("consolidado").alias("base"), pl.lit("pdf_compania").alias("fuente"))
+            .unique(subset=["emisor_id", "fecha_corte", "concepto"], keep="last")
+            .select(list(ESQUEMA)).cast(ESQUEMA))
+
+
+def con_prioridad_xbrl(pdf: pl.DataFrame, xbrl: pl.DataFrame) -> pl.DataFrame:
+    """Lo del PDF que entra a fact_fundamental: solo los emisor × corte sin XBRL y sin los emisores de
+    control (``solo_cotejo``)."""
+    if pdf.is_empty():
+        return pdf
+    from invest.ingest.estados_compania import solo_cotejo
+
+    con_xbrl = xbrl.select("emisor_id", "fecha_corte").unique()
+    return (pdf.filter(~pl.col("emisor_id").is_in(list(solo_cotejo())))
+            .join(con_xbrl, on=["emisor_id", "fecha_corte"], how="anti"))
+
+
+# Montos: los PDF suelen venir en millones o miles de millones y el XBRL en miles, así que el redondeo
+# aleja hasta 0,5 de la unidad del PDF; 0,2 % cubre eso con margen. Por acción: 0,05 o 0,2 %
+TOLERANCIA_COTEJO_PDF = {"relativa": 0.002, "por_accion": 0.05}
+ESQUEMA_COTEJO_PDF = {"emisor_id": pl.Utf8, "fecha_corte": pl.Date, "concepto": pl.Utf8, "pdf_compania": pl.Float64,
+                      "xbrl": pl.Float64, "diferencia": pl.Float64, "unidad": pl.Utf8, "estado": pl.Utf8}
+
+
+def cotejo_pdf_xbrl(pdf: pl.DataFrame, xbrl: pl.DataFrame) -> pl.DataFrame:
+    """PDF de la compañía contra XBRL, por emisor × corte con las dos fuentes. ``estado``: ``ok``,
+    ``revisar`` (fuera de la tolerancia) o ``sin_par`` (el concepto está en una sola)."""
+    if pdf.is_empty() or xbrl.is_empty():
+        return pl.DataFrame(schema=ESQUEMA_COTEJO_PDF)
+    llave = ["emisor_id", "fecha_corte"]
+    ambos = pdf.select(llave).unique().join(xbrl.select(llave).unique(), on=llave)
+    p = pdf.join(ambos, on=llave).select(*llave, "concepto", pl.col("valor").alias("pdf_compania"),
+                                          pl.col("unidad").alias("_up"))
+    x = xbrl.join(ambos, on=llave).select(*llave, "concepto", pl.col("valor").alias("xbrl"), pl.col("unidad").alias("_ux"))
+    t = p.join(x, on=[*llave, "concepto"], how="full", coalesce=True)
+    por_accion = pl.coalesce("_up", "_ux").str.ends_with("_por_accion")
+    tol = pl.when(por_accion).then(pl.max_horizontal(pl.lit(TOLERANCIA_COTEJO_PDF["por_accion"]),
+                                                     TOLERANCIA_COTEJO_PDF["relativa"] * pl.col("xbrl").abs())) \
+        .otherwise(TOLERANCIA_COTEJO_PDF["relativa"] * pl.col("xbrl").abs())
+    return (t.with_columns(
+        ((pl.col("pdf_compania") - pl.col("xbrl")) / pl.col("xbrl").abs()).alias("diferencia"),
+        pl.coalesce("_up", "_ux").alias("unidad"),
+        pl.when(pl.col("pdf_compania").is_null() | pl.col("xbrl").is_null()).then(pl.lit("sin_par"))
+        .when((pl.col("pdf_compania") - pl.col("xbrl")).abs() <= tol).then(pl.lit("ok"))
+        .otherwise(pl.lit("revisar")).alias("estado"))
+        .select(list(ESQUEMA_COTEJO_PDF)).cast(ESQUEMA_COTEJO_PDF).sort([*llave, "concepto"]))
+
+
 def construir() -> tuple[pl.DataFrame | None, dict]:
     anexos = storage.leer_tabla("silver", "fact_anexo_sfc")
     xbrl = storage.leer_tabla("silver", "fact_xbrl_sfc")
     ss = storage.leer_tabla("silver", "fact_ee_anual_supersociedades")
-    df = pl.concat([desde_anexos(anexos), desde_xbrl(xbrl), desde_supersociedades(ss)]).sort(
-        ["emisor_id", "fecha_corte", "base", "concepto"])
+    ee = storage.leer_tabla("silver", "fact_ee_compania")
+    del_xbrl = desde_xbrl(xbrl)
+    del_pdf = desde_pdf_compania(ee)
+    df = pl.concat([desde_anexos(anexos), del_xbrl, desde_supersociedades(ss),
+                    con_prioridad_xbrl(del_pdf, del_xbrl)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
     if df.is_empty():
         return None, {}
     storage.escribir_completa("gold", "fact_fundamental", df)
     c = cotejo(df)
     if not c.is_empty():
         storage.escribir_completa("gold", "fact_cotejo_fundamental", c)
+    # Se escribe aunque esté vacía: el contrato del modelo espera la tabla
+    c_pdf = cotejo_pdf_xbrl(del_pdf, del_xbrl)
+    storage.escribir_completa("gold", "fact_cotejo_pdf_compania", c_pdf)
     return df, {
         "cotejo_ok": c.filter(pl.col("estado") == "ok").height,
         "cotejo_revisar": c.filter(pl.col("estado") == "revisar").height,
@@ -313,5 +395,8 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
         "con_valor_patrimonial": df.filter(pl.col("concepto") == "valor_patrimonial_accion")
         .get_column("emisor_id").n_unique(),
         "con_consolidado": df.filter(pl.col("base") == "consolidado").get_column("emisor_id").n_unique(),
+        "con_pdf_compania": df.filter(pl.col("fuente") == "pdf_compania").get_column("emisor_id").n_unique(),
+        "cotejo_pdf_ok": c_pdf.filter(pl.col("estado") == "ok").height,
+        "cotejo_pdf_revisar": c_pdf.filter(pl.col("estado") == "revisar").height,
         "filas": df.height,
     }

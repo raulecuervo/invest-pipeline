@@ -25,6 +25,7 @@ Proyectos/
 | 1 · Liquidez | Monto medio y fracción de ruedas con negocios en 20 y 60 días, marca de acción líquida (`gold/fact_liquidez_diaria`) | Hecho |
 | 1 · Macro y mercado | IPC del DANE (desde 2003) y FRED (Tesoro de EE. UU., inflación implícita, tasa larga de Colombia, VIX, diferencial emergente) en `silver/fact_serie_macro` (una carpeta por fuente) | Hecho |
 | 1 · Fundamentales | CUIF mensual de 8 bancos (`silver/fact_cuif_mensual`) y XBRL de la SEC de Bancolombia/Cibest, Ecopetrol y Aval (`silver/fact_xbrl_sec`) | Hecho (SEC requiere `SEC_USER_AGENT`) |
+| 1 · Estados de la compañía (PDF) | Respaldo consolidado de los emisores sin XBRL: PDF de los sitios de inversionistas leídos con dos agentes y consenso (`silver/fact_ee_compania`), con controles y cotejo contra el XBRL (`gold/fact_cotejo_pdf_compania`) | Hecho en código (24-nov-2026; requiere `ANTHROPIC_API_KEY`; Cementos Argos, Celsia y Terpel con PDF a mano) |
 | 1 · Bolsa de Colombia y BanRep | Cierre, máximo y mínimo diarios de la BVC (`fact_precio_bvc`), MSCI COLCAP y MSCI NUAM USD, tasa de política monetaria e IBR en `fact_serie_macro`; con Playwright en el PC | Hecho (BanRep automático; BVC de lectura manual, primera lectura 23-nov-2026) |
 | 1 · Factores y validación | Factores mensuales con validación estadística; dos validados (momentum 12-1 y rendimiento por dividendo) | Hecho |
 | 1 · Matriz de factores | Puntaje por acción con los factores validados, ficha mensual y tablero local en HTML (`invest ficha`) | Hecho (24-nov-2026) |
@@ -99,6 +100,7 @@ Después de la primera carga, ninguna corrida vuelve a bajar lo que ya tiene:
 | Ficha y precios SFC | Si la SFC no publicó un reporte nuevo, no se pide nada. Si lo publicó: fichas con descarga condicional y el .xls de precios solo de las acciones cuya ficha muestra una operación posterior a la última guardada |
 | Información relevante | Consulta solo desde la última fecha guardada menos 3 días; los PDF ya guardados no se vuelven a bajar |
 | Dividendos (dos agentes) | Solo los PDF nuevos o que cambiaron; lo ya procesado no se vuelve a enviar |
+| Estados de la compañía | Páginas índice con descarga condicional; un PDF ya guardado no se vuelve a pedir; un 404 de una plantilla se reintenta a los 7 días; solo se envía a la API un documento nuevo o que cambió |
 
 La memoria de cada fuente (validadores HTTP y última fecha de reporte) está en `meta/estado_fuentes/` y solo se actualiza si la corrida termina sin error. `--desde` fuerza la descarga completa de ese rango (por ejemplo, una recarga mensual para captar correcciones de la SFC).
 
@@ -199,6 +201,7 @@ Sin `ANTHROPIC_API_KEY` el paso se omite y los PDF quedan pendientes. Los regist
 | `fred` | `ingest/fred.py` | `fact_serie_macro` (`fred_<id>`) | CSV público sin clave; series en el catálogo. La serie del IPC de Colombia en FRED se cortó en 2023 |
 | `cuif_datos_gov` | `ingest/cuif.py` | `fact_cuif_mensual` | Primer nivel de cuentas y las `cuentas_extra` de la plantilla de bancos, moneda total, 8 bancos inscritos; control activo = pasivo + patrimonio. La API tarda unos 40 s por consulta |
 | `sec_edgar` | `ingest/sec_edgar.py` | `fact_xbrl_sec` | `companyfacts` de la SEC (NIIF, en pesos): todos los conceptos `ifrs-full` con formulario, radicación y fecha de presentación (para evitar sesgo de anticipación). Requiere `SEC_USER_AGENT` = "Nombre correo@dominio" |
+| `estados_compania` | `ingest/estados_compania.py` | `fact_ee_compania` | Estados consolidados de los PDF de cada compañía con dos agentes (ver abajo). Corre en el PC; requiere `ANTHROPIC_API_KEY` |
 | `supersociedades_10000` | `ingest/supersociedades.py` | `fact_ee_anual_supersociedades` | "10.000 empresas más grandes del país" (datos.gov.co, `6cat-2gcs`): ingresos, utilidad, activos, pasivos y patrimonio **separados** de cada cierre anual desde 2021, solo para los NIT de `config/emisores_rnve.yaml`. Billones con dos decimales (± 5.000 millones); los bancos no están. Respaldo y control de los anexos (ver abajo) |
 | `banrep_tasas` | `ingest/banrep.py` | `fact_serie_macro` (`banrep_<id>`) | Páginas públicas de SUAMECA leídas con Playwright: se guardan las respuestas que la propia página recibe (`consultaMenuXId` y `consultaInformacionSerie`). TPM e IBR en todos sus plazos |
 | `bvc_indices` | `ingest/bvc.py` | `fact_serie_macro` (`msci_colcap`, `msci_nuam_usd`) | Valor de hoy y de la sesión anterior, leídos de la página renderizada de la BVC |
@@ -229,7 +232,41 @@ El SIMEV publica XBRL (estados consolidados completos) de solo 10 de los 36 emis
 
 Cotejo de los consolidados del XBRL contra los estados publicados por las compañías (24-nov-2026, 31 cifras de activos, patrimonio y utilidad de la controladora 2024–2025): Ecopetrol, ISA, Grupo Sura, GEB, Grupo Bolívar y ETB coinciden exactas o por redondeo (GEB 2024 activos +0,16 %: el comparativo del informe 2025 parece reclasificado); las cifras son las contables, no las proforma que comunican algunas compañías (Grupo Sura). Error encontrado y corregido: BAC Holding transmite el XBRL con los montos en dólares sin escalar y se multiplicaban por 1.000 (ahora `xbrl_montos_en_unidades: true` en `config/emisores_rnve.yaml`), y un corte suyo había quedado marcado en pesos. La utilidad separada calculada como utilidad por acción × acciones al cierre falla cuando cambian las acciones en el año (Grupo Argos 2025: −9,9 % frente a lo publicado); por eso la utilidad directa de Supersociedades es la de referencia.
 
-Fuente de respaldo pendiente: los estados consolidados que cada compañía publica en su sitio de inversionistas (PDF), leídos con los dos agentes como los dividendos. Cubrirían los consolidados trimestrales de los 26 emisores sin XBRL; requieren una URL por compañía y tienen costo por documento.
+### Estados consolidados publicados por la compañía (`estados_compania`)
+
+Respaldo de los consolidados trimestrales y anuales de los emisores sin XBRL, empezando por los más líquidos. `src/invest/ingest/estados_compania.py` (fuente `estados_compania`, `ejecuta_en: pc`) lee `config/estados_compania.yaml`, donde está por emisor la página índice, los patrones o plantillas de URL, la moneda, las unidades esperadas y las notas de lo verificado.
+
+1. **Descubre** los PDF: enlaces de las páginas índice (y las direcciones `.pdf` que vienen dentro del código de la página), plantillas de URL por corte y lo que se ponga a mano en `invest-data/fuentes_compania/<emisor_id>/`. Deja uno por corte (el de más prioridad; Ecopetrol une balance y resultados, que vienen en dos PDF).
+2. **Baja solo lo nuevo** a `invest-data/anexos/companias/<emisor_id>/` (repositorio privado; `redistribuible: false`). Si un sitio responde 401/403 o con un desafío contra robots, no se esquiva: ese emisor se detiene, se anota en `meta/estado_fuentes/estados_compania.json` y no se vuelve a pedir en 7 días.
+3. **Ubica las páginas** del estado de situación financiera y del de resultados (consolidados si el PDF trae también los separados) y, si cabe, del de cambios en el patrimonio; envía solo esas (máximo 8).
+4. **Dos agentes con consenso**, como los dividendos (mismo cliente de la API, `dividendos.lectura_cruzada`): cada uno registra corte, si es consolidado, moneda, unidades del documento, meses acumulados de los resultados y los nueve conceptos (activos, pasivos, patrimonio total y de la controladora, efectivo, ingresos, utilidad total y de la controladora, utilidad básica por acción) con página y rótulo. Cada cifra se busca en el texto de las páginas enviadas; si no aparece (calculada o inventada), cuenta como diferencia. Hasta 2 rondas de revisión cruzada.
+5. **Controles**: activos = pasivos + patrimonio total (± 1 %), patrimonio de la controladora ≤ total, signos (activos, ingresos y efectivo no negativos, efectivo ≤ activos, utilidad de la controladora y por acción con el mismo signo), moneda esperada, corte de fin de trimestre y resultados acumulados del año. Unidades distintas de las esperadas solo dan un aviso (Grupo Argos publicó mar-2026 en miles y dic-2025 en millones).
+6. **Silver** `fact_ee_compania`: valor en pesos (`usd` para Mineros; por acción en `pesos_por_accion` / `usd_por_accion`), valor y unidad del documento, archivo, página del PDF original, fecha de publicación detectada (`Last-Modified` o fin del mes de la carpeta de carga) y estado. Lo que no tuvo consenso o falla un control va a `cuarentena/fact_ee_compania/` con su motivo (`sin_consenso`, `control_balance`, `control_controladora`, `control_signo`, `resultados_no_acumulados`, `moneda_inesperada`, `no_consolidado`, `sin_paginas`, `sin_texto`). Las lecturas completas de los dos agentes quedan en `silver/fact_ee_compania_extraccion`.
+
+En `gold/fact_fundamental` entra como `base = consolidado`, `fuente = pdf_compania`, con `fecha_disponible` = fecha de publicación detectada o, si no se conoce, corte + 60 días (+ 90 en diciembre; `config/convenciones.yaml`), o la fecha en que se descubrió el PDF si fue antes. **Si para un emisor y corte hay XBRL, manda el XBRL** y no entra nada del PDF de ese corte. Ecopetrol está como emisor de control (`solo_cotejo: true`): no entra a `fact_fundamental`, y `gold/fact_cotejo_pdf_compania` compara lo leído contra el XBRL (`ok` dentro de 0,2 %, o 0,05 por acción; `revisar`; `sin_par`). Se puede hacer lo mismo con ISA u otro emisor con XBRL agregándolo al YAML.
+
+| Emisor | Fuente (verificada el 24-nov-2026) | Formato y unidades | Estado |
+| --- | --- | --- | --- |
+| Grupo Éxito (CO-COG31) | Plantilla `grupoexito.com.co/es/estados/financieros/consolidados/<t>t<año>.pdf` (3t2025, 4t2025 y 3t2026 leídos) | PDF de estados consolidados condensados; millones de pesos; resultados acumulados y del trimestre | Automático |
+| Grupo Nutresa (CO-COT04) | Índice `gruponutresa.com/en/investors/quarterly-results`; PDF en `wp-content/uploads/<año>/<mes>/` (`Grupo-Nutresa-EEFF-Consolidados-2025.pdf`, `...Consolidados-Junio.pdf` leídos) | PDF; millones de pesos; el nombre a veces no trae el año (se toma de la carpeta) | Automático |
+| Grupo Argos (CO-COT09) | Índice `grupoargos.com/en/investor-relations/reports-and-presentations/` (enlaces armados con JavaScript); PDF en `files.grupoargos.com/uploads-grupo-argos/<año>/<mes>/` (mar-2026 y dic-2025 leídos) | PDF; miles o millones de pesos según el informe | Automático si el índice trae los enlaces; si no, a mano |
+| Mineros (CO-COC07) | Índice `mineros.com.co/en/investors/financial-reports` (citado en su comunicado; no se pudo abrir desde aquí) | PDF en inglés; miles de dólares | Automático, por verificar en el PC |
+| Cementos Argos (CO-COD38) | `argos.co/ir-2/`; los PDF (`Reporte-<t>T<aa>.pdf`) responden con desafío de Imperva Incapsula | Reporte trimestral con estados consolidados; millones de pesos | A mano en `fuentes_compania/CO-COD38/` |
+| Celsia (CO-COT60) | `celsia.com` responde con desafío de Imperva Incapsula | Por confirmar | A mano en `fuentes_compania/CO-COT60/` |
+| Terpel (CO-COG20) | Sin URL verificable | — | Pendiente (a mano si se consigue el PDF) |
+| Ecopetrol (CO-COC04), control | Plantillas `files.ecopetrol.com.co/web/esp/estadosfinancieros/balance-gee<t>q<año>.pdf` y `pyg-gee-<t>q<año>.pdf` (y variantes con `t`) | Dos PDF por corte; miles de millones de pesos | Automático, solo cotejo |
+
+**Límites y costo.** Por corrida: 6 documentos a la API, 8 páginas por documento, 20 descargas, PDF de hasta 40 MB, 4 cortes hacia atrás en las plantillas (`limites` en el YAML). Con los precios del 24-nov-2026 (Sonnet 5.5 USD 2 / 10 y Opus 5.5 USD 4 / 20 por millón de tokens; 2.500 a 4.600 tokens por página de PDF), un documento cuesta unos USD 0,15 a 0,30 si hay consenso en la primera lectura y USD 0,50 a 1,00 con dos rondas de revisión; a lo sumo unos USD 6 por corrida y de USD 5 a 25 al año en régimen (7 emisores × 4 cortes). Enviar el PDF completo costaría de 10 a 30 veces más. Las disputas no se vuelven a enviar; los errores sí.
+
+**Cómo correrlo en el PC** (también entra en `invest ingest --todas-pc` de la tarea diaria):
+
+```powershell
+$env:ANTHROPIC_API_KEY = "..."        # sin ella se bajan los PDF y la lectura queda pendiente
+uv run invest ingest estados_compania
+uv run invest dims                    # rehace fact_fundamental y el cotejo con el XBRL
+```
+
+Para Cementos Argos, Celsia o Terpel: bajar el PDF en el navegador y guardarlo en `invest-data\fuentes_compania\<emisor_id>\` con el corte en el nombre (p. ej. `Reporte-3T26.pdf`, `EEFF-Consolidados-Septiembre-2026.pdf`); la corrida siguiente lo toma. Las notas de la corrida solo traen conteos. Pendiente: revisar en el PC que las páginas índice de Grupo Argos y Mineros traen los enlaces en el HTML, sumar más emisores sin XBRL y un archivo de revisión editable como el de dividendos.
 
 El reporte de salud mide el rezago según la frecuencia de cada fuente (diaria 3 días hábiles, mensual 50, anual 360).
 

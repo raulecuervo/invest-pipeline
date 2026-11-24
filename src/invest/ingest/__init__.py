@@ -4,6 +4,7 @@ from invest.ingest.banrep import ConectorBanRep
 from invest.ingest.bvc import ConectorBVC, ConectorBVCIndices
 from invest.ingest.cuif import ConectorCUIF
 from invest.ingest.dane_ipc import ConectorDANEIPC
+from invest.ingest.estados_compania import ConectorEstadosCompania
 from invest.ingest.fred import ConectorFRED
 from invest.ingest.sec_edgar import ConectorEDGAR
 from invest.ingest.sfc import ConectorSFCEspecies, ConectorSFCFicha, ConectorSFCPrecios
@@ -16,5 +17,5 @@ CONECTORES = {
     c.fuente_id: c
     for c in (ConectorTRM, ConectorSFCEspecies, ConectorSFCPrecios, ConectorSFCFicha, ConectorSFCRelevante,
               ConectorDANEIPC, ConectorFRED, ConectorCUIF, ConectorEDGAR, ConectorBVC, ConectorBVCIndices, ConectorBanRep,
-              ConectorNIIF, ConectorSupersociedades)
+              ConectorNIIF, ConectorSupersociedades, ConectorEstadosCompania)
 }

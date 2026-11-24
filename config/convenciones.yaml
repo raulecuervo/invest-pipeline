@@ -42,6 +42,9 @@ liquidez:
 fundamentales:
   dias_disponible_intermedio: 60
   dias_disponible_cierre: 100
+  # Estados publicados por la compañía (PDF) sin fecha de publicación detectada
+  dias_disponible_pdf_intermedio: 60
+  dias_disponible_pdf_cierre: 90
 
 dividendos:
   # Periodo ex-dividendo: días hábiles bursátiles antes de la fecha de pago (el periodo incluye el

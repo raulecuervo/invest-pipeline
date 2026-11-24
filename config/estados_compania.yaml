@@ -1,0 +1,198 @@
+# Estados financieros consolidados publicados por cada compañía (respaldo de los emisores sin XBRL).
+#
+# Lo usa src/invest/ingest/estados_compania.py (fuente estados_compania, corre en el PC):
+#   1. Descubre los PDF en las páginas índice (enlaces del HTML y direcciones .pdf dentro del código de
+#      la página) y con las plantillas de URL; también toma los PDF que se pongan a mano en
+#      invest-data/fuentes_compania/<emisor_id>/ (para los sitios con protección contra robots).
+#   2. Baja solo lo nuevo (lo ya bajado no se vuelve a pedir; un 404 se reintenta cada
+#      reintentar_404_dias) y lo guarda en invest-data/anexos/companias/<emisor_id>/ (repo privado).
+#   3. Ubica las páginas del estado de situación financiera y del estado de resultados (y del de
+#      cambios en el patrimonio, si hace falta para el patrimonio de la controladora) y envía solo esas
+#      páginas a los dos agentes, con el mismo esquema de consenso de los dividendos.
+#
+# Unidades: cada documento dice las suyas ("cifras expresadas en millones de pesos"); los agentes las
+# registran y el código lleva todo a pesos (o a dólares, unidad usd, para Mineros). Una misma compañía
+# puede cambiar de unidad entre informes (Grupo Argos: miles en el trimestral de mar-2026, millones en
+# el anual de 2025), por eso unidades_esperadas es una lista y solo produce un aviso.
+#
+# Verificación de las URL (24-nov-2026, búsqueda web y lectura del PDF): "verificada" = el PDF se leyó
+# y se cotejaron título, periodo, unidades y cifras. Lo que no se pudo leer queda marcado y explicado.
+# No se burlan protecciones: si un sitio responde con un desafío contra robots (Imperva Incapsula en
+# argos.co y celsia.com) el emisor va como descarga: manual.
+#
+# Costo (precios de la API al 24-nov-2026: Sonnet 5.5 USD 2 / 10 y Opus 5.5 USD 4 / 20 por millón de
+# tokens de entrada / salida; una página de PDF cuesta de 1.500 a 3.000 tokens de texto más hasta 1.568
+# de imagen): con 4 a 8 páginas enviadas, unos 15.000 a 35.000 tokens de entrada por lectura.
+#   - Consenso en la primera lectura (2 lecturas): USD 0,15 a 0,30 por documento.
+#   - Con dos rondas de revisión cruzada (6 lecturas): USD 0,50 a 1,00 por documento.
+#   - Con max_documentos_por_corrida = 6: a lo sumo unos USD 6 por corrida; en régimen, unos 7
+#     emisores × 4 cortes = 28 documentos al año (USD 5 a 25 al año).
+# Enviar el PDF completo costaría de 10 a 30 veces más (los informes tienen de 40 a 300 páginas).
+
+agentes:            # si se omite, se usan los de config/extraccion.yaml
+  a: {nombre: analista, modelo: claude-sonnet-5-5}
+  b: {nombre: auditor, modelo: claude-opus-5-5}
+
+limites:
+  max_documentos_por_corrida: 6     # documentos enviados a la API por corrida (el resto queda pendiente)
+  max_paginas_por_documento: 8      # páginas enviadas por documento
+  max_descargas_por_corrida: 20     # PDF nuevos bajados por corrida
+  tamano_maximo_mb: 40              # PDF más grandes no se bajan (GitHub avisa desde 50 MB por archivo)
+  trimestres_plantilla: 4           # cortes hacia atrás que se prueban con las plantillas de URL
+  dias_tras_corte_plantilla: 25     # una plantilla de un corte se empieza a probar estos días después
+  reintentar_404_dias: 7
+  paginas_si_no_hay_texto: 0        # PDF escaneado: 0 = no se envía (queda en cuarentena para mirar)
+
+rondas_maximas: 2
+max_tokens: 16000
+tolerancia_balance: 0.01            # activos = pasivos + patrimonio_total, ± 1 %
+tolerancia_controladora: 0.005      # patrimonio_controladora <= patrimonio_total (+ 0,5 %)
+
+# Cómo se reconocen las páginas de los estados (texto sin tildes y en minúsculas)
+paginas:
+  situacion:
+    titulos: ["estado de situacion financiera", "estados de situacion financiera", "estado consolidado de situacion financiera",
+              "estados consolidados de situacion financiera", "balance general", "statement of financial position",
+              "statements of financial position", "balance sheet"]
+    claves: ["total activo", "total del activo", "activos totales", "total assets", "total pasivo", "total liabilities"]
+    cierre: ["total pasivo y patrimonio", "total pasivos y patrimonio", "total patrimonio y pasivo", "total del pasivo y patrimonio",
+             "total liabilities and equity", "total equity and liabilities"]
+    paginas_extra: 2
+  resultados:
+    titulos: ["estado de resultados", "estados de resultados", "estado del resultado", "estados del resultado",
+              "estado consolidado de resultados", "estados consolidados de resultados", "estado de ganancias y perdidas",
+              "statement of profit or loss", "statements of profit or loss", "income statement", "statement of income",
+              "statements of income", "statement of comprehensive income", "statements of comprehensive income"]
+    claves: ["por accion", "per share", "atribuible", "attributable"]
+    cierre: ["por accion", "per share"]
+    paginas_extra: 1
+  patrimonio:   # solo si hay espacio: algunos (Éxito) no traen la controladora en el balance
+    titulos: ["cambios en el patrimonio", "changes in equity", "changes in shareholders"]
+    claves: ["controladora", "controlling", "owners of the parent", "no controladora", "non-controlling"]
+    cierre: []
+    paginas_extra: 0
+
+emisores:
+  # ------------------------------------------------------------------ Grupo Argos
+  - emisor_id: CO-COT09
+    nombre: Grupo Argos
+    descarga: automatica
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice:
+      - url: https://www.grupoargos.com/en/investor-relations/reports-and-presentations/
+        nota: "Se leyó el 24-nov-2026 (lista 'Quarterly results'), pero los enlaces se arman con JavaScript: si el HTML no trae las direcciones, no se descubre nada y queda la carpeta manual"
+      - url: https://www.grupoargos.com/relacion-con-el-inversionista/resultados-e-informes/reportes-financieros/
+        nota: "Página en español enlazada desde /inversionistas/; no se pudo leer desde aquí (error del sitio): se intenta desde el PC"
+    patrones:   # en orden de preferencia; uno por corte
+      - 'files\.grupoargos\.com/.*(estados[-_ ]financieros[-_ ]consolidados|eeff[-_ ]consolidados)[^/]*\.pdf'
+    excluir: ['separad', '[-_]en\.pdf', 'ingles', 'english', 'reporteintegrado']
+    verificadas:
+      - {url: "https://files.grupoargos.com/uploads-grupo-argos/2026/05/Estados_Financieros_Consolidados_Grupo_Argos_Marzo_2026.pdf", corte: 2026-03-31, unidades: miles, paginas_estados: "1-4 del cuerpo, unas 110 en total", nota: "activos 37.291.233.963 miles; controladora 87.257.032 miles (trimestre)"}
+      - {url: "https://files.grupoargos.com/uploads-grupo-argos/2026/03/Grupo-Argos-Estados-Financieros-Consolidados-al-31-de-diciembre-2025.pdf", corte: 2025-12-31, unidades: millones, nota: "informe del revisor 2-mar-2026; activos 37.636.229 millones"}
+    otros_formatos: "Informe periódico (Circular Externa 012) con separados y consolidados en un solo PDF (Circular-Externa-012-2T2026.pdf, consolidados desde la pág. 81, miles de pesos); 'IR Resultados' con tablas resumidas. Sin Excel ni XBRL propio verificado."
+
+  # ------------------------------------------------------------------ Grupo Nutresa
+  - emisor_id: CO-COT04
+    nombre: Grupo Nutresa
+    descarga: automatica
+    moneda: COP
+    unidades_esperadas: [millones]
+    paginas_indice:
+      - url: https://gruponutresa.com/en/investors/quarterly-results
+        nota: "Se leyó el 24-nov-2026: lista '3Q25 Consolidated Financial Results', separados, presentación y comunicado. La página en español y la portada no se pudieron leer desde aquí"
+    patrones:
+      - 'gruponutresa\.com/wp-content/uploads/.*(eeff|estados[-_ ]financieros|ef)[-_ ].*consolidad[^/]*\.pdf'
+      - 'gruponutresa\.com/wp-content/uploads/.*consolidad[^/]*\.pdf'
+      - 'gruponutresa\.com/wp-content/uploads/.*consolidated[-_ ](fs|financial)[^/]*\.pdf'
+    excluir: ['separad', 'separate', 'presentacion', 'presentation', 'comunicado', 'press', 'boletin', 'circular']
+    verificadas:
+      - {url: "https://gruponutresa.com/wp-content/uploads/2026/02/Grupo-Nutresa-EEFF-Consolidados-2025.pdf", corte: 2025-12-31, unidades: millones, nota: "balance pág. 9, resultados pág. 10; activos 27.419.325; controladora 1.235.765; UPA 2.705,93"}
+      - {url: "https://gruponutresa.com/wp-content/uploads/2025/07/Grupo-Nutresa-Estados-Financieros-Consolidados-Junio.pdf", corte: 2025-06-30, unidades: millones, nota: "el nombre no trae el año (sale de la carpeta 2025/07); resultados acumulados pág. 5 y del trimestre pág. 6"}
+    otros_formatos: "Circular-012-Q<n>-<año>.pdf (informe periódico), comunicado y presentación trimestral. Sin Excel verificado."
+
+  # ------------------------------------------------------------------ Grupo Éxito
+  - emisor_id: CO-COG31
+    nombre: Grupo Éxito
+    descarga: automatica
+    moneda: COP
+    unidades_esperadas: [millones]
+    paginas_indice: []   # grupoexito.com.co/es/inversionistas no se pudo leer desde aquí; la plantilla es estable
+    plantillas:
+      - "https://www.grupoexito.com.co/es/estados/financieros/consolidados/{t}t{anio}.pdf"
+    verificadas:
+      - {url: "https://www.grupoexito.com.co/es/estados/financieros/consolidados/3t2026.pdf", corte: 2026-09-30, unidades: millones, nota: "activos 16.401.176; controladora (9 meses) 436.613"}
+      - {url: "https://www.grupoexito.com.co/es/estados/financieros/consolidados/3t2025.pdf", corte: 2025-09-30, unidades: millones, nota: "balance pág. 2, resultados pág. 3 (acumulado y trimestre); la controladora del patrimonio está en el estado de cambios en el patrimonio"}
+      - {url: "https://www.grupoexito.com.co/es/estados/financieros/consolidados/4t2025.pdf", corte: 2025-12-31, unidades: millones, nota: "anual, revisor 24-feb-2026; activos 17.421.786"}
+    otros_formatos: "Separados en /es/estados/financieros/separados/<t>t<año>.pdf; 'Informe periódico trimestral' e informe de resultados (<t>T<aa>-Informe-resultados)."
+
+  # ------------------------------------------------------------------ Mineros (dólares)
+  - emisor_id: CO-COC07
+    nombre: Mineros
+    descarga: automatica
+    moneda: USD
+    unidades_esperadas: [miles]
+    paginas_indice:
+      - url: https://mineros.com.co/en/investors/financial-reports
+        nota: "Citada en el comunicado de resultados del 5-ago-2026 (Business Wire) como el sitio de los estados intermedios y el MD&A. No se pudo leer desde aquí (redirige a otro dominio): por verificar en el PC"
+    patrones:
+      - '\.pdf.*'   # se filtra por las palabras de abajo (el nombre de archivo no se conoce todavía)
+    incluir: ['financial[-_ ]statements|estados[-_ ]financieros']
+    excluir: ['md&a|mdna|md-a|management|discussion', 'separad|separate|individual', 'presentation|presentacion']
+    verificadas: []
+    otros_formatos: "Cotiza también en Toronto (MSA): los mismos estados están en SEDAR+ (tiene captcha: no se usa). Cifras en miles de dólares según el comunicado."
+
+  # ------------------------------------------------------------------ Cementos Argos (manual)
+  - emisor_id: CO-COD38
+    nombre: Cementos Argos
+    descarga: manual
+    moneda: COP
+    unidades_esperadas: [millones]
+    paginas_indice:
+      - url: https://argos.co/ir-2/
+        nota: "La página de inversionistas se lee, pero los PDF de argos.co/wp-content/uploads/ responden con el desafío de Imperva Incapsula a los clientes automáticos (24-nov-2026). No se esquiva: los PDF se bajan a mano en el navegador a invest-data/fuentes_compania/CO-COD38/"
+    patrones: []
+    verificadas: []
+    otros_formatos: "Reporte trimestral de resultados con estado de situación financiera y de resultados consolidados en millones de pesos (comunicado 1T24 leído en api.mziq.com); nombres vistos: Reporte-1T25.pdf, Reporte-3T25-ES.pdf, Reporte-4T25-pw2.pdf en argos.co/wp-content/uploads/<año>/<mes>/ (no se pudieron abrir)."
+
+  # ------------------------------------------------------------------ Celsia (manual)
+  - emisor_id: CO-COT60
+    nombre: Celsia
+    descarga: manual
+    moneda: COP
+    unidades_esperadas: [millones]   # por confirmar con el primer PDF
+    paginas_indice: []
+    patrones: []
+    verificadas: []
+    otros_formatos: "celsia.com responde con el desafío de Imperva Incapsula a los clientes automáticos (24-nov-2026). El reporte integrado 2025 está en files.grupoargos.com (ReporteIntegradoCelsia2025_Mar20-comprimido.pdf) pero no trae los estados completos. Celsia cotiza también en Santiago (CELSIACL): la CMF de Chile publica sus estados (alternativa por estudiar). PDF a mano en invest-data/fuentes_compania/CO-COT60/"
+
+  # ------------------------------------------------------------------ Terpel (sin URL)
+  - emisor_id: CO-COG20
+    nombre: Terpel
+    descarga: pendiente
+    moneda: COP
+    unidades_esperadas: [millones]
+    paginas_indice: []
+    patrones: []
+    verificadas: []
+    otros_formatos: "No se encontró una URL verificable de sus estados en terpel.com (24-nov-2026; la página de inversionistas no se pudo leer). Mientras tanto, PDF a mano en invest-data/fuentes_compania/CO-COG20/ (se procesan aunque el emisor esté pendiente)."
+
+  # ------------------------------------------------------------------ Ecopetrol (control: tiene XBRL)
+  - emisor_id: CO-COC04
+    nombre: Ecopetrol
+    descarga: automatica
+    solo_cotejo: true    # no entra a fact_fundamental: sirve para medir el lector contra el XBRL
+    moneda: COP
+    unidades_esperadas: [miles_de_millones]
+    combinar_por_corte: true   # balance y resultados vienen en PDF separados: se unen en un documento
+    archivos_por_corte: 2      # se espera a tener los dos antes de enviarlo
+    paginas_indice: []
+    plantillas:
+      - "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/balance-gee{t}q{anio}.pdf"
+      - "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/balance-gee{t}t{anio}.pdf"
+      - "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/pyg-gee-{t}q{anio}.pdf"
+      - "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/pyg-gee{t}t{anio}.pdf"
+    verificadas:
+      - {url: "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/balance-gee2q2026.pdf", corte: 2026-06-30, unidades: miles_de_millones, nota: "activos 284.099; controladora 84.938"}
+      - {url: "https://files.ecopetrol.com.co/web/esp/estadosfinancieros/pyg-gee-2q2026.pdf", corte: 2026-06-30, unidades: miles_de_millones, nota: "6 meses: ingresos 68.823; controladora 8.951; UPA 217,7"}
+    otros_formatos: "Los nombres cambian entre trimestres (2q y 1t, con o sin guion), por eso hay cuatro plantillas; notas en notas-gee<t>q<año>.pdf."

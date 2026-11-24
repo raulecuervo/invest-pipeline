@@ -143,12 +143,12 @@ class ClienteLLM:
     aceptan esa opción; en ese caso se pasa a ``tool_choice`` automático con la instrucción
     explícita de registrar con la herramienta, y si el modelo responde sin usarla se le pide una
     vez más en la misma conversación.
+
+    ``herramienta``: la estructura que se pide (por omisión, la de dividendos). Los estados
+    financieros (``invest.ingest.estados_compania``) usan el mismo cliente con su propia herramienta.
     """
 
-    AVISO = ("\n\nResponde únicamente llamando la herramienta "
-             f"{HERRAMIENTA['name']} con el registro completo; no escribas texto fuera de ella.")
-
-    def __init__(self, max_tokens: int = 4000, cliente=None):
+    def __init__(self, max_tokens: int = 4000, cliente=None, herramienta: dict | None = None):
         if cliente is None:
             import anthropic
 
@@ -156,6 +156,12 @@ class ClienteLLM:
         self._cliente = cliente
         self.max_tokens = max_tokens
         self._forzar = True
+        self.herramienta = herramienta or HERRAMIENTA
+
+    @property
+    def AVISO(self) -> str:  # noqa: N802 (se conserva el nombre de antes)
+        return ("\n\nResponde únicamente llamando la herramienta "
+                f"{self.herramienta['name']} con el registro completo; no escribas texto fuera de ella.")
 
     @staticmethod
     def _registro(respuesta) -> dict | None:
@@ -165,10 +171,11 @@ class ClienteLLM:
         return None
 
     def _crear(self, modelo: str, sistema: str, mensajes: list, forzar: bool):
+        nombre = self.herramienta["name"]
         return self._cliente.messages.create(
             model=modelo, max_tokens=self.max_tokens, system=sistema if forzar else sistema + self.AVISO,
-            tools=[HERRAMIENTA],
-            tool_choice={"type": "tool", "name": HERRAMIENTA["name"]} if forzar else {"type": "auto"},
+            tools=[self.herramienta],
+            tool_choice={"type": "tool", "name": nombre} if forzar else {"type": "auto"},
             messages=mensajes,
         )
 
@@ -194,11 +201,40 @@ class ClienteLLM:
         registro = self._registro(respuesta)
         if registro is None and not self._forzar:
             mensajes += [{"role": "assistant", "content": respuesta.content},
-                         {"role": "user", "content": f"Registra el resultado llamando la herramienta {HERRAMIENTA['name']}."}]
+                         {"role": "user", "content": f"Registra el resultado llamando la herramienta {self.herramienta['name']}."}]
             registro = self._registro(self._crear(modelo, sistema, mensajes, forzar=False))
         if registro is None:
             raise RuntimeError("El modelo no devolvió el registro estructurado")
         return registro
+
+
+def texto_revision(contexto: str, propio: dict, otro: dict, diferencias: list[str]) -> str:
+    """Pedido de la revisión cruzada: el registro propio, el del otro agente y las diferencias."""
+    return (
+        f"{contexto}\n\n"
+        "Otro revisor leyó el mismo documento y llegó a un resultado distinto.\n\n"
+        f"Tu registro anterior:\n{json.dumps(propio, ensure_ascii=False, indent=1)}\n\n"
+        f"Registro del otro revisor:\n{json.dumps(otro, ensure_ascii=False, indent=1)}\n\n"
+        "Diferencias encontradas:\n- " + "\n- ".join(diferencias) + "\n\n"
+        "Vuelve a leer el documento y resuelve cada diferencia según lo que está escrito. Corrige "
+        "si el otro tiene razón; sostén tu valor si el documento te respalda (no cambies solo para "
+        "coincidir). Registra de nuevo el resultado completo."
+    )
+
+
+def lectura_cruzada(pdf: bytes, contexto: str, agente_a, agente_b, diferencias,
+                    rondas_maximas: int = 2) -> tuple[dict, dict, int]:
+    """Lectura independiente y revisión cruzada hasta que ``diferencias(a, b)`` quede vacía o se
+    acaben las rondas. Sirve para cualquier par de agentes con ``extraer`` y ``revisar``."""
+    a = agente_a.extraer(pdf, contexto)
+    b = agente_b.extraer(pdf, contexto)
+    dif = diferencias(a, b)
+    ronda = 0
+    while dif and ronda < rondas_maximas:
+        ronda += 1
+        a, b = (agente_a.revisar(pdf, contexto, a, b, dif), agente_b.revisar(pdf, contexto, b, a, dif))
+        dif = diferencias(a, b)
+    return a, b, ronda
 
 
 @dataclass
@@ -213,16 +249,7 @@ class Agente:
         return self.cliente.registrar(self.modelo, INSTRUCCIONES[self.clave], pdf, texto)
 
     def revisar(self, pdf: bytes, contexto: str, propio: dict, otro: dict, diferencias: list[str]) -> dict:
-        texto = (
-            f"Contexto del evento publicado en la SFC:\n{contexto}\n\n"
-            "Otro revisor leyó el mismo documento y llegó a un resultado distinto.\n\n"
-            f"Tu registro anterior:\n{json.dumps(propio, ensure_ascii=False, indent=1)}\n\n"
-            f"Registro del otro revisor:\n{json.dumps(otro, ensure_ascii=False, indent=1)}\n\n"
-            "Diferencias encontradas:\n- " + "\n- ".join(diferencias) + "\n\n"
-            "Vuelve a leer el documento y resuelve cada diferencia según lo que está escrito. Corrige "
-            "si el otro tiene razón; sostén tu valor si el documento te respalda (no cambies solo para "
-            "coincidir). Registra de nuevo el resultado completo."
-        )
+        texto = texto_revision(f"Contexto del evento publicado en la SFC:\n{contexto}", propio, otro, diferencias)
         return self.cliente.registrar(self.modelo, INSTRUCCIONES[self.clave], pdf, texto)
 
 
@@ -360,14 +387,7 @@ def consensuar(pdf: bytes, contexto: str, agente_a: Agente, agente_b: Agente,
     def diferencias(x: dict, y: dict) -> list[str]:
         return juzgar(x, y, texto, tolerancia)[0]
 
-    a = agente_a.extraer(pdf, contexto)
-    b = agente_b.extraer(pdf, contexto)
-    dif = diferencias(a, b)
-    ronda = 0
-    while dif and ronda < rondas_maximas:
-        ronda += 1
-        a, b = (agente_a.revisar(pdf, contexto, a, b, dif), agente_b.revisar(pdf, contexto, b, a, dif))
-        dif = diferencias(a, b)
+    a, b, ronda = lectura_cruzada(pdf, contexto, agente_a, agente_b, diferencias, rondas_maximas)
     return _resultado(a, b, ronda, texto, tolerancia)
 
 
