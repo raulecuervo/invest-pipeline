@@ -33,6 +33,24 @@ activos:
   # pfbcolom, hoy con los pagos de Cibest); la serie de precios viene pegada por config/sucesiones.yaml.
   - {especie: cotk7paao003, investing: bcolombia}
   - {especie: cotk7paad014, investing: pfbcolom}
+  # Acciones poco líquidas y bancos sin historial antes (24-nov-2026, Investing con el navegador integrado;
+  # las páginas de AV Villas, Protección, Corferias, El Cóndor y Bolsa Mercantil solo muestran 20 pagos).
+  # Fabricato no tiene dividendos en Investing. Canacol paga en dólares canadienses en el TSX: se pasa a
+  # pesos con la TRM y la serie DEXCAUS de FRED (src/invest/fx.py); los valores de Investing ya vienen
+  # ajustados por la consolidación 1:5 de 2023, que está en gold/fact_split.
+  - {especie: cob13paao001, investing: banco-bilbao-vizcaya-argentaria-col}
+  - {especie: cob13paad004, investing: banco-bilbao-vizcaya-argentaria-prf}
+  - {especie: cob02paao004, investing: banco-popular}
+  - {especie: cob52paao009, investing: banco-comercial-av-villas}
+  - {especie: cob52paad002, investing: banco-comercial-av-villas-prf}
+  - {especie: cow19paao005, investing: administradora-de-fondos-de}
+  - {especie: coo08paao005, investing: corporacion-de-ferias-y}
+  - {especie: cod12paao009, investing: acerias-paz-del-rio}
+  - {especie: cof20paao008, investing: construcciones-el-condor-sa}
+  - {especie: cor02paao019, investing: bmc-bolsa-mercantil-de-colombia}
+  - {especie: cod05paao004, investing: enka-de-colombia-sa}
+  - {especie: cod06paao002, investing: manufacturas-de-cemento}
+  - {especie: cac13paao008, investing: canacol-energy-ltd, moneda: CAD}
   - {especie: cot04paao003, investing: nutresa, stockanalysis: NUTRESA}
   - especie: coe01paao018
     investing: eeb

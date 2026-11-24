@@ -496,6 +496,7 @@ fuentes:
       - {id: COLIRLTLT01STM, nombre: "Tasa larga de Colombia (OCDE)", unidad: pct, frecuencia: mensual}
       - {id: VIXCLS, nombre: "VIX", unidad: puntos, frecuencia: diaria}
       - {id: BAMLEMCBPIOAS, nombre: "Diferencial corporativo emergentes (ICE BofA)", unidad: pct, frecuencia: diaria}
+      - {id: DEXCAUS, nombre: "Dólares canadienses por dólar (para los dividendos de Canacol en el TSX)", unidad: cad_por_usd, frecuencia: diaria}
 
   - id: damodaran
     nombre: Damodaran (prima de riesgo país, spread de default, betas y múltiplos sectoriales)

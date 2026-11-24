@@ -39,6 +39,7 @@ import polars as pl
 import yaml
 
 from invest import storage
+from invest import fx
 from invest import sucesiones
 from invest.calendario import dia_habil_siguiente_o_mismo, es_habil
 from invest.config import CONFIG_DIR, data_dir
@@ -275,9 +276,12 @@ def detectar() -> tuple[pl.DataFrame, dict]:
         for r in unidas:
             r["moneda"] = (r.get("moneda") or moneda_activo).upper()
             if r["moneda"] != "COP":
-                # Pago en dólares (Mineros): el rendimiento se mide en pesos con la TRM del día ex
-                tasas = tasas if tasas is not None else dict(_trm_tabla().iter_rows())
-                r["a_cop"] = tasas.get(r["fecha_ex"]) if r["moneda"] == "USD" else None
+                # Pago en dólares (Mineros) o dólares canadienses (Canacol): el rendimiento se mide en
+                # pesos con la tasa del día ex
+                tasas = tasas if tasas is not None else {}
+                if r["moneda"] not in tasas:
+                    tasas[r["moneda"]] = fx.tasas_a_cop(r["moneda"])
+                r["a_cop"] = tasas[r["moneda"]].get(r["fecha_ex"])
         avisos = _avisos(emisores.get(especie), eventos)
         for r in unidas:
             motivos = []

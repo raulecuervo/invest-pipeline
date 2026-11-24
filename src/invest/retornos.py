@@ -42,6 +42,7 @@ from datetime import date
 import polars as pl
 
 from invest import storage
+from invest import fx
 from invest import sucesiones
 from invest.distribuciones import negociados, por_especie_y_fecha
 from invest.calendario import dia_habil_siguiente_o_mismo, restar_dias_habiles
@@ -94,15 +95,12 @@ def dividendos_por_especie(resumen: dict | None = None) -> pl.DataFrame:
                 continue
             fecha_ex, estimada = estimar_fecha_ex(d["fecha_pago"]), True
         moneda = (d["moneda"] or "COP").upper()
-        if moneda == "USD":
-            tasa = tasas.get(fecha_ex)
+        if moneda != "COP":
+            tasa = (tasas if moneda == "USD" else fx.tasas_a_cop(moneda)).get(fecha_ex)
             if tasa is None:
                 otra_moneda += 1
                 continue
             valor = valor * tasa
-        elif moneda != "COP":
-            otra_moneda += 1
-            continue
         for especie in activos.filter(
             (pl.col("emisor_id") == d["emisor_id"]) & pl.col("clase_accion").is_in(clases.get(d["clase_accion"], []))
         ).get_column("especie").to_list():
@@ -139,15 +137,14 @@ def _dividendos_web(de_pdf: list[dict], resumen: dict) -> list[dict]:
             continue
         valor = float(r["dividendo"])
         moneda = (r["moneda"] or "COP").upper()
-        if moneda == "USD":  # p. ej. Mineros: se convierte con la TRM del día ex
-            tasas = _trm() if tasas is None else tasas
-            if r["fecha_ex"] not in tasas:
+        if moneda != "COP":  # Mineros (USD) con la TRM del día ex; Canacol (CAD) con TRM / CAD por USD
+            tasas = {} if tasas is None else tasas
+            if moneda not in tasas:
+                tasas[moneda] = fx.tasas_a_cop(moneda)
+            if r["fecha_ex"] not in tasas[moneda]:
                 resumen["moneda_sin_tasa"] = resumen.get("moneda_sin_tasa", 0) + 1
                 continue
-            valor *= tasas[r["fecha_ex"]]
-        elif moneda != "COP":
-            resumen["moneda_sin_tasa"] = resumen.get("moneda_sin_tasa", 0) + 1
-            continue
+            valor *= tasas[moneda][r["fecha_ex"]]
         filas.append({"especie": r["especie"], "fecha_ex": r["fecha_ex"], "dividendo": valor,
                       "fecha_ex_estimada": False, "revisado": bool(r["revisado"])})
     resumen["dividendos_web"] = len(filas)
