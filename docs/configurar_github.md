@@ -1,5 +1,7 @@
 # Configurar GitHub (una sola vez)
 
+> **Estado (23-nov-2026):** los pasos 1 a 3 ya están hechos. `raulecuervo/invest-pipeline` (público) e `invest-data` (privado) existen, tienen el contenido y las carpetas del PC están enlazadas a ellos. Los workflows ya están en `.github/workflows`, pero la ingesta y el mantenimiento no corren hasta que exista la variable `DATA_REPO` (paso 5). Faltan los pasos 4 y 5, que solo puede hacer el dueño de la cuenta porque el token no debe pasar por el chat. Para subir cambios desde el PC hace falta Git para Windows (`winget install --id Git.Git -e`); la primera vez que haga `git push` se abre el navegador para iniciar sesión.
+
 El código va en un repo **público** (minutos de GitHub Actions ilimitados y cron que sí corre) y los datos en un repo **privado**. El workflow corre en el público y escribe en el privado con un token.
 
 ## 1. Crear los repositorios

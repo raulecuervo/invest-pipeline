@@ -14,6 +14,8 @@ permissions:
 
 jobs:
   latido:
+    # No corre hasta configurar la variable DATA_REPO y el secreto DATA_REPO_TOKEN (docs/configurar_github.md)
+    if: ${{ vars.DATA_REPO != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
