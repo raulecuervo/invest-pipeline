@@ -38,6 +38,7 @@ def dim_emisor(activos: pl.DataFrame | None = None) -> pl.DataFrame | None:
     if activos is None or activos.is_empty():
         return None
     cortos = cargar_yaml("tablero.yaml").get("nombres_cortos") or {}
+    sector_economico = (cargar_yaml("sectores.yaml") or {}).get("por_emisor") or {}
     rnve = {e["emisor_id"]: e for e in emisores()}
     filas = []
     for (emisor_id,), g in activos.sort(["activa", "dias_con_negociacion"], descending=True, nulls_last=True) \
@@ -51,6 +52,8 @@ def dim_emisor(activos: pl.DataFrame | None = None) -> pl.DataFrame | None:
             "nombre_corto": nombre_corto(principal["especie"], principal["nombre"], "ordinaria", cortos),
             "nit": e.get("nit"),
             "sector_sfc": sectores.mode().sort()[0] if not sectores.is_empty() else None,
+            # Sector por negocio (config/sectores.yaml); si no está, el de la SFC con mayúscula inicial
+            "sector": sector_economico.get(emisor_id) or (sectores.mode().sort()[0].capitalize() if not sectores.is_empty() else None),
             "pais_id": "CO",
             "moneda_estados": e.get("moneda_informes", "COP"),
             "estandar_contable": "NIIF",

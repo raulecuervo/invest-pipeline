@@ -58,6 +58,11 @@ ESQUEMA = {
 
 # concepto del anexo normalizado (mayúsculas, sin tildes ni asteriscos) → (concepto, unidad)
 ANEXOS = {
+    # El 141 trae el valor patrimonial "con" y "sin valorización"; el "con" es el que coincide con el 211 en
+    # todos los emisores revisados (Grupo Bolívar, El Cóndor y Grupo Cibest difieren 7 a 22 % en el "sin"),
+    # así que manda cuando existe y el "sin" queda de respaldo (Grupo Sura y Corficolombiana solo traen ese)
+    "VALOR PATRIMONIAL X ACCION CON VALORIZACION": ("vpa_con_valorizacion", "pesos_por_accion"),
+    "VALOR PATRIMONIAL POR ACCION CON VALORIZACION": ("vpa_con_valorizacion", "pesos_por_accion"),
     "VALOR PATRIMONIAL X ACCION SIN VALORIZACION": ("valor_patrimonial_accion", "pesos_por_accion"),
     "VALOR PATRIMONIAL POR ACCION SIN VALORIZACION": ("valor_patrimonial_accion", "pesos_por_accion"),
     "VALOR PATRIMONIAL POR ACCION": ("valor_patrimonial_accion", "pesos_por_accion"),
@@ -147,6 +152,21 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
           .with_columns(pl.when(pl.col("concepto") == "utilidad_accion")
                         .then(pl.col("valor") - pl.col("_p").fill_null(0.0)).otherwise(pl.col("valor")).alias("valor"))
           .drop("_p"))
+    # Valor patrimonial "con valorización" del 141: reemplaza al "sin" del mismo anexo si es positivo
+    filas_con = df.filter((pl.col("concepto") == "vpa_con_valorizacion") & (pl.col("valor") > 0))
+    con = filas_con.select("emisor_id", "fecha_corte", "fuente", pl.col("valor").alias("_con"))
+    sin = df.filter(pl.col("concepto") == "valor_patrimonial_accion").select("emisor_id", "fecha_corte", "fuente")
+    solo_con = filas_con.join(sin, on=["emisor_id", "fecha_corte", "fuente"], how="anti").with_columns(
+        pl.lit("valor_patrimonial_accion").alias("concepto"))
+    df = (pl.concat([df.filter(pl.col("concepto") != "vpa_con_valorizacion"), solo_con])
+          .join(con, on=["emisor_id", "fecha_corte", "fuente"], how="left")
+          .with_columns(pl.when((pl.col("concepto") == "valor_patrimonial_accion") & pl.col("_con").is_not_null())
+                        .then(pl.col("_con")).otherwise(pl.col("valor")).alias("valor"))
+          .drop("_con"))
+    # Anexos que un emisor diligencia mal y de forma reiterada (config/convenciones.yaml)
+    for d in convenciones().get("fundamentales", {}).get("descartar_anexos", []) or []:
+        df = df.filter(~((pl.col("emisor_id") == d["emisor_id"]) & (pl.col("concepto") == d["concepto"])
+                         & (pl.col("fuente") == d["fuente"])))
     # Un valor patrimonial en cero o negativo es un campo sin diligenciar (p. ej. Promigas, sep-2025)
     df = df.filter(~((pl.col("concepto") == "valor_patrimonial_accion") & (pl.col("valor") <= 0)))
     # Una utilidad por acción en cero exacto cuando otro anexo del mismo corte trae una cifra es un campo

@@ -81,3 +81,19 @@ def test_distancia_sma200_no_cuenta_si_la_accion_no_es_liquida(carpeta_datos):
         "caida_desde_max_52s": [0.0, -0.1], "rsi_14": [84.0, 50.0], "tecnico_valido": [False, True]}), "fecha")
     p = puntajes.panel().sort("especie")
     assert p.get_column("distancia_sma200").to_list() == [None, 0.05]
+
+
+def test_metrica_con_pocos_pares_en_el_sector_se_compara_con_el_universo():
+    """El sector X tiene 9 acciones en el universo, pero solo 2 con crecimiento: esa métrica no se puede
+    comparar dentro del sector (con 2 datos la mediana y la dispersión no dicen nada) y va contra el universo
+    (que aquí es el mismo conjunto, así que el grupo cambia a "universo")."""
+    p = _panel().with_columns(
+        pl.when(pl.col("especie").is_in(["e1", "e2"])).then(pl.col("p_vl")).otherwise(None).alias("crecimiento_upa_12m"))
+    puntaje, _ = puntajes.calcular(p, validados=set())
+    fila = puntaje.filter((pl.col("fecha") == date(2025, 1, 31)) & (pl.col("especie") == "e1")
+                          & (pl.col("elemento") == "crecimiento_upa_12m")).row(0, named=True)
+    assert fila["grupo_comparacion"] == "universo" and fila["pares"] == 2
+    # El valor (p_vl) sigue comparándose dentro del sector
+    v = puntaje.filter((pl.col("fecha") == date(2025, 1, 31)) & (pl.col("especie") == "e1")
+                       & (pl.col("elemento") == "p_vl")).row(0, named=True)
+    assert v["grupo_comparacion"] == "X"

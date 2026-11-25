@@ -94,6 +94,26 @@ def test_anexo_con_acciones_imposibles_o_utilidad_vacia():
     assert upa.get_column("valor").to_list() == [709.07]
 
 
+def test_vpa_con_valorizacion_y_anexo_descartado(monkeypatch):
+    # Grupo Bolívar: el "sin valorización" del 141 es 13 % menor que el 211; manda el "con"
+    # Grupo Cibest: su utilidad por acción del 141 está descartada en config/convenciones.yaml
+    def celda(emisor, fila, concepto, valor, corte=date(2026, 3, 31)):
+        return {"emisor_id": emisor, "fecha_corte": corte, "consolidado": False, "grupo": "trimestrales", "formato": "141",
+                "fila": fila, "concepto": concepto, "columna": "VALOR", "valor": valor}
+    anexos = pl.DataFrame([
+        celda("CO-COT23", 1, "Valor patrimonial x acción con valorización", 175026.83),
+        celda("CO-COT23", 2, "Valor patrimonial x acción sin valorización", 152583.0),
+        celda("CO-COT13", 2, "Valor patrimonial x acción sin valorización", 42000.0),
+        celda("CO-COTK7", 3, "Utilidad por acción", 3373.15),
+        celda("CO-COTK7", 1, "Valor patrimonial x acción con valorización", 41000.0),
+    ])
+    f = fundamentales.desde_anexos(anexos)
+    vpa = dict(f.filter(pl.col("concepto") == "valor_patrimonial_accion").select("emisor_id", "valor").iter_rows())
+    assert vpa == {"CO-COT23": 175026.83, "CO-COT13": 42000.0, "CO-COTK7": 41000.0}
+    assert f.filter(pl.col("concepto") == "utilidad_accion").is_empty()
+    assert "vpa_con_valorizacion" not in f.get_column("concepto").to_list()
+
+
 def test_construir_escribe_cotejo(carpeta_datos):
     con = ss.ConectorSupersociedades()
     validas, _ = con.validar(con.interpretar(REGISTROS[:2]))

@@ -1,0 +1,56 @@
+# Sector económico de cada emisor, para mostrar y comparar en el aplicativo (screener, valoración, ficha:
+# "Comparación con su sector", mapa del mercado).
+#
+# La SFC clasifica por tipo de entidad, no por negocio: Ecopetrol, GEB, ISA y ETB salen como "Entidades
+# públicas" y Celsia o Cibest como "Sociedades inversoras". Esta lista agrupa por lo que hace la empresa.
+# Un emisor que no esté aquí muestra el sector de la SFC.
+#
+# El puntaje de factores sigue comparando con los pares del sector de la SFC cuando hay 8 o más en el
+# universo (config/escala.yaml, minimo_pares); cambiar ese grupo cambia los puntajes y queda por decidir.
+#
+# Revisado por Claude el 24-nov-2026.
+
+por_emisor:
+  # Bancos y holdings bancarios
+  CO-COB01: Bancos          # Banco de Bogotá
+  CO-COB02: Bancos          # Banco Popular
+  CO-COB07: Bancos          # Bancolombia (hasta may-2025)
+  CO-COB13: Bancos          # BBVA Colombia
+  CO-COB23: Bancos          # Banco de Occidente
+  CO-COB51: Bancos          # Davivienda
+  CO-COB52: Bancos          # AV Villas
+  CO-COTK7: Bancos          # Grupo Cibest
+  CO-PAK01: Bancos          # Davivienda Group
+  CO-COT29: Bancos          # Grupo Aval
+  CO-PAT07: Bancos          # BAC Holding (Centroamérica)
+  # Otros financieros
+  CO-COJ12: Servicios financieros   # Corficolombiana
+  CO-COR01: Servicios financieros   # BVC
+  CO-COR02: Servicios financieros   # Bolsa Mercantil
+  CO-COW19: Servicios financieros   # Protección
+  CO-COT13: Servicios financieros   # Grupo Sura (seguros, pensiones)
+  CO-COT23: Servicios financieros   # Grupo Bolívar (Davivienda y seguros)
+  # Energía
+  CO-COC04: Petróleo, gas y combustibles   # Ecopetrol
+  CO-CAC13: Petróleo, gas y combustibles   # Canacol
+  CO-COG20: Petróleo, gas y combustibles   # Terpel
+  CO-COE15: Servicios públicos      # ISA
+  CO-COE01: Servicios públicos      # GEB
+  CO-COT60: Servicios públicos      # Celsia
+  CO-COI04: Servicios públicos      # Promigas
+  CO-COI13: Telecomunicaciones      # ETB
+  # Materiales, construcción e industria
+  CO-COD38: Materiales              # Cementos Argos
+  CO-COD06: Materiales              # Manufacturas de Cemento
+  CO-COD12: Materiales              # Paz del Río
+  CO-COD05: Materiales              # Enka
+  CO-COC07: Minería                 # Mineros
+  CO-COF02: Construcción            # Conconcreto
+  CO-COF20: Construcción            # El Cóndor
+  CO-COT09: Holdings diversificados # Grupo Argos (cemento, energía, concesiones)
+  CO-COT46: Holdings diversificados # Valores Simesa
+  # Consumo y servicios
+  CO-COG31: Consumo y comercio      # Éxito
+  CO-COT04: Consumo y comercio      # Nutresa
+  CO-COD04: Consumo y comercio      # Fabricato
+  CO-COO08: Servicios               # Corferias

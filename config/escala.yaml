@@ -16,6 +16,7 @@ escala:
   z_max: 3             # z se limita a ±3 → puntaje entre 1 y 10
   minimo_pares: 8
   minimo_factores_global: 3   # con menos factores con dato, el global queda vacío (N/D)
+  minimo_pares_metrica: 5     # si en el sector hay menos acciones con una métrica, esa métrica se compara con el universo
   bandas:              # para colorear (mínimo de cada banda)
     - {desde: 8.0, nombre: Fuerte}
     - {desde: 6.0, nombre: Bueno}
@@ -63,7 +64,7 @@ factores:
 # no tiene acción listada), con lo último publicado a cada fecha (hasta `tolerancia_dias` de antigüedad
 # de la fecha disponible), sin importar si su acción es líquida; la suma de los bancos de Aval no entra
 # a la referencia para no contar dos veces a sus bancos. Con menos de `minimo_pares` bancos la métrica
-# queda vacía. El resto de factores de un banco (valor, crecimiento, momentum, riesgo) sigue la regla
+# queda vacía. El resto de factores de un banco (valor, momentum, riesgo) sigue la regla
 # general: el sector BC-ESTABLECIMIENTO BANCARIO nunca reúne 8 acciones en el universo líquido, así que
 # se comparan con todo el universo (los holdings, con SOCIEDADES INVERSORAS si ese sector llega a 8).
 #
@@ -80,6 +81,12 @@ bancos:
         rote_12m: {origen: fact_metrica_banco, direccion: 1, respaldo: roe_banco_12m}
         costo_riesgo_12m: {origen: fact_metrica_banco, direccion: -1}
         eficiencia_12m: {origen: fact_metrica_banco, direccion: -1}
+    # Un banco no tiene "ingresos" comparables con los de una empresa: su crecimiento es el de su cartera
+    # y sus depósitos en 12 meses, frente a los demás bancos del CUIF (24-nov-2026)
+    crecimiento:
+      metricas:
+        crecimiento_cartera_12m: {origen: fact_metrica_banco, direccion: 1}
+        crecimiento_depositos_12m: {origen: fact_metrica_banco, direccion: 1}
 
 # Ejes de la matriz: qué factores forman cada uno
 matriz:

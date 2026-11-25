@@ -229,6 +229,7 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
     e = cfg["escala"]
     zmax, minimo = float(e["z_max"]), int(e["minimo_pares"])
     minimo_bancos = int((cfg.get("bancos") or {}).get("minimo_pares", minimo))
+    minimo_metrica = int(e.get("minimo_pares_metrica", 5))
     for c, t in (*_columnas_banco(cfg), *COLUMNAS_BANDAS):
         if c not in p.columns:
             p = p.with_columns(pl.lit(None, t).alias(c))
@@ -263,12 +264,26 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
                 q = q.join(ref, on="fecha", how="left")
                 ventana, en_ref, grupo = ["fecha"], pl.col("_aplica"), pl.lit("bancos")
             else:
-                ref = (q.filter(pl.col("en_universo") & x.is_not_null() & x.is_finite())
-                       .group_by("fecha", "grupo_comparacion")
+                con_dato = q.filter(pl.col("en_universo") & x.is_not_null() & x.is_finite())
+                ref = (con_dato.group_by("fecha", "grupo_comparacion")
                        .agg(x.median().alias("_med"), (x - x.median()).abs().median().alias("_mad"),
                             pl.len().alias("_pares")))
-                q = q.join(ref, on=["fecha", "grupo_comparacion"], how="left")
-                ventana, en_ref, grupo = ["fecha", "grupo_comparacion"], pl.col("en_universo"), pl.col("grupo_comparacion")
+                ref_u = (con_dato.group_by("fecha")
+                         .agg(x.median().alias("_med_u"), (x - x.median()).abs().median().alias("_mad_u"),
+                              pl.len().alias("_pares_u")))
+                # Si en el sector hay menos de `minimo_pares_metrica` acciones con esta métrica (p. ej. el
+                # crecimiento de los holdings cuando a varios se les anula por una escisión), la referencia
+                # de esa métrica es el universo
+                q = q.join(ref, on=["fecha", "grupo_comparacion"], how="left").join(ref_u, on="fecha", how="left")
+                q = q.with_columns(((pl.col("grupo_comparacion") != "universo")
+                                    & (pl.col("_pares").fill_null(0) < minimo_metrica)).alias("_al_universo"))
+                q = q.with_columns(
+                    pl.when(pl.col("_al_universo")).then(pl.col("_med_u")).otherwise(pl.col("_med")).alias("_med"),
+                    pl.when(pl.col("_al_universo")).then(pl.col("_mad_u")).otherwise(pl.col("_mad")).alias("_mad"),
+                    pl.when(pl.col("_al_universo")).then(pl.col("_pares_u")).otherwise(pl.col("_pares")).alias("_pares"),
+                    pl.when(pl.col("_al_universo")).then(pl.lit("universo")).otherwise(pl.col("grupo_comparacion"))
+                    .alias("_grupo_metrica"))
+                ventana, en_ref, grupo = ["fecha", "_grupo_metrica"], pl.col("en_universo"), pl.col("_grupo_metrica")
             q = q.with_columns(
                 pl.when(x.is_finite() & (pl.col("_mad") > 0))
                 .then((d * (x - pl.col("_med")) / (1.4826 * pl.col("_mad"))).clip(-zmax, zmax))

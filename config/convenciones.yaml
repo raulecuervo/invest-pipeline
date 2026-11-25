@@ -46,6 +46,15 @@ fundamentales:
   dias_disponible_pdf_intermedio: 60
   dias_disponible_pdf_cierre: 90
   dias_resubida_pdf: 120          # publicación detectada más de 120 días después del plazo = archivo resubido: vale el plazo
+  # Anexos que un emisor diligencia mal de forma reiterada: no se usan para ese concepto
+  descartar_anexos:
+    - emisor_id: CO-COTK7
+      concepto: utilidad_accion
+      fuente: anexo_141
+      motivo: >-
+        Grupo Cibest: el 141 da 9.355 a jun-2026 contra 4.320 del 211 del mismo corte, 14.338 a sep-2026
+        (una utilidad de 13,8 billones en nueve meses) y 5.867 a sep-2025, más que los 3.886 del año
+        completo. Se usa solo el 211 (junio y diciembre). Revisado 24-nov-2026.
 
 # Valor de la empresa (src/invest/metricas.py): EV = capitalización de todas las clases + deuda financiera
 # − efectivo + interés minoritario. EV/EBITDA, deuda/EBITDA y los márgenes operacionales no describen a

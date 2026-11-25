@@ -67,6 +67,7 @@ tablas:
       nombre_corto: String
       nit: String
       sector_sfc: String
+      sector: String
       pais_id: String
       moneda_estados: String
       estandar_contable: String

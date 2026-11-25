@@ -133,6 +133,56 @@ def _payout(dividendo: pl.DataFrame, upa_anual: pl.DataFrame) -> pl.DataFrame:
             .select("emisor_id", "fecha_corte", "fecha_disponible", "valor", "unidad"))
 
 
+# Una utilidad de 12 meses que incluye una escisión o un reparto de acciones de otra sociedad trae la
+# ganancia contable de la operación (Cementos Argos 2025: UPA de 2.084 contra 155 el año anterior) y
+# su comparación con el año anterior cruza un cambio de estructura. Esas métricas quedan vacías (la
+# fila se conserva, con valor nulo, para que el as-of no recupere un corte más viejo):
+#   - las de 12 meses, si el evento cae en los 12 meses del corte;
+#   - los crecimientos, si cae en los 24 meses que comparan.
+METRICAS_DOCE_MESES = ("upa_12m", "roe_12m", "utilidad_controladora_12m", "roe_consolidado_12m", "roe_anual",
+                       "margen_neto_12m", "payout")
+METRICAS_CRECIMIENTO = ("crecimiento_upa_12m", "crecimiento_ingresos_12m")
+
+
+def eventos_estructura() -> pl.DataFrame:
+    """Escisiones y repartos de acciones de otra sociedad (``config/eventos_capital.yaml``) y sucesiones
+    (``config/sucesiones.yaml``) por emisor."""
+    from invest import distribuciones
+
+    from invest import sucesiones
+
+    filas = [{"emisor_id": "CO-" + str(e["especie"])[:5].upper(), "fecha_evento": distribuciones._fecha(e["fecha_ex"])}
+             for e in (distribuciones.config().get("eventos") or [])]
+    # Una sucesora (Grupo Cibest, mayo de 2025) reporta su primer año desde que existe: su utilidad de ese
+    # año no es de 12 meses (Cibest 2025: 3.886 por acción, frente a unos 6.300 de Bancolombia en 2024)
+    filas += [{"emisor_id": "CO-" + str(e["especie"])[:5].upper(), "fecha_evento": distribuciones._fecha(e["ultimo_dia"])}
+              for e in sucesiones.cargar()]
+    if not filas:
+        return pl.DataFrame(schema={"emisor_id": pl.String, "fecha_evento": pl.Date})
+    return pl.DataFrame(filas).with_columns(pl.col("fecha_evento").cast(pl.Date)).unique()
+
+
+def sin_eventos_de_estructura(df: pl.DataFrame, eventos: pl.DataFrame | None = None) -> pl.DataFrame:
+    """Anula (no borra) las métricas de 12 meses y de crecimiento cuyo periodo incluye un evento."""
+    eventos = eventos if eventos is not None else eventos_estructura()
+    if df.is_empty() or eventos.is_empty():
+        return df
+    meses = (pl.when(pl.col("metrica").is_in(METRICAS_CRECIMIENTO)).then(24)
+             .when(pl.col("metrica").is_in(METRICAS_DOCE_MESES)).then(12).otherwise(None))
+    marcadas = (df.with_row_index("_i").with_columns(meses.alias("_meses")).filter(pl.col("_meses").is_not_null())
+                .join(eventos, on="emisor_id")
+                .filter((pl.col("fecha_evento") <= pl.col("fecha_corte"))
+                        & (pl.col("fecha_evento") > pl.col("fecha_corte").dt.offset_by("-1y"))
+                        | (pl.col("_meses") == 24) & (pl.col("fecha_evento") <= pl.col("fecha_corte"))
+                        & (pl.col("fecha_evento") > pl.col("fecha_corte").dt.offset_by("-2y")))
+                .get_column("_i").unique())
+    if marcadas.is_empty():
+        return df
+    return (df.with_row_index("_i").with_columns(
+        pl.when(pl.col("_i").is_in(marcadas.implode())).then(None).otherwise(pl.col("valor")).alias("valor"))
+        .drop("_i"))
+
+
 def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
     fund = fund if fund is not None else storage.leer_tabla("gold", "fact_fundamental")
     if fund is None or fund.is_empty():
@@ -190,7 +240,7 @@ def fact_metrica_fundamental(fund: pl.DataFrame | None = None) -> pl.DataFrame:
              for (base, m), df in partes.items() if not df.is_empty()]
     if not filas:
         return pl.DataFrame(schema=ESQUEMA)
-    return pl.concat([f.select(list(ESQUEMA)).cast(ESQUEMA) for f in filas]).sort(
+    return sin_eventos_de_estructura(pl.concat([f.select(list(ESQUEMA)).cast(ESQUEMA) for f in filas])).sort(
         ["emisor_id", "fecha_corte", "base", "metrica"])
 
 

@@ -172,8 +172,9 @@ def estado():
 
 @app.get("/api/activos")
 def activos():
-    filas = q("""
-        SELECT a.especie, a.nemotecnico, a.nombre, a.clase_accion, a.activa, e.nombre_corto, e.sector_sfc
+    filas = q(f"""
+        SELECT a.especie, a.nemotecnico, a.nombre, a.clase_accion, a.activa, e.nombre_corto, e.sector_sfc,
+               {_sector()} AS sector
         FROM dim_activo a LEFT JOIN dim_emisor e USING (emisor_id)
         ORDER BY a.activa DESC, e.nombre_corto""")
     return responder(filas)
@@ -199,7 +200,9 @@ def mercado():
         SELECT fecha, valor FROM fact_indice_mercado
         WHERE indice_id = 'universo_igual' AND moneda = 'COP' AND fecha >= (SELECT max(fecha) FROM fact_indice_mercado) - INTERVAL 365 DAY
         ORDER BY fecha""")
-    mapa = q("""SELECT * FROM v_mapa_mercado WHERE capitalizacion IS NOT NULL ORDER BY capitalizacion DESC""")
+    mapa = q(f"""SELECT v.*, {_sector()} AS sector FROM v_mapa_mercado v
+                 LEFT JOIN dim_activo a ON a.especie = v.especie LEFT JOIN dim_emisor e ON e.emisor_id = a.emisor_id
+                 WHERE v.capitalizacion IS NOT NULL ORDER BY v.capitalizacion DESC""")
     hoy = q1("SELECT max(fecha) AS f FROM fact_precio_diario WHERE precio_promedio IS NOT NULL")
     movimientos = []
     if hoy and hoy["f"]:
@@ -246,7 +249,8 @@ def screener():
     # EV/EBITDA y margen EBITDA: solo si la base ya se reconstruyó con ellos (invest modelo)
     if _graf_tabla_existe("fact_valoracion", ("ev_ebitda", "deuda_neta_ebitda")) and \
             _graf_tabla_existe("fact_metrica_fundamental", ("metrica", "valor", "fecha_corte", "fecha_disponible")):
-        filas = q("""SELECT m.*, a.nemotecnico, e.nombre_corto, v.ev_ebitda, v.deuda_neta_ebitda, mg.margen_ebitda_12m
+        filas = q(f"""SELECT m.*, a.nemotecnico, e.nombre_corto, {_sector()} AS sector, v.ev_ebitda, v.deuda_neta_ebitda,
+                            mg.margen_ebitda_12m
                      FROM fact_matriz m
                      LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
                      LEFT JOIN (SELECT especie, ev_ebitda, deuda_neta_ebitda FROM fact_valoracion
@@ -257,7 +261,7 @@ def screener():
                                 GROUP BY emisor_id) mg ON mg.emisor_id = m.emisor_id
                      WHERE m.fecha = ? ORDER BY m.puntaje_global DESC NULLS LAST""", [fecha["f"]] * 4)
     else:
-        filas = q("""SELECT m.*, a.nemotecnico, e.nombre_corto FROM fact_matriz m
+        filas = q(f"""SELECT m.*, a.nemotecnico, e.nombre_corto, {_sector()} AS sector FROM fact_matriz m
                      LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = m.emisor_id
                      WHERE m.fecha = ? ORDER BY m.puntaje_global DESC NULLS LAST""", [fecha["f"]])
     corrida = q("SELECT screener_id, especie, nueva FROM fact_screener_corrida WHERE fecha = ?", [fecha["f"]])
@@ -279,9 +283,11 @@ def screener():
 
 @app.get("/api/matriz")
 def matriz():
-    filas = q("""SELECT especie, nemotecnico, emisor_corto, sector_sfc, en_universo, puntaje_fundamental,
-                        puntaje_tecnico, puntaje_global, cuadrante, estado, decision, capitalizacion, tercio_validado
-                 FROM v_ficha_actual WHERE puntaje_fundamental IS NOT NULL""")
+    filas = q(f"""SELECT f.especie, f.nemotecnico, f.emisor_corto, f.sector_sfc, {_sector()} AS sector, f.en_universo,
+                        f.puntaje_fundamental, f.puntaje_tecnico, f.puntaje_global, f.cuadrante, f.estado, f.decision,
+                        f.capitalizacion, f.tercio_validado
+                 FROM v_ficha_actual f LEFT JOIN dim_emisor e ON e.emisor_id = f.emisor_id
+                 WHERE f.puntaje_fundamental IS NOT NULL""")
     validacion = q("SELECT factor, veredicto, ic_medio, ic_t, exceso_superior_neto, exceso_superior_neto_t "
                    "FROM fact_validacion_factor ORDER BY veredicto DESC, factor")
     return responder({"filas": filas, "validacion": validacion})
@@ -318,12 +324,17 @@ def ficha(especie: str):
                    [cab["emisor_id"], especie])
     metricas = q("""SELECT metrica, base, fecha_corte, fecha_disponible, valor, unidad FROM fact_metrica_fundamental
                     WHERE emisor_id = ? ORDER BY fecha_corte DESC""", [cab["emisor_id"]])
-    ev = "ev_ebitda, deuda_neta_ebitda" if _graf_tabla_existe("v_ficha_actual", ("ev_ebitda", "deuda_neta_ebitda")) \
+    ev = "f.ev_ebitda, f.deuda_neta_ebitda" if _graf_tabla_existe("v_ficha_actual", ("ev_ebitda", "deuda_neta_ebitda")) \
         else "NULL AS ev_ebitda, NULL AS deuda_neta_ebitda"
-    pares = q(f"""SELECT especie, nemotecnico, emisor_corto, precio, p_vl, p_u, roe_12m, rendimiento_dividendo_12m,
-                        {ev}, puntaje_global, en_universo
-                 FROM v_ficha_actual WHERE sector_sfc = ? OR especie = ? ORDER BY capitalizacion DESC NULLS LAST""",
-                 [cab["sector_sfc"], especie])
+    # Pares: las acciones del mismo sector por negocio (config/sectores.yaml)
+    sector = _sector()
+    cab["sector"] = (q1(f"SELECT {sector} AS s FROM dim_emisor e WHERE e.emisor_id = ?", [cab["emisor_id"]]) or {}).get("s")
+    pares = q(f"""SELECT f.especie, f.nemotecnico, f.emisor_corto, f.precio, f.p_vl, f.p_u, f.roe_12m,
+                        f.rendimiento_dividendo_12m, {ev},
+                        f.puntaje_global, f.en_universo
+                 FROM v_ficha_actual f LEFT JOIN dim_emisor e ON e.emisor_id = f.emisor_id
+                 WHERE {sector} = ? OR f.especie = ? ORDER BY f.capitalizacion DESC NULLS LAST""",
+                 [cab["sector"], especie])
     avisos = q1("SELECT alertas FROM fact_ficha_accion WHERE especie = ?", [especie])
     return responder({"cabecera": cab, "auditoria": auditoria, "tecnico": tecnico, "riesgo": riesgo, "eventos": eventos,
                       "calendario": calendario, "metricas": metricas, "pares": pares,
@@ -434,9 +445,10 @@ def _contexto_bandas(cfg: dict) -> dict:
 def valoracion_bandas(indicador: str = "p_vl", ventana: str = "5a"):
     """Todas las especies con bandas al último día para un indicador y una ventana."""
     indicador, ventana, cfg = _parametros_bandas(indicador, ventana)
-    filas = q("""
+    sector = _sector()
+    filas = q(f"""
         SELECT b.especie, a.nemotecnico, e.nombre_corto, a.nombre AS nombre_sfc,
-               coalesce(a.sector_sfc, e.sector_sfc) AS sector_sfc, coalesce(m.en_universo, false) AS en_universo,
+               coalesce(a.sector_sfc, e.sector_sfc) AS sector_sfc, {sector} AS sector, coalesce(m.en_universo, false) AS en_universo,
                b.fecha, b.actual, b.fecha_actual, b.media, b.desviacion, b.z, b.percentil, b.minimo, b.maximo,
                b.n_obs, b.sesiones, b.fecha_desde, b.cobertura, b.suficiente, b.quiebre, b.tipo_quiebre,
                b.recortada, b.aviso
@@ -447,8 +459,8 @@ def valoracion_bandas(indicador: str = "p_vl", ventana: str = "5a"):
         WHERE b.indicador = ? AND b.ventana = ?
         ORDER BY b.z NULLS LAST""", [indicador, ventana])
     if not filas:  # sin v_ficha_actual (antes de los puntajes) la consulta de arriba no corre
-        filas = q("""SELECT b.*, a.nemotecnico, e.nombre_corto, a.nombre AS nombre_sfc,
-                            coalesce(a.sector_sfc, e.sector_sfc) AS sector_sfc, false AS en_universo
+        filas = q(f"""SELECT b.*, a.nemotecnico, e.nombre_corto, a.nombre AS nombre_sfc,
+                            coalesce(a.sector_sfc, e.sector_sfc) AS sector_sfc, {sector} AS sector, false AS en_universo
                      FROM fact_banda_valoracion b LEFT JOIN dim_activo a ON a.especie = b.especie
                      LEFT JOIN dim_emisor e ON e.emisor_id = b.emisor_id
                      WHERE b.indicador = ? AND b.ventana = ? ORDER BY b.z NULLS LAST""", [indicador, ventana])
@@ -700,6 +712,14 @@ GRAF_INDICES: dict[str, dict] = {
 }
 
 
+def _sector(alias: str = "e") -> str:
+    """Expresión SQL del sector por negocio del emisor (config/sectores.yaml), o el de la SFC si la base
+    aún no tiene la columna (antes de correr invest dims)."""
+    if _graf_tabla_existe("dim_emisor", ("sector",)):
+        return f"coalesce({alias}.sector, {alias}.sector_sfc)"
+    return f"{alias}.sector_sfc"
+
+
 def _graf_tabla_existe(tabla: str, columnas: tuple[str, ...] = ()) -> bool:
     filas = q("SELECT column_name FROM information_schema.columns WHERE table_name = ?", [tabla])
     nombres = {f["column_name"] for f in filas}
@@ -787,7 +807,7 @@ def graf_resolver(tokens: list[str]) -> tuple[list[dict], list[str]]:
                                "nombre": GRAF_INDICES[i]["nombre"], "sector": None})
             continue
         especie = resolver_especie(t)
-        fila = q1("""SELECT a.especie, a.nemotecnico, e.nombre_corto, a.nombre, e.sector_sfc
+        fila = q1(f"""SELECT a.especie, a.nemotecnico, e.nombre_corto, a.nombre, {_sector()} AS sector_sfc
                      FROM dim_activo a LEFT JOIN dim_emisor e USING (emisor_id) WHERE a.especie = ?""", [especie])
         if fila is None:
             desconocidas.append(t)
@@ -948,7 +968,9 @@ def tablero_validado():
             "<p>Se genera con <code>uv run invest ficha</code> (la tarea diaria del PC lo corre después de "
             "<code>invest factores</code>). Luego vuelva a abrir este enlace.</p><p><a style='color:#6E9BFF' href='/#/matriz'>"
             "Volver a la matriz</a></p></body>", status_code=404)
-    return FileResponse(archivo)
+    # Abierto desde el aplicativo, el tablero usa su tema oscuro (el archivo solo sigue al del sistema)
+    html = archivo.read_text(encoding="utf-8").replace('<html lang="es">', '<html lang="es" data-theme="dark">', 1)
+    return HTMLResponse(html)
 
 
 app.mount("/static", StaticFiles(directory=ESTATICOS), name="static")

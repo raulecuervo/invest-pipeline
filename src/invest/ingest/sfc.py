@@ -324,6 +324,9 @@ class ConectorSFCPrecios(Conector):
             return []
         if antecesoras:
             self.sin_novedades = False
+            if sin_reporte:
+                # La nota "sin reporte nuevo" sigue siendo cierta, pero esta corrida sí trae filas
+                self.notas.append(f"se cargó la historia de {len(antecesoras)} especie(s) antecesora(s) de una sucesión")
         historica = desde.year < hoy.year
         sufijos = self._sufijos(desde, hasta, hoy.year)
         operaciones = {} if self.forzado else ultima_operacion_segun_ficha()

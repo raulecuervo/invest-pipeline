@@ -221,6 +221,10 @@ function mapaArbol(caja, items, op) {
     if (r.w > r.etiqueta.length * 7.4 + 16 && r.h > 34) {
       g.append(sv("text", { x: r.x + 10, y: r.y + 22, class: "et" }, r.etiqueta));
       if (r.h > 52 && r.w > (r.sub || "").length * 6.4 + 16) g.append(sv("text", { x: r.x + 10, y: r.y + 40, class: "et2" }, r.sub));
+    } else if (r.w > 34 && r.h > 20) {
+      // Recuadro pequeño: el nombre recortado en letra menor (completo en el tooltip)
+      const n = Math.floor((r.w - 12) / 6.4);
+      if (n >= 3) g.append(sv("text", { x: r.x + 6, y: r.y + 15, class: "et2" }, r.etiqueta.length > n ? r.etiqueta.slice(0, n - 1) + "…" : r.etiqueta));
     }
     g.addEventListener("pointermove", (ev) => mostrarTip(ev, r.etiqueta, r.filas));
     g.addEventListener("pointerleave", ocultarTip);
@@ -254,17 +258,28 @@ function dispersion(caja, puntos, op) {
   const yM = (Y(1) + Y(10)) / 2;
   s.append(sv("text", { x: 12, y: yM, "text-anchor": "middle", class: "et2", transform: `rotate(-90 12 ${yM})` }, op.ejeY));
   for (const [qx, qy, a, t] of op.cuadrantes || []) s.append(sv("text", { x: X(qx), y: Y(qy), "text-anchor": a }, t));
+  // Rótulos sin choques: para cada punto se prueban posiciones a la derecha y a la izquierda, a la misma
+  // altura y desplazadas; si ninguna queda libre (de otros rótulos y de los puntos), el rótulo se omite
+  // y el nombre queda en el tooltip
   const ocupadas = [];
+  const centros = puntos.map((p) => ({ x: X(p.x), y: Y(p.y) }));
+  const libre = (x0, x1, y, cx, cy) => !ocupadas.some((o) => o.x0 < x1 && o.x1 > x0 && Math.abs(o.y - y) < 12)
+    && !centros.some((c) => (c.x !== cx || c.y !== cy) && c.x + 7 > x0 && c.x - 7 < x1 && Math.abs(c.y - (y - 4)) < 11)
+    && x0 >= m.l && x1 <= W - m.r;
   for (const p of [...puntos].sort((a, b) => Y(a.y) - Y(b.y))) {
     const cx = X(p.x), cy = Y(p.y), ancho = p.etiqueta.length * 6.6;
-    const izq = cx + 10 + ancho > W - m.r;
-    let ly = cy + 4;
-    const x0 = izq ? cx - 10 - ancho : cx + 10, x1 = x0 + ancho;
-    for (let i = 0; i < 10 && ocupadas.some((o) => o.x0 < x1 && o.x1 > x0 && Math.abs(o.y - ly) < 12); i++) ly += 12;
-    ocupadas.push({ x0, x1, y: ly });
-    const g = sv("g", { style: "cursor:pointer", tabindex: 0 });
-    g.append(sv("circle", { cx, cy, r: 14, fill: "transparent" }), sv("circle", { cx, cy, r: 6, fill: p.color, stroke: "#0B1220", "stroke-width": 2 }),
-      sv("text", { x: izq ? cx - 10 : cx + 10, y: ly, "text-anchor": izq ? "end" : "start", class: "et2" }, p.etiqueta));
+    let pos = null;
+    for (const dy of [0, -12, 12, -24, 24]) {
+      for (const izq of [false, true]) {
+        const x0 = izq ? cx - 10 - ancho : cx + 10, ly = cy + 4 + dy;
+        if (libre(x0, x0 + ancho, ly, cx, cy)) { pos = { izq, ly, x0 }; break; }
+      }
+      if (pos) break;
+    }
+    if (pos) ocupadas.push({ x0: pos.x0, x1: pos.x0 + ancho, y: pos.ly });
+    const g = sv("g", { style: "cursor:pointer", tabindex: 0, "aria-label": p.etiqueta });
+    g.append(sv("circle", { cx, cy, r: 14, fill: "transparent" }), sv("circle", { cx, cy, r: 6, fill: p.color, stroke: "#0B1220", "stroke-width": 2 }));
+    if (pos) g.append(sv("text", { x: pos.izq ? cx - 10 : cx + 10, y: pos.ly, "text-anchor": pos.izq ? "end" : "start", class: "et2" }, p.etiqueta));
     g.addEventListener("pointermove", (ev) => mostrarTip(ev, p.etiqueta, p.filas));
     g.addEventListener("pointerleave", ocultarTip);
     g.addEventListener("click", () => { location.hash = p.href; });
@@ -318,6 +333,8 @@ function csv(nombre, columnas, filas) {
 const panel = (titulo, ...hijos) => el("section", { class: "panel" }, titulo ? el("h2", {}, titulo) : null, ...hijos);
 const kpi = (l, v, d, clase, varId) => el("div", {}, el("div", { class: "l" }, l, varId ? info(varId) : null), el("div", { class: "v" }, v), d ? el("div", { class: "d " + (clase || "") }, d) : null);
 const cargando = () => el("div", { class: "vacio" }, "Cargando…");
+// Recorta un texto largo en el último espacio antes del límite y agrega "…" (el texto completo va en el title)
+const recortar = (t, n) => t.length <= n ? t : t.slice(0, t.lastIndexOf(" ", n) > n * 0.6 ? t.lastIndexOf(" ", n) : n).trimEnd() + "…";
 
 // ------------------------------------------------------------------ páginas
 const paginas = {};
@@ -334,7 +351,7 @@ paginas.mercado = async (v) => {
     kpi("TRM", trm ? "$ " + num(trm.valor, 2) : "—", trm ? "vigente el " + fecha(trm.fecha) : null, "", "trm_usd_cop"),
     kpi("Tasa BanRep", tpm ? pp(tpm.valor) : "—", tpm ? "al " + fecha(tpm.fecha) : null, "", "banrep_59"),
     kpi("Inflación anual", inf ? pp(inf.valor) : "—", inf ? fechaCorta(inf.fecha) : null, "", "inflacion_co_12m"),
-    kpi("MSCI COLCAP", col ? num(col.valor, 2) : "—", col && delta(col, (x) => (x >= 0 ? "+" : "") + num(x / col.anterior * 100, 2) + " %"), claseD(col)),
+    kpi("MSCI COLCAP", col ? num(col.valor, 2) : "—", col && delta(col, (x) => (x >= 0 ? "+" : "") + num(x / col.anterior * 100, 2) + " % en la sesión del " + fecha(col.fecha)), claseD(col)),
     kpi("Tesoro EE. UU. 10 años", t10 ? pp(t10.valor) : "—", vix ? "VIX " + num(vix.valor, 1) : null));
   v.append(ind);
 
@@ -411,7 +428,7 @@ paginas.screener = async (v) => {
   v.append(el("div", { class: "encabezado" }, el("div", {}, el("h1", {}, "Screener"),
     el("div", { class: "sub" }, `Corrida del ${fecha(d.fecha)}` + (d.fecha_anterior ? ` · comparada con la del ${fecha(d.fecha_anterior)}` : "") + " · puntajes informativos"))));
   const botones = el("div", { class: "grupo", role: "group", "aria-label": "Screeners predefinidos" });
-  const sectores = [...new Set(d.filas.map((r) => r.sector_sfc).filter(Boolean))].sort();
+  const sectores = [...new Set(d.filas.map((r) => r.sector || r.sector_sfc).filter(Boolean))].sort();
   const selSector = el("select", { "aria-label": "Sector", style: { height: "32px", background: "var(--fondo)", border: "1px solid var(--borde-boton)", borderRadius: "6px" }, onchange: (e) => { sector = e.target.value; pintar(); } },
     el("option", { value: "" }, "Todos los sectores"), sectores.map((s) => el("option", { value: s }, s)));
   const chkU = el("input", { type: "checkbox", checked: true, onchange: (e) => { soloUniverso = e.target.checked; pintar(); } });
@@ -420,7 +437,7 @@ paginas.screener = async (v) => {
   const caja = el("div");
   const cols = [
     { k: "nemotecnico", t: "Acción", izq: true, f: (r) => el("a", { href: "#/ficha/" + r.especie, style: { fontWeight: 600 } }, r.nemotecnico || r.nombre_corto || r.especie), v: (r) => r.nemotecnico || r.especie },
-    { k: "sector_sfc", t: "Sector", izq: true, f: (r) => (r.sector_sfc || "—").slice(0, 28) },
+    { k: "sector", t: "Sector", izq: true, f: (r) => (r.sector || r.sector_sfc || "—").slice(0, 28), v: (r) => r.sector || r.sector_sfc || "" },
     { k: "puntaje_global", t: "Global", f: (r) => notaPuntaje(r.puntaje_global), info: "puntaje_global" },
     { k: "puntaje_valor", t: "Valor", f: (r) => notaPuntaje(r.puntaje_valor) },
     { k: "puntaje_calidad", t: "Calidad", f: (r) => notaPuntaje(r.puntaje_calidad) },
@@ -441,7 +458,7 @@ paginas.screener = async (v) => {
   const pintar = () => {
     let filas = d.filas;
     if (elegido) { const s = d.screeners.find((x) => x.id === elegido); filas = filas.filter((r) => s.especies.includes(r.especie)); }
-    if (sector) filas = filas.filter((r) => r.sector_sfc === sector);
+    if (sector) filas = filas.filter((r) => (r.sector || r.sector_sfc) === sector);
     if (soloUniverso && !elegido) filas = filas.filter((r) => r.en_universo);
     if (minimo) filas = filas.filter((r) => (r.puntaje_global ?? 0) >= minimo);
     const s = d.screeners.find((x) => x.id === elegido);
@@ -504,7 +521,7 @@ paginas.ficha = async (v, especie) => {
   const factores = Object.fromEntries(d.auditoria.filter((a) => a.nivel !== "metrica").map((a) => [a.elemento, a]));
   const cab = el("section", { class: "panel", style: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "12px 28px" } },
     el("div", {}, el("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, el("h1", {}, c.nombre_corto || c.emisor_nombre), c.nemotecnico ? el("span", { class: "chip gris" }, c.nemotecnico) : null),
-      el("div", { class: "sub" }, `${c.sector_sfc || "Sin sector"} · ${c.clase_accion || ""} · bursatilidad ${c.iba_categoria || "—"}${c.en_universo ? " · en el universo líquido" : " · fuera del universo"}`)),
+      el("div", { class: "sub" }, `${c.sector || c.sector_sfc || "Sin sector"} · ${c.clase_accion || ""} · bursatilidad ${c.iba_categoria || "—"}${c.en_universo ? " · en el universo líquido" : " · fuera del universo"}`)),
     el("div", { style: { display: "flex", alignItems: "baseline", gap: "8px" } }, el("span", { style: { fontSize: "26px", fontWeight: 700 } }, num(c.precio, c.precio < 100 ? 2 : 0)), el("span", { class: "nota" }, "COP al " + fecha(c.fecha))),
     el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, el("span", { class: "nota-puntaje " + banda(c.puntaje_global), style: { fontSize: "17px", padding: "4px 10px" } }, c.puntaje_global == null ? "N/D" : num(c.puntaje_global, 1)),
       el("span", { class: "nota" }, "global de 10", el("br"), "vs " + (c.grupo_comparacion === "universo" ? "el universo" : c.grupo_comparacion)), info("puntaje_global")),
@@ -577,7 +594,7 @@ paginas.ficha = async (v, especie) => {
 
   const TIPOS = { dividendo_ex: "Fecha ex", dividendo_pago: "Pago", asamblea_convocatoria: "Convocatoria", asamblea_decision: "Asamblea" };
   v.append(el("div", { class: "fila" },
-    panel("¿Por qué se mueve? · información relevante", d.eventos.length ? d.eventos.map((e) => el("div", { class: "evento" }, el("span", { class: "f" }, fecha(e.fecha)), el("span", {}, (e.resumen || e.tema || "").slice(0, 220)))) : el("div", { class: "vacio" }, "Sin eventos.")),
+    panel("¿Por qué se mueve? · información relevante", d.eventos.length ? d.eventos.map((e) => el("div", { class: "evento" }, el("span", { class: "f" }, fecha(e.fecha)), el("span", { title: e.resumen || "" }, recortar(e.resumen || e.tema || "", 220)))) : el("div", { class: "vacio" }, "Sin eventos.")),
     panel("Dividendos y calendario", d.calendario.length ? tabla([
       { k: "fecha", t: "Fecha", izq: true, f: (r) => fecha(r.fecha) + (r.estimada ? " (est.)" : "") },
       { k: "tipo", t: "Tipo", izq: true, f: (r) => TIPOS[r.tipo] || r.tipo },
@@ -1107,7 +1124,7 @@ paginas.valoracion = async (v, pedida) => {
     return [
       { k: "nemotecnico", t: "Acción", izq: true, f: (r) => el("a", { href: "#/ficha/" + r.especie, style: { fontWeight: 600 }, onclick: (e) => e.stopPropagation() }, r.nemotecnico || r.nombre_corto || r.especie), v: (r) => r.nemotecnico || r.especie },
       { k: "nombre_corto", t: "Nombre", izq: true, f: (r) => (r.nombre_corto || r.nombre_sfc || "—").slice(0, 26), v: (r) => r.nombre_corto || r.nombre_sfc || "" },
-      { k: "sector_sfc", t: "Sector", izq: true, f: (r) => (r.sector_sfc || "—").slice(0, 24), v: (r) => r.sector_sfc || "" },
+      { k: "sector", t: "Sector", izq: true, f: (r) => (r.sector || r.sector_sfc || "—").slice(0, 24), v: (r) => r.sector || r.sector_sfc || "" },
       { k: "actual", t: ind + " actual", f: (r) => num(r.actual, 2), info: d.indicador },
       { k: "media", t: "Media", f: (r) => num(r.media, 2), info: "bandas_valoracion" },
       { k: "desviacion", t: "Desv.", f: (r) => num(r.desviacion, 2) },
@@ -1131,12 +1148,12 @@ paginas.valoracion = async (v, pedida) => {
     if (desplazar) panelGrafica.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const pintar = () => {
-    const sectores = [...new Set(d.filas.map((r) => r.sector_sfc).filter(Boolean))].sort();
+    const sectores = [...new Set(d.filas.map((r) => r.sector || r.sector_sfc).filter(Boolean))].sort();
     if (sector && !sectores.includes(sector)) sector = "";
     selSector.replaceChildren(el("option", { value: "" }, "Todos los sectores"), ...sectores.map((x) => el("option", { value: x }, x)));
     selSector.value = sector;
     let filas = d.filas;
-    if (sector) filas = filas.filter((r) => r.sector_sfc === sector);
+    if (sector) filas = filas.filter((r) => (r.sector || r.sector_sfc) === sector);
     if (soloUniverso) filas = filas.filter((r) => r.en_universo);
     const conZ = filas.filter((r) => r.z != null).length;
     sub.textContent = d.fecha ? `Bandas al ${fecha(d.fecha)} · ${filas.length} acciones, ${conZ} con z (cobertura de ${pct(d.cobertura_minima, 0)} o más)` +
@@ -1375,7 +1392,9 @@ function grafDibujar(caja, d, estilo, op) {
     for (const f of fin) {
       const e = estilo(f.se), xf = X(f.i);
       s.append(sv("circle", { cx: xf, cy: f.y, r: 3.5, fill: e.color, stroke: "#111A2C", "stroke-width": 2 }));
-      const nombre = f.se.nombre.length > 16 ? f.se.nombre.slice(0, 15) + "…" : f.se.nombre;
+      // Al final de la línea va el nemotécnico (distingue la ordinaria de la preferencial); el nombre, en la leyenda
+      const corto = f.se.nemotecnico || f.se.nombre;
+      const nombre = corto.length > 16 ? corto.slice(0, 15) + "…" : corto;
       s.append(sv("text", { x: mg.l + pw + 8, y: f.ty + 4, class: "et2" }, nombre));
     }
   }
