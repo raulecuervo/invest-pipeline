@@ -64,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     grupo.add_argument("--todas-actions", action="store_true")
     grupo.add_argument("--todas-pc", action="store_true")
 
-    sub.add_parser("salud", help="Reporte de salud de datos")
+    ps = sub.add_parser("salud", help="Reporte de salud de datos")
+    ps.add_argument("--solo", choices=["actions", "pc"],
+                    help="el código de salida solo cuenta las fuentes que corren ahí (las demás se muestran igual)")
 
     pdiv = sub.add_parser("dividendos", help="Extrae dividendos de los PDF con dos agentes")
     pdiv.add_argument("--max", type=int, help="máximo de documentos en esta corrida")
@@ -294,6 +296,15 @@ def main(argv: list[str] | None = None) -> int:
         with __import__("polars").Config(tbl_rows=50, tbl_cols=10, fmt_str_lengths=40):
             print(df.select(["fuente_id", "ultimo_dato", "rezago_dias_habiles", "estado"]))
         malos = df.filter((df["estado"] != "al día") & ~df["estado"].str.starts_with("manual"))
+        if a.solo:
+            # En GitHub Actions, una fuente del PC atrasada (p. ej. la carga NIIF) no es una falla de la ingesta
+            # de la nube: se avisa, pero no se marca la corrida en rojo
+            propias = {f["id"] for f in catalogo_fuentes() if f.get("ejecuta_en") == a.solo}
+            ajenas = malos.filter(~malos["fuente_id"].is_in(list(propias)))
+            if not ajenas.is_empty():
+                print(f"Aviso: atrasadas fuera de {a.solo} (no cuentan para el resultado): "
+                      + ", ".join(ajenas["fuente_id"].to_list()))
+            malos = malos.filter(malos["fuente_id"].is_in(list(propias)))
         return 0 if malos.is_empty() else 1
 
     return 0

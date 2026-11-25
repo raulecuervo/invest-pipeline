@@ -732,6 +732,7 @@ paginas.cartera = async (v, pedida) => {
     { k: "ganancia_no_realizada_cop", t: "Ganancia", f: (r) => el("span", { class: r.ganancia_no_realizada_cop >= 0 ? "sube" : "baja" }, pesos(r.ganancia_no_realizada_cop)) },
     { k: "puntaje_global", t: "Puntaje", f: (r) => r.especie === "EFECTIVO" ? "" : notaPuntaje(r.puntaje_global) },
   ], d.posiciones, { orden: "valor_cop" })));
+  if (d.asignacion.some((a) => a.peso_objetivo != null)) v.append(calculadoraRebalanceo(eleccion.actual));
   requestAnimationFrame(() => {
     mapaArbol(cajaMapa, d.posiciones.map((p) => ({ valor: p.valor_cop, etiqueta: p.especie === "EFECTIVO" ? "Efectivo" : (p.nemotecnico || p.nombre_corto || p.especie),
       sub: pct(p.peso) + (p.retorno_12m != null ? " · " + pct(p.retorno_12m) : ""), r: p, href: p.especie === "EFECTIVO" ? null : "#/ficha/" + p.especie,
@@ -740,6 +741,50 @@ paginas.cartera = async (v, pedida) => {
     lineas(cajaValor, [{ nombre: "Valor", color: "#6E9BFF", puntos: d.valor.map((r) => ({ x: r.fecha, y: r.valor })) }], { alto: 220, fy: pesos, titulo: "Valor diario de la cartera" });
   });
 };
+
+// Calculadora de rebalanceo: aritmética sobre la asignación objetivo del perfil (no es una recomendación)
+function calculadoraRebalanceo(carteraId) {
+  const aporte = el("input", { type: "number", step: "100000", value: "0", class: "graf-select", style: { width: "150px" }, "aria-label": "Aporte o retiro en pesos" });
+  const modo = el("select", { class: "graf-select", "aria-label": "Modo" },
+    el("option", { value: "completo" }, "Volver al objetivo (puede vender)"),
+    el("option", { value: "solo_aportes" }, "Solo con el aporte (sin vender)"));
+  const comision = el("input", { type: "number", step: "0.05", min: "0", value: "0.3", class: "graf-select", style: { width: "80px" }, "aria-label": "Comisión en porcentaje" });
+  const salida = el("div");
+  const calcular = async () => {
+    salida.replaceChildren(cargando());
+    try {
+      const r = await api(`/api/cartera/${encodeURIComponent(carteraId)}/rebalanceo?aporte=${Number(aporte.value) || 0}&modo=${modo.value}&comision=${(Number(comision.value) || 0) / 100}`);
+      const nombreClase = (c) => c === "EFECTIVO" ? "Efectivo" : c;
+      salida.replaceChildren(
+        r.avisos.length ? el("div", { class: "aviso" }, r.avisos.join(" ")) : null,
+        tabla([
+          { k: "clase_activo_id", t: "Clase", izq: true, f: (c) => nombreClase(c.clase_activo_id) },
+          { k: "peso_actual", t: "Hoy", f: (c) => pct(c.peso_actual) },
+          { k: "peso_objetivo", t: "Objetivo", f: (c) => pct(c.peso_objetivo) },
+          { k: "monto", t: "Movimiento", f: (c) => el("span", { class: c.monto >= 0 ? "sube" : "baja" }, (c.monto >= 0 ? "+" : "") + pesos(c.monto)) },
+          { k: "peso_despues", t: "Después", f: (c) => pct(c.peso_despues) },
+        ], r.clases),
+        r.operaciones.length ? tabla([
+          { k: "nombre", t: "Posición", izq: true, f: (o) => el("a", { href: "#/ficha/" + o.especie }, o.nombre || o.especie) },
+          { k: "operacion", t: "Movimiento", izq: true, f: (o) => o.operacion === "aumentar" ? "Aumentar" : "Reducir" },
+          { k: "cantidad", t: "Acciones", f: (o) => num(o.cantidad, 0) },
+          { k: "precio", t: "Precio", f: (o) => num(o.precio, 0) },
+          { k: "monto", t: "Monto", f: (o) => pesos(Math.abs(o.monto)) },
+          { k: "comision", t: "Comisión est.", f: (o) => pesos(o.comision) },
+        ], r.operaciones, { orden: "monto" }) : el("div", { class: "vacio" }, "Nada que mover: la cartera ya está en su objetivo con este modo."),
+        el("p", { class: "desc" }, `Costo estimado ${pesos(r.costo_estimado)} · valor después ${pesos(r.valor_despues)}. Dentro de cada clase el monto se reparte entre las posiciones que ya tiene, en proporción a su valor y en acciones enteras; no se eligen acciones nuevas. Es un cálculo sobre el objetivo de su perfil con los precios del ${fecha(r.fecha)}, no una recomendación; el GMF y la retención no están incluidos.`));
+    } catch (e) {
+      salida.replaceChildren(el("div", { class: "aviso" }, e.message));
+    }
+  };
+  return panel("Calculadora de rebalanceo",
+    el("div", { class: "graf-controles" },
+      el("label", { class: "graf-check" }, "Aporte (+) o retiro (−), en pesos", aporte),
+      el("label", { class: "graf-check" }, "Modo", modo),
+      el("label", { class: "graf-check" }, "Comisión %", comision),
+      el("button", { type: "button", class: "boton", onclick: calcular }, "Calcular")),
+    salida);
+}
 
 // Formularios genéricos sobre /api/usuario/<tabla>
 function formulario(campos, alGuardar, inicial = {}) {

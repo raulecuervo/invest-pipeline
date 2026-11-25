@@ -495,6 +495,37 @@ def ficha_bandas(especie: str, indicador: str = "p_vl", ventana: str = "5a"):
 
 
 # --------------------------------------------------------------------------- cartera
+@app.get("/api/cartera/{cartera_id}/rebalanceo")
+def cartera_rebalanceo(cartera_id: str, aporte: float = 0.0, modo: str = "completo", comision: float = 0.0):
+    """Montos por clase y por posición para volver a la asignación objetivo del perfil (aritmética, no
+    recomendación). ``comision`` en fracción (0,003 = 0,3 %)."""
+    from invest import rebalanceo
+
+    f = (q1("SELECT max(fecha) AS f FROM fact_posicion WHERE cartera_id = ?", [cartera_id]) or {}).get("f")
+    if f is None:
+        raise HTTPException(404, "La cartera no tiene posiciones")
+    posiciones = q("""
+        SELECT p.especie, p.cantidad, p.precio, p.valor_cop,
+               CASE WHEN p.especie = 'EFECTIVO' THEN 'EFECTIVO' ELSE coalesce(a.clase_activo_id, 'OTRO') END AS clase_activo_id,
+               coalesce(e.nombre_corto, a.emisor_id) AS emisor, coalesce(a.nemotecnico, e.nombre_corto, p.especie) AS nombre
+        FROM fact_posicion p LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = a.emisor_id
+        WHERE p.cartera_id = ? AND p.fecha = ?""", [cartera_id, f])
+    asignacion = q("""SELECT clase_activo_id, peso_objetivo FROM fact_asignacion
+                      WHERE cartera_id = ? AND fecha = ? AND peso_objetivo IS NOT NULL""", [cartera_id, f])
+    if not asignacion:
+        raise HTTPException(409, "Esta cartera no tiene un perfil con asignación objetivo: asígnele uno en Carteras y transacciones")
+    maximo = None
+    if _graf_tabla_existe("dim_perfil", ("maximo_por_emisor",)) and _graf_tabla_existe("dim_cartera", ("perfil_id",)):
+        maximo = (q1("""SELECT p.maximo_por_emisor AS m FROM dim_cartera c JOIN dim_perfil p ON p.perfil_id = c.perfil_id
+                        WHERE c.cartera_id = ? ORDER BY p.version DESC LIMIT 1""", [cartera_id]) or {}).get("m")
+    try:
+        r = rebalanceo.calcular(posiciones, {a["clase_activo_id"]: a["peso_objetivo"] for a in asignacion},
+                                aporte=aporte, modo=modo, comision=comision, maximo_por_emisor=maximo)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return responder({"fecha": f, **r})
+
+
 @app.get("/api/cartera/{cartera_id}")
 def cartera_vista(cartera_id: str):
     fecha = q1("SELECT max(fecha) AS f FROM fact_posicion WHERE cartera_id = ?", [cartera_id])

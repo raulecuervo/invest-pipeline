@@ -36,19 +36,19 @@ jobs:
     timeout-minutes: 90   # la primera carga histórica de la SFC baja unos 350 archivos
     steps:
       - name: Código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: invest-pipeline
 
       - name: Datos (repo privado)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ vars.DATA_REPO }}
           token: ${{ secrets.DATA_REPO_TOKEN }}
           path: invest-data
 
       - name: Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -93,7 +93,7 @@ jobs:
         # Fuentes con bronze_en_repositorio: false (p. ej. los 117 .xls diarios de la SFC) no se
         # versionan en invest-data; se guardan aquí. Solo se permite para fuentes redistribuibles.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: bronze-efimero-${{ github.run_id }}
           path: invest-data/bronze/_efimero/
@@ -120,7 +120,7 @@ jobs:
         working-directory: invest-pipeline
         env:
           INVEST_DATA_DIR: ${{ github.workspace }}/invest-data
-        run: uv run invest salud
+        run: uv run invest salud --solo actions
 
       - name: Resultado
         if: ${{ steps.ingesta.outcome == 'failure' }}
