@@ -40,7 +40,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 
 # Páginas fijas del enrutador (static/app.js); las que llevan parámetro se agregan con datos reales
-PAGINAS_FIJAS = ["mercado", "screener", "matriz", "ficha", "cartera", "carteras", "perfiles", "tesis", "salud",
+PAGINAS_FIJAS = ["mercado", "screener", "matriz", "ficha", "cartera", "carteras", "perfiles", "tesis", "alertas", "salud",
                  "aprender", "valoracion", "graficador"]
 
 # Respuestas >= 400 de /api/* que son parte del comportamiento esperado: (expresión sobre la ruta, código)

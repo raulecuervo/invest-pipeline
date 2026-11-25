@@ -151,3 +151,7 @@ form.formulario .acciones { grid-column: 1 / -1; display: flex; gap: 8px; align-
 #tip .graf-fila strong { font-weight: 650; color: var(--texto); text-align: right; white-space: nowrap; }
 #tip .graf-fila span { color: var(--tenue); }
 #tip .graf-fila strong.graf-sin { color: var(--tenue); font-weight: 500; }
+
+/* Número de alertas para atender junto a la entrada del menú */
+.insignia { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; margin-left: 8px;
+  padding: 0 6px; border-radius: 999px; background: var(--debil-fondo); color: var(--debil-texto); font-size: 11.5px; font-weight: 700; }

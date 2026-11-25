@@ -17,6 +17,8 @@ Tablas (grano → claves):
 - ``dim_parametro_tributario``: regla × vigencia. Vacía a propósito: se llena con un contador (las
   reglas de 2026 están en movimiento y no se adivinan).
 - ``dim_costo_intermediario``: intermediario × producto. Comisión, mínimo, custodia.
+- ``dim_alerta``: alertas propias (precio, P/VL, z del P/VL o rendimiento por dividendo de una acción frente
+  a un umbral). Las alertas automáticas (cartera, tesis, dividendos, valoración) no necesitan reglas.
 """
 
 from __future__ import annotations
@@ -92,6 +94,17 @@ TABLAS: dict[str, dict] = {
         "obligatorias": ["regla_id", "tarifa", "vigente_desde", "fuente"],
         "permitidos": {},
     },
+    "dim_alerta": {
+        "claves": ["alerta_id"],
+        "columnas": {
+            "alerta_id": pl.Utf8, "especie": pl.Utf8, "condicion": pl.Utf8, "umbral": pl.Float64, "activa": pl.Utf8,
+            "nota": pl.Utf8, "creada": pl.Date,
+        },
+        "obligatorias": ["alerta_id", "especie", "condicion", "umbral", "activa"],
+        "permitidos": {"condicion": ["precio_mayor_que", "precio_menor_que", "p_vl_menor_que", "p_vl_mayor_que",
+                                     "z_p_vl_menor_que", "z_p_vl_mayor_que", "rendimiento_dividendo_mayor_que"],
+                       "activa": ["si", "no"]},
+    },
     "dim_costo_intermediario": {
         "claves": ["intermediario", "producto"],
         "columnas": {
@@ -127,6 +140,8 @@ EJEMPLOS = {
     "dim_parametro_tributario": {"regla_id": "pendiente", "descripcion": "Llenar con un contador", "tipo_rendimiento": "",
                                  "tarifa": 0.0, "base_minima": None, "vigente_desde": date(2026, 1, 1), "vigente_hasta": None,
                                  "fuente": "", "validado_por": ""},
+    "dim_alerta": {"alerta_id": "ejemplo-1", "especie": "coc04paao008", "condicion": "precio_menor_que", "umbral": 2000,
+                   "activa": "si", "nota": "Ejemplo: avisar si Ecopetrol baja de 2.000", "creada": date(2026, 11, 25)},
     "dim_costo_intermediario": {"intermediario": "Ejemplo", "producto": "acciones_colombia", "comision_pct": 0.003,
                                 "comision_minima": 0, "custodia_anual_pct": 0, "vigente_desde": date(2026, 1, 1),
                                 "fuente": "tarifario del intermediario"},

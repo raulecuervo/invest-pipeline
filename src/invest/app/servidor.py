@@ -495,6 +495,18 @@ def ficha_bandas(especie: str, indicador: str = "p_vl", ventana: str = "5a"):
 
 
 # --------------------------------------------------------------------------- cartera
+@app.get("/api/alertas")
+def alertas_vista():
+    """Alertas automáticas y propias, calculadas al momento (src/invest/alertas.py)."""
+    from invest import alertas
+
+    asegurar_base()
+    with duckdb.connect(str(ruta_base()), read_only=True) as con:
+        filas = alertas.calcular(con)
+    reglas = usuario.leer("dim_alerta").to_dicts() if (usuario.carpeta() / "dim_alerta.parquet").exists() else []
+    return responder({"alertas": filas, "reglas": reglas, "condiciones": {k: v[2] for k, v in alertas.CONDICIONES.items()}})
+
+
 @app.get("/api/cartera/{cartera_id}/rebalanceo")
 def cartera_rebalanceo(cartera_id: str, aporte: float = 0.0, modo: str = "completo", comision: float = 0.0):
     """Montos por clase y por posición para volver a la asignación objetivo del perfil (aritmética, no
@@ -606,6 +618,10 @@ def usuario_guardar(tabla: str, cuerpo: dict = Body(...)):
         nuevas = _tipar(tabla, filas)
     except (ValueError, TypeError) as e:
         return responder({"ok": False, "problemas": [f"dato inválido: {e}"]})
+    if tabla == "dim_alerta" and nuevas.height:
+        nuevas = nuevas.with_columns(pl.when(pl.col("alerta_id").is_null())
+                                     .then(pl.Series([usuario.nuevo_id() for _ in range(nuevas.height)]))
+                                     .otherwise(pl.col("alerta_id")).alias("alerta_id"))
     if tabla == "fact_transaccion" and nuevas.height:
         nuevas = nuevas.with_columns(pl.when(pl.col("transaccion_id").is_null())
                                      .then(pl.Series([usuario.nuevo_id() for _ in range(nuevas.height)]))

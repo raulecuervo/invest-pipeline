@@ -938,6 +938,46 @@ paginas.tesis = async (v) => {
   ], (d) => postear("/api/usuario/dim_tesis", { filas: [{ ...d, especie: especieDe(d.especie), cartera_id: eleccion.actual, creada: hoyIso(), actualizada: hoyIso() }] }))));
 };
 
+// ===== Alertas =====
+// Automáticas (cartera, tesis, dividendos, valoración, datos) y propias (usuario/dim_alerta), calculadas al
+// abrir la página (src/invest/alertas.py). Son avisos para mirar, no recomendaciones.
+const ALERTA_TIPO = { cartera_banda: "Cartera", concentracion: "Cartera", caida_fuerte: "Precio", dividendo_ex: "Dividendo",
+  tesis_objetivo: "Tesis", tesis_revision: "Tesis", valoracion_extremo: "Valoración", propia: "Mi alerta", datos: "Datos" };
+paginas.alertas = async (v) => {
+  v.append(el("div", {}, el("h1", {}, "Alertas"), el("div", { class: "sub" }, "Lo que pide atención en sus carteras, tesis y acciones seguidas. Son avisos para mirar, no recomendaciones de compra o venta.")));
+  const d = await api("/api/alertas");
+  const item = (a) => el("div", { class: "panel", style: { background: "var(--panel2)", gap: "4px" } },
+    el("div", { class: "encabezado" },
+      el("span", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+        el("span", { class: "chip gris" }, ALERTA_TIPO[a.tipo] || a.tipo),
+        a.enlace ? el("a", { href: a.enlace, style: { fontWeight: 600 } }, a.titulo) : el("strong", {}, a.titulo)),
+      a.fecha ? el("span", { class: "nota" }, fecha(a.fecha)) : null),
+    el("p", { style: { margin: 0, fontSize: "13px", color: "var(--texto2)" } }, a.detalle));
+  const atencion = d.alertas.filter((a) => a.severidad === "atencion"), info2 = d.alertas.filter((a) => a.severidad !== "atencion");
+  v.append(panel(`Para atender (${atencion.length})`, atencion.length ? atencion.map(item) : el("div", { class: "vacio" }, "Nada pendiente.")));
+  v.append(panel(`Para saber (${info2.length})`, info2.length ? info2.map(item) : el("div", { class: "vacio" }, "Sin novedades.")));
+  const condiciones = Object.entries(d.condiciones);
+  v.append(panel("Mis alertas",
+    d.reglas.length ? tabla([
+      { k: "especie", t: "Acción", izq: true, f: (r) => el("a", { href: "#/ficha/" + r.especie }, etiquetaEspecie(r.especie)) },
+      { k: "condicion", t: "Avisar cuando", izq: true, f: (r) => d.condiciones[r.condicion] || r.condicion },
+      { k: "umbral", t: "Umbral", f: (r) => r.condicion === "rendimiento_dividendo_mayor_que" ? pct(r.umbral) : num(r.umbral, r.condicion.startsWith("precio") ? 0 : 2) },
+      { k: "activa", t: "Activa", f: (r) => el("button", { type: "button", class: "boton", style: { height: "28px" }, onclick: async () => {
+        await postear("/api/usuario/dim_alerta", { filas: [{ ...r, activa: r.activa === "si" ? "no" : "si" }] }); ir(); } }, r.activa === "si" ? "Sí" : "No") },
+      { k: "nota", t: "Nota", izq: true, f: (r) => r.nota || "" },
+      { k: "alerta_id", t: "", f: (r) => el("button", { type: "button", class: "boton", style: { height: "28px" }, onclick: async () => {
+        if (!confirm("¿Borrar esta alerta?")) return;
+        await postear("/api/usuario/dim_alerta", { borrar: [{ alerta_id: r.alerta_id }] }); ir(); } }, "Borrar") },
+    ], d.reglas) : el("div", { class: "vacio" }, "Aún no tiene alertas propias."),
+    el("p", { class: "desc" }, "Una alerta propia avisa cuando una acción cruza un umbral: precio, P/VL, su z frente a la media de 5 años o el rendimiento por dividendo (escríbalo como fracción: 0,08 = 8 %). Se revisa con los datos del último día cada vez que abre esta página y en la tarea diaria del PC, que muestra una notificación de Windows con las nuevas."),
+    formulario([
+      { k: "especie", t: "Acción", lista: listaActivos, obligatorio: true, ayuda: "p. ej. ECOPETROL" },
+      { k: "condicion", t: "Avisar cuando", opciones: condiciones, obligatorio: true },
+      { k: "umbral", t: "Umbral", tipo: "number", obligatorio: true },
+      { k: "nota", t: "Nota" },
+    ], (x) => postear("/api/usuario/dim_alerta", { filas: [{ ...x, especie: especieDe(x.especie), activa: "si", creada: hoyIso() }] }))));
+};
+
 paginas.salud = async (v) => {
   const d = await api("/api/salud");
   v.append(el("div", {}, el("h1", {}, "Salud de datos y señales"), el("div", { class: "sub" }, "Estado de cada fuente, últimas corridas, validación de factores y tamaño de las tablas")));
@@ -1639,6 +1679,13 @@ async function refrescarEstado() {
   $("#aviso-reiniciar").hidden = !estado.info.reiniciar;
   $("#pie-lateral").replaceChildren("Datos al " + fecha(estado.info.ultimo_precio), el("br"), "Puntajes al " + fecha(estado.info.fecha_matriz), el("br"),
     `${estado.info.carteras.length} carteras · ${estado.info.perfiles.length} perfiles`);
+  // Número de alertas "para atender" junto a la entrada del menú
+  try {
+    const n = (await api("/api/alertas")).alertas.filter((a) => a.severidad === "atencion").length;
+    const enlace = document.querySelector('#menu a[data-ruta="alertas"]');
+    enlace.querySelector(".insignia")?.remove();
+    if (n) enlace.append(el("span", { class: "insignia", "aria-label": n + " alertas para atender" }, String(n)));
+  } catch (_) { /* sin base todavía */ }
 }
 
 async function ir() {

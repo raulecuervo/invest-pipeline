@@ -6,6 +6,7 @@
     invest ingest --todas-actions       corre todos los conectores implementados que van en GitHub Actions
     invest ingest --todas-pc            corre los que van en el PC (Programador de tareas)
     invest salud                        reporte de salud de datos
+    invest alertas [--nuevas] [--json]  alertas de cartera, tesis, dividendos, valoración y reglas propias
     invest inspeccionar [especie]       prueba en vivo las tres piezas de la SFC sin guardar nada
     invest dividendos                   extrae los dividendos de los PDF con dos agentes y consenso
     invest dividendos --revision        solo regenera el archivo de revisión y la tabla de dividendos
@@ -63,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     grupo = pi.add_mutually_exclusive_group()
     grupo.add_argument("--todas-actions", action="store_true")
     grupo.add_argument("--todas-pc", action="store_true")
+
+    pa = sub.add_parser("alertas", help="Alertas de cartera, tesis, dividendos, valoración y reglas propias")
+    pa.add_argument("--nuevas", action="store_true", help="solo las que no se habían mostrado (y las marca como vistas)")
+    pa.add_argument("--json", action="store_true", help="salida en JSON (para la notificación de Windows)")
 
     ps = sub.add_parser("salud", help="Reporte de salud de datos")
     ps.add_argument("--solo", choices=["actions", "pc"],
@@ -131,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Estructura reconocida" if ok else f"REVISAR: faltan {faltan or 'filas en la serie'}")
         return 0 if ok else 1
 
-    print(f"Carpeta de datos: {data_dir()}")
+    if not getattr(a, "json", False):  # con --json la salida debe ser solo el JSON
+        print(f"Carpeta de datos: {data_dir()}")
 
     if a.comando == "dims":
         for nombre, ruta in dims.construir().items():
@@ -289,6 +295,30 @@ def main(argv: list[str] | None = None) -> int:
             if problemas:
                 return 1
             print(f"{tabla}: {usuario.leer(tabla).height} filas")
+        return 0
+
+    if a.comando == "alertas":
+        import json as _json
+
+        import duckdb
+
+        from invest import alertas
+
+        base = data_dir() / "modelo.duckdb"
+        if not base.exists():
+            print("No existe modelo.duckdb: corra invest modelo")
+            return 1
+        with duckdb.connect(str(base), read_only=True) as con:
+            lista = alertas.calcular(con)
+        if a.nuevas:
+            lista = alertas.nuevas(lista)
+        if a.json:
+            print(_json.dumps(lista, ensure_ascii=False, default=str))
+        else:
+            for x in lista:
+                print(f"[{'!' if x['severidad'] == 'atencion' else 'i'}] {x['titulo']} — {x['detalle']}")
+            if not lista:
+                print("Sin alertas" + (" nuevas" if a.nuevas else ""))
         return 0
 
     if a.comando == "salud":
