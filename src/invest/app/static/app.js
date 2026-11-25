@@ -102,7 +102,8 @@ function abrirVariable(id, ancla, valorTexto) {
   pop.replaceChildren();
   if (!v) { pop.append(el("p", {}, "Sin explicación todavía para " + id + ".")); }
   else {
-    pop.append(
+    // append nativo: un null se volvería el texto "null", así que se filtran los vacíos
+    pop.append(...[
       el("button", { type: "button", class: "info cerrar", "aria-label": "Cerrar", onclick: cerrarPop }, "✕"),
       el("div", { class: "t" }, "Sobre esta variable · " + v.nombre + (v.revisado ? "" : " (borrador)")),
       el("p", {}, el("strong", {}, "Qué es: "), v.que_es),
@@ -111,7 +112,7 @@ function abrirVariable(id, ancla, valorTexto) {
       el("p", {}, el("strong", {}, "Cómo leerla: "), v.como_leer),
       valorTexto ? el("p", { class: "formula" }, "Aquí: " + valorTexto) : null,
       el("p", { class: "formula" }, "Fórmula: " + v.formula),
-      el("a", { href: "#/aprender/" + v.id, onclick: cerrarPop, style: { color: "var(--acento)", fontWeight: 600, fontSize: "13px" } }, "Saber más →"));
+      el("a", { href: "#/aprender/" + v.id, onclick: cerrarPop, style: { color: "var(--acento)", fontWeight: 600, fontSize: "13px" } }, "Saber más →")].filter(Boolean));
   }
   pop.hidden = false;
   const r = ancla.getBoundingClientRect();
@@ -717,8 +718,8 @@ paginas.cartera = async (v, pedida) => {
     el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } },
       (() => {
         const conObjetivo = d.asignacion.some((a) => a.peso_objetivo != null);
-        return panel(conObjetivo ? "Desvío frente al objetivo (puntos)" : "Composición (sin objetivo)", filasDesvio.length ? filasDesvio : el("div", { class: "vacio" }, "Sin posiciones."),
-          el("p", { class: "desc" }, conObjetivo ? "Rojo = fuera de banda." : "Esta cartera no tiene un perfil con asignación objetivo: se muestra el peso de cada clase. Asígnele un perfil en Carteras y transacciones para ver el desvío."));
+        return panel(conObjetivo ? ["Desvío frente al objetivo (puntos) ", info("desvio_asignacion")] : ["Composición (sin objetivo) ", info("peso_objetivo")], filasDesvio.length ? filasDesvio : el("div", { class: "vacio" }, "Sin posiciones."),
+          el("p", { class: "desc" }, conObjetivo ? ["Rojo = fuera de banda ", info("bandas_asignacion"), ". Para volver al objetivo, use la calculadora de rebalanceo más abajo."] : "Esta cartera no tiene un perfil con asignación objetivo: se muestra el peso de cada clase. Asígnele un perfil en Carteras y transacciones para ver el desvío."));
       })(),
       panel("Próximos dividendos", d.dividendos.length ? d.dividendos.slice(0, 8).map((x) => el("div", { class: "evento" }, el("span", { class: "f" }, fecha(x.fecha)), el("span", {}, `${x.nombre_corto}: ${pesos(x.total)}`))) : el("div", { class: "vacio" }, "Sin pagos anunciados.")))));
   v.append(panel("Valor de la cartera", cajaValor));
@@ -760,7 +761,7 @@ function calculadoraRebalanceo(carteraId) {
         tabla([
           { k: "clase_activo_id", t: "Clase", izq: true, f: (c) => nombreClase(c.clase_activo_id) },
           { k: "peso_actual", t: "Hoy", f: (c) => pct(c.peso_actual) },
-          { k: "peso_objetivo", t: "Objetivo", f: (c) => pct(c.peso_objetivo) },
+          { k: "peso_objetivo", t: "Objetivo", f: (c) => pct(c.peso_objetivo), info: "peso_objetivo" },
           { k: "monto", t: "Movimiento", f: (c) => el("span", { class: c.monto >= 0 ? "sube" : "baja" }, (c.monto >= 0 ? "+" : "") + pesos(c.monto)) },
           { k: "peso_despues", t: "Después", f: (c) => pct(c.peso_despues) },
         ], r.clases),
@@ -777,7 +778,7 @@ function calculadoraRebalanceo(carteraId) {
       salida.replaceChildren(el("div", { class: "aviso" }, e.message));
     }
   };
-  return panel("Calculadora de rebalanceo",
+  return panel(["Calculadora de rebalanceo ", info("rebalanceo")],
     el("div", { class: "graf-controles" },
       el("label", { class: "graf-check" }, "Aporte (+) o retiro (−), en pesos", aporte),
       el("label", { class: "graf-check" }, "Modo", modo),
@@ -984,6 +985,7 @@ paginas.salud = async (v) => {
   ], d.ejecuciones)));
 };
 
+const NIVELES = { basico: "básico", intermedio: "intermedio", avanzado: "avanzado" };
 paginas.aprender = async (v, id) => {
   v.append(el("div", {}, el("h1", {}, "Aprender"), el("div", { class: "sub" }, "Qué es, qué hace y para qué sirve cada variable del sistema. Los textos marcados como borrador están pendientes de revisión.")));
   const porCategoria = {};
@@ -991,7 +993,7 @@ paginas.aprender = async (v, id) => {
   for (const [cat, lista] of Object.entries(porCategoria).sort()) {
     v.append(panel(cat.replace("_", " "), el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "12px" } },
       lista.map((x) => el("article", { id: "var-" + x.id, class: "panel", style: { background: "var(--panel2)", outline: x.id === id ? "2px solid var(--acento)" : null } },
-        el("div", { class: "encabezado" }, el("strong", {}, x.nombre), el("span", { class: "chip gris" }, x.revisado ? x.nivel : x.nivel + " · borrador")),
+        el("div", { class: "encabezado" }, el("strong", {}, x.nombre), el("span", { class: "chip gris" }, (NIVELES[x.nivel] || x.nivel) + (x.revisado ? "" : " · borrador"))),
         el("p", { style: { margin: 0, fontSize: "13px" } }, x.que_es),
         el("p", { style: { margin: 0, fontSize: "12.5px", color: "var(--texto2)" } }, el("strong", {}, "Para qué: "), x.para_que_sirve),
         el("p", { style: { margin: 0, fontSize: "12.5px", color: "var(--texto2)" } }, el("strong", {}, "Cómo leerla: "), x.como_leer),

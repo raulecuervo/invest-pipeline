@@ -1,0 +1,33 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. Escrita el 25-nov-2026 junto con la calculadora de rebalanceo (src/invest/rebalanceo.py).
+id: rebalanceo
+nombre: Rebalanceo (calculadora)
+categoria: cartera
+nivel: intermedio
+formato: si_no
+direccion: 0
+tabla: fact_asignacion
+columna: fuera_de_banda
+formula: 'monto por clase = peso objetivo × (valor de la cartera + aporte) − valor actual de la clase; dentro de
+  la clase se reparte entre las posiciones que ya tiene en proporción a su valor, en acciones enteras
+  (las acciones sobrantes van a las posiciones que más perdieron al redondear); costo = monto × comisión'
+que_es: 'Volver a llevar la cartera a su asignación objetivo. La calculadora de Mi cartera le dice cuánto mover en
+  cada clase y en cada posición, con dos modos: "Volver al objetivo", que puede vender lo que sobra, y "Solo con
+  el aporte", que no vende y usa el aporte más el efectivo que le sobre frente a su objetivo.'
+que_hace: 'Hace la cuenta por usted con los precios del último día: cuántas acciones más o menos de cada posición
+  y cuánto costaría en comisión. No elige acciones nuevas ni opina sobre ninguna: si su perfil pide una clase en
+  la que no tiene posiciones (p. ej. renta fija), el monto queda "por asignar" y la decisión es suya.'
+para_que_sirve: 'Para mantener el riesgo que eligió. Rebalancear obliga a vender un poco de lo que subió y comprar
+  de lo que quedó atrás, en lugar de dejar que la clase que más subió domine la cartera. Con aportes periódicos,
+  el modo "Solo con el aporte" corrige el desvío sin vender (sin comisiones de venta).'
+como_leer: 'Ponga el aporte (o un retiro con signo menos), elija el modo y la comisión de su comisionista (0,3 % por
+  defecto). La tabla de clases muestra el peso de hoy, el objetivo, el movimiento en pesos y el peso que quedaría;
+  la de posiciones, cuántas acciones aumentar o reducir. Los avisos señalan si un emisor quedaría por encima del
+  máximo por emisor del perfil o si el efectivo no alcanza. El GMF (4 por mil) y la retención en la fuente no
+  están incluidos; el efecto tributario de vender, consúltelo con su contador.'
+relacionadas:
+- peso_objetivo
+- bandas_asignacion
+- desvio_asignacion
+revisado: false
+version: 1

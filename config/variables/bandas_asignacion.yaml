@@ -1,0 +1,25 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. Escrita el 25-nov-2026 junto con la calculadora de rebalanceo.
+id: bandas_asignacion
+nombre: Bandas de tolerancia
+categoria: cartera
+nivel: basico
+formato: porcentaje
+direccion: 0
+tabla: fact_asignacion
+columna: banda_minima
+formula: rango [banda mínima, banda máxima] alrededor del peso objetivo de cada clase, definido en el perfil
+  (p. ej. objetivo 85 %, bandas 80 % a 90 %)
+que_es: El margen que acepta alrededor de cada peso objetivo antes de mover la cartera.
+que_hace: 'Evita rebalancear por cualquier movimiento pequeño: dentro de la banda la cartera se deja quieta;
+  fuera de ella, la clase se marca en rojo en Mi cartera.'
+para_que_sirve: 'Para equilibrar dos costos: no rebalancear nunca deja que el riesgo se desvíe; rebalancear todo el
+  tiempo multiplica comisiones e impuestos. Una banda de ±5 puntos es un punto de partida habitual.'
+como_leer: 'Si la banda de acciones es 80 % a 90 % y la cartera tiene 74,7 %, está fuera por debajo: es el momento
+  de usar la calculadora de rebalanceo. Con 83 % no hace falta hacer nada.'
+relacionadas:
+- peso_objetivo
+- desvio_asignacion
+- rebalanceo
+revisado: false
+version: 1

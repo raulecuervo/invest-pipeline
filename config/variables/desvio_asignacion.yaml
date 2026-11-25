@@ -1,0 +1,25 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. Escrita el 25-nov-2026 junto con la calculadora de rebalanceo.
+id: desvio_asignacion
+nombre: Desvío frente al objetivo
+categoria: cartera
+nivel: basico
+formato: porcentaje_puntos
+direccion: 0
+tabla: fact_asignacion
+columna: desvio
+formula: peso actual de la clase − peso objetivo, en puntos porcentuales
+que_es: Cuánto se ha alejado cada clase de su peso objetivo.
+que_hace: Resume en un número por clase si la cartera está pasada (positivo) o corta (negativo) frente a lo que
+  usted decidió.
+para_que_sirve: Para saber qué clases tendría que aumentar o reducir y en qué orden de magnitud, antes de abrir la
+  calculadora.
+como_leer: '+5 en efectivo y −5 en acciones quieren decir que hay cinco puntos de la cartera en efectivo que su
+  perfil quiere en acciones. En Mi cartera la barra crece hacia la derecha si la clase está pasada y hacia la
+  izquierda si está corta; en rojo, si se salió de la banda.'
+relacionadas:
+- peso_objetivo
+- bandas_asignacion
+- rebalanceo
+revisado: false
+version: 1

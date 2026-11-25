@@ -1,0 +1,26 @@
+# Explicación breve (nivel 1 del centro de aprendizaje). Generada como borrador: poner revisado: true
+# después de leerla. Escrita el 25-nov-2026 junto con la calculadora de rebalanceo.
+id: peso_objetivo
+nombre: Asignación objetivo
+categoria: cartera
+nivel: basico
+formato: porcentaje
+direccion: 0
+tabla: fact_asignacion
+columna: peso_objetivo
+formula: parte del valor total de la cartera que el perfil asigna a cada clase de activo (acciones, efectivo,
+  renta fija…); las clases del perfil suman 100 %
+que_es: 'La mezcla que usted decidió para su cartera: qué porcentaje en acciones, cuánto en efectivo y en las
+  demás clases. Se define en el perfil (Carteras y transacciones) y cada cartera usa el perfil que tenga asignado.'
+que_hace: Sirve de punto de referencia fijo. Con el tiempo los precios suben y bajan a ritmos distintos, y la
+  mezcla real se aleja de la objetivo aunque usted no haga nada.
+para_que_sirve: 'Para que el riesgo de la cartera sea el que eligió y no el que le dejó el mercado: si las
+  acciones suben mucho, terminan pesando más de lo planeado y la cartera queda más expuesta a una caída.'
+como_leer: 'Compare el peso de hoy con el objetivo: 74,7 % en acciones frente a un objetivo de 85 % quiere decir
+  que faltan 10,3 puntos. La diferencia se llama desvío y se tolera dentro de las bandas del perfil.'
+relacionadas:
+- bandas_asignacion
+- desvio_asignacion
+- rebalanceo
+revisado: false
+version: 1
