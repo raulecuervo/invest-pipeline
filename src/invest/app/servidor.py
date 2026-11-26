@@ -362,6 +362,11 @@ def ficha(especie: str):
             raise HTTPException(404, "Especie desconocida")
         return responder({"cabecera": act, "sin_puntaje": True})
     fecha = cab["fecha"]
+    # El puntaje es del último día de la SFC; si la Bolsa ya cerró días después, la cabecera muestra ese cierre
+    ultimo = q1("""SELECT fecha, precio, fuente_precio FROM fact_precio_diario
+                   WHERE especie = ? AND precio IS NOT NULL ORDER BY fecha DESC LIMIT 1""", [especie])
+    if ultimo and ultimo["fecha"] > fecha:
+        cab["precio_ultimo"], cab["fecha_ultimo"], cab["fuente_ultimo"] = ultimo["precio"], ultimo["fecha"], ultimo["fuente_precio"]
     explica = "p.mediana, p.escala, p.direccion" if _graf_tabla_existe("fact_puntaje", ("mediana", "escala", "direccion")) \
         else "NULL AS mediana, NULL AS escala, NULL AS direccion"
     auditoria = q(f"""SELECT p.elemento, p.nivel, p.factor, p.valor, p.z, p.puntaje, p.banda, p.percentil,
@@ -486,15 +491,33 @@ def ficha_precio(especie: str, dias: int = 365):
     """Serie diaria del precio ajustado de los últimos ``dias`` días con sus medias móviles (simples de 20,
     50, 100 y 200 sesiones y exponenciales de 20 y 50, calculadas sobre toda la historia para que no
     arranquen vacías) y, desde que hay lectura de la Bolsa, apertura, máximo, mínimo y cierre del día
-    llevados a la misma escala del precio ajustado (velas)."""
+    llevados a la misma escala del precio ajustado (velas).
+
+    La serie ajustada sale de la SFC, que publica con uno o dos días hábiles de rezago. Los días que la
+    Bolsa ya cerró y la SFC todavía no publica se agregan al final con ``provisional = true``: el cierre
+    de la Bolsa llevado a la escala ajustada con el factor del último día de la SFC (si hubo una fecha ex
+    en medio, la cifra se corrige sola cuando llega la SFC)."""
     especie = resolver_especie(especie)
-    ohlc = "p.apertura_bvc, p.maximo_bvc, p.minimo_bvc, p.cierre_bvc" \
-        if _graf_tabla_existe("fact_precio_diario", ("apertura_bvc", "maximo_bvc", "minimo_bvc", "cierre_bvc")) \
+    hay_ohlc = _graf_tabla_existe("fact_precio_diario", ("apertura_bvc", "maximo_bvc", "minimo_bvc", "cierre_bvc"))
+    ohlc = "p.apertura_bvc, p.maximo_bvc, p.minimo_bvc, p.cierre_bvc" if hay_ohlc \
         else "NULL AS apertura_bvc, NULL AS maximo_bvc, NULL AS minimo_bvc, NULL AS cierre_bvc"
     filas = q(f"""SELECT v.fecha, v.precio_promedio, v.precio_ajustado, v.valor_transado, {ohlc}
                   FROM v_precio_ajustado v
                   LEFT JOIN fact_precio_diario p ON p.especie = v.especie AND p.fecha = v.fecha
                   WHERE v.especie = ? ORDER BY v.fecha""", [especie])
+    for f in filas:
+        f["factor"] = (f["precio_ajustado"] / f["precio_promedio"]) if f["precio_promedio"] else None
+        f["provisional"] = False
+    if filas and hay_ohlc:
+        factor = next((f["factor"] for f in reversed(filas) if f["factor"]), None)
+        nuevos = q("""SELECT fecha, precio, valor_transado, apertura_bvc, maximo_bvc, minimo_bvc, cierre_bvc
+                      FROM fact_precio_diario WHERE especie = ? AND fecha > ? AND precio IS NOT NULL
+                      ORDER BY fecha""", [especie, filas[-1]["fecha"]])
+        for n in nuevos if factor else []:
+            filas.append({"fecha": n["fecha"], "precio_promedio": None, "precio_ajustado": n["precio"] * factor,
+                          "valor_transado": n["valor_transado"], "apertura_bvc": n["apertura_bvc"],
+                          "maximo_bvc": n["maximo_bvc"], "minimo_bvc": n["minimo_bvc"], "cierre_bvc": n["cierre_bvc"],
+                          "factor": factor, "provisional": True})
     precios = [f["precio_ajustado"] for f in filas]
     medias = {f"sma{n}": _media_simple(precios, n) for n in MEDIAS_SIMPLES}
     medias |= {f"ema{n}": _media_exponencial(precios, n) for n in MEDIAS_EXPONENCIALES}
@@ -502,7 +525,7 @@ def ficha_precio(especie: str, dias: int = 365):
         for k, serie in medias.items():
             f[k] = serie[i]
         # La Bolsa da precios del día sin ajustar: se llevan a la escala del precio ajustado
-        factor = (f["precio_ajustado"] / f["precio_promedio"]) if f["precio_promedio"] else None
+        factor = f.pop("factor")
         for k in ("apertura", "maximo", "minimo", "cierre"):
             v = f.pop(f"{k}_bvc")
             f[k] = v * factor if v is not None and factor is not None else None

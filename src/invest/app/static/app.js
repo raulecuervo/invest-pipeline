@@ -390,7 +390,7 @@ function velas(caja, barras, medias, op = {}) {
     const titulo = b.desde === b.x ? fecha(b.x) : `${fecha(b.desde)} a ${fecha(b.x)}`;
     mostrarTip(ev, titulo, [["Apertura", fy(b.o)], ["Máximo", fy(b.h)], ["Mínimo", fy(b.l)], ["Cierre", fy(b.c)],
       ["Variación", pct(b.o ? b.c / b.o - 1 : null, 1)], ...medias.map(([k, nombre]) => [nombre, b.fila[k] == null ? "—" : fy(b.fila[k])]),
-      ["Origen", b.real ? "Bolsa de Colombia" : "precios promedio (aprox.)"]]);
+      ["Origen", b.fila.provisional ? "Bolsa, provisional (sin SFC aún)" : b.real ? "Bolsa de Colombia" : "precios promedio (aprox.)"]]);
   });
   zona.addEventListener("pointerleave", () => { cruz.setAttribute("visibility", "hidden"); ocultarTip(); });
   s.append(zona);
@@ -457,6 +457,8 @@ function panelPrecio(cargar, op = {}) {
       nota.textContent = "";
       cajaLeyenda.replaceChildren(leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ...elegidas.map(([, nombre, color]) => [color, nombre, "linea"])]));
     }
+    const prov = serie.filter((r) => r.provisional);
+    if (prov.length) nota.textContent += ` ${prov.length === 1 ? "El " + fecha(prov[0].fecha) + " es" : "Del " + fecha(prov[0].fecha) + " al " + fecha(prov[prov.length - 1].fecha) + " son"} cierre de la Bolsa, provisional hasta que la SFC publique (1 o 2 días hábiles).`;
     if (!conMedias) nota.textContent += " Acción poco líquida: las medias móviles abarcarían negocios de meses y no se dibujan.";
   };
   const recargar = async () => { serie = await cargar(diasPeriodo(periodo) ?? 36500); pintar(); };
@@ -860,7 +862,10 @@ paginas.ficha = async (v, especie) => {
   const cab = el("section", { class: "panel", style: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "12px 28px" } },
     el("div", {}, el("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, el("h1", {}, c.nombre_corto || c.emisor_nombre), c.nemotecnico ? el("span", { class: "chip gris" }, c.nemotecnico) : null),
       el("div", { class: "sub" }, `${c.sector || c.sector_sfc || "Sin sector"} · ${c.clase_accion || ""} · bursatilidad ${c.iba_categoria || "—"}${c.en_universo ? " · en el universo líquido" : " · fuera del universo"}`)),
-    el("div", {}, el("div", { style: { display: "flex", alignItems: "baseline", gap: "8px" } }, el("span", { style: { fontSize: "26px", fontWeight: 700 } }, num(c.precio, c.precio < 100 ? 2 : 0)), el("span", { class: "nota" }, "COP al " + fecha(c.fecha))),
+    el("div", {}, el("div", { style: { display: "flex", alignItems: "baseline", gap: "8px" } },
+        el("span", { style: { fontSize: "26px", fontWeight: 700 } }, num(c.precio_ultimo ?? c.precio, (c.precio_ultimo ?? c.precio) < 100 ? 2 : 0)),
+        el("span", { class: "nota", title: c.precio_ultimo != null ? "Cierre de la Bolsa; la SFC publica con 1 o 2 días hábiles de rezago y el puntaje usa su último día" : null },
+          "COP al " + fecha(c.fecha_ultimo ?? c.fecha) + (c.precio_ultimo != null ? ` · cierre de la Bolsa (puntaje al ${fecha(c.fecha)})` : ""))),
       d.en_curso ? el("div", { class: "nota", title: "Lectura de la Bolsa durante la sesión, con 15 minutos de retraso. No es el cierre." },
         el("strong", { style: { color: "var(--texto)" } }, "Ahora " + num(d.en_curso.precio, d.en_curso.precio < 100 ? 2 : 0)), " ",
         el("span", { class: (d.en_curso.variacion || 0) >= 0 ? "sube" : "baja" }, pct(d.en_curso.variacion, 1)),
