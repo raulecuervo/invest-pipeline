@@ -237,7 +237,8 @@ def ficha(p: pl.DataFrame, factores: pl.DataFrame, validados: list[str], fecha: 
 def _alertas(t: pl.DataFrame, fecha: date) -> pl.DataFrame:
     """Avisos de calidad de datos, separados por "; " (vacío = sin avisos)."""
     avisos = [
-        (pl.col("fraccion_dias_60").fill_null(0) < 0.5, "negocia menos de la mitad de los días"),
+        (pl.col("fraccion_dias_60").fill_null(0) < 0.5,
+         "negocia menos de la mitad de los días: el precio y sus múltiplos (P/VL, P/U) pueden no ser representativos"),
         (pl.col("salto_atipico_12m").fill_null(False), "salto atípico sin ajustar en el último año"),
         (pl.col("en_universo") & ((pl.lit(fecha) - pl.col("fecha_ultimo_negocio")).dt.total_days() > 7),
          "último negocio hace más de una semana"),

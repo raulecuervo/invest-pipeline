@@ -426,6 +426,24 @@ def acumular_trimestrales(df: pl.DataFrame) -> pl.DataFrame:
         for f, v in zip(anio.get_column("fecha_corte").to_list(), valores):
             acumulado += v
             cambios[(e, f)] = acumulado
+    # El año siguiente a uno reportado por trimestre, sin Supersociedades todavía: una cifra positiva menor
+    # que la del corte anterior (también positiva) no es acumulada (exigiría un trimestre en pérdida); es la
+    # del trimestre y se suma. Terpel: 2.255,68 a jun-2026 (= $409.254 millones del semestre, según la
+    # compañía) y 1.388,46 a sep-2026 → 3.644,14.
+    anios_trimestrales = {(e, f.year) for (e, f) in cambios}
+    for e, anio in sorted(anios_trimestrales):
+        if any(x == (e, anio + 1) for x in anios_trimestrales):
+            continue
+        sig = upa.filter((pl.col("emisor_id") == e) & (pl.col("fecha_corte").dt.year() == anio + 1)).sort("fecha_corte")
+        filas = list(sig.select("fecha_corte", "valor").iter_rows())
+        acumulado = None
+        for i, (f, v) in enumerate(filas):
+            previo = acumulado if acumulado is not None else (filas[i - 1][1] if i else None)
+            if previo is not None and previo > 0 and 0 < v < previo:
+                acumulado = previo + v
+                cambios[(e, f)] = acumulado
+            else:
+                acumulado = None
     if not cambios:
         return df
     nuevo = pl.struct(["emisor_id", "fecha_corte"]).map_elements(
@@ -769,9 +787,10 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
     de_anexos = desde_anexos(anexos)
     del_cuif = desde_cuif(de_anexos, storage.leer_tabla("silver", "fact_cuif_mensual"))
     # Los filtros de escala se repiten sobre la serie separada completa (anexos + CUIF): el primer anexo
-    # de BBVA (mar-2017, 26.537) solo tiene vecinos del CUIF (278,76 en dic-2016)
+    # de BBVA (mar-2017, 26.537) solo tiene vecinos del CUIF (278,76 en dic-2016), y con ese valor
+    # patrimonial ya limpio su utilidad por acción del mismo corte (648) sale como imposible
     separado = pl.concat([de_anexos, del_cuif])
-    separado = descartar_punto_aislado(descartar_saltos(separado))
+    separado = descartar_upa_imposible(descartar_punto_aislado(descartar_saltos(separado)))
     de_anexos = separado.filter(pl.col("fuente") != "cuif_derivado")
     del_cuif = separado.filter(pl.col("fuente") == "cuif_derivado")
     df = pl.concat([de_anexos, del_cuif, del_xbrl, desde_supersociedades(ss),

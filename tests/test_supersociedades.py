@@ -326,9 +326,12 @@ def test_anio_reportado_por_trimestre_se_acumula_y_supersociedades_completa_dici
         fila(date(2025, 12, 31), "utilidad_total", 6.3e11, "supersociedades", base="separado_anual", unidad="pesos"),
         fila(date(2024, 12, 31), "acciones_circulacion", 181424505.0, "anexo_211", unidad="acciones"),
         fila(date(2024, 12, 31), "utilidad_total", 5.3e11, "supersociedades", base="separado_anual", unidad="pesos"),
+        # 2026 sin Supersociedades: el semestre viene acumulado y septiembre solo con el trimestre
+        fila(date(2026, 6, 30), "utilidad_accion", 2255.68, "anexo_141"),
+        fila(date(2026, 9, 30), "utilidad_accion", 1388.46, "anexo_141"),
     ], schema=fundamentales.ESQUEMA)
     acum = fundamentales.acumular_trimestrales(df).filter(pl.col("concepto") == "utilidad_accion").sort("fecha_corte")
-    assert [round(v, 2) for v in acum.get_column("valor").to_list()] == [919.83, 1799.38, 2755.1, 3464.17]
+    assert [round(v, 2) for v in acum.get_column("valor").to_list()] == [919.83, 1799.38, 2755.1, 3464.17, 2255.68, 3644.14]
     # 2024 no tiene utilidad por acción en los anexos: diciembre sale de Supersociedades
     extra = fundamentales.upa_desde_supersociedades(df)
     assert extra.select("fecha_corte", "fuente").rows() == [(date(2024, 12, 31), "supersociedades_derivado")]
