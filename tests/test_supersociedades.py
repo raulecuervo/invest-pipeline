@@ -265,3 +265,71 @@ def test_bancos_desde_el_cuif_en_los_diciembres_sin_anexo():
     assert r.select("emisor_id", "fecha_corte", "concepto", "valor", "fuente").rows() == [
         ("CO-COB01", date(2025, 12, 31), "valor_patrimonial_accion", 55.0, "cuif_derivado")]
     assert r.get_column("fecha_disponible").to_list() == [date(2026, 2, 19)]
+
+
+def _celda_upa(emisor, corte, formato, concepto, valor, columna="VALOR"):
+    return {"emisor_id": emisor, "fecha_corte": corte, "consolidado": False, "grupo": "trimestrales", "formato": formato,
+            "fila": 1, "concepto": concepto, "columna": columna, "valor": valor}
+
+
+def test_perdida_sola_con_signo_y_sin_signo():
+    d = date(2024, 12, 31)
+    anexos = pl.DataFrame([
+        # ETB: el 187 escribe la pérdida negativa → pérdida
+        _celda_upa("CO-COI13", d, "187", "PERDIDA POR ACCION", -25.69),
+        # Conconcreto: el 141 la escribe positiva → queda sin signo hasta confirmar
+        _celda_upa("CO-COF02", d, "141", "Pérdida por acción", 172.61),
+        # El 211 con solo la fila de pérdida no se usa (ETB jun-2026 traía ahí una utilidad)
+        _celda_upa("CO-COT04", d, "211", "PERDIDA POR ACCION", 7.51, "Número de accionistas"),
+        # Utilidad y pérdida en el mismo anexo: la pérdida resta en valor absoluto
+        _celda_upa("CO-COO08", d, "187", "UTILIDAD POR ACCION", 10.0),
+        _celda_upa("CO-COO08", d, "187", "PERDIDA POR ACCION", -4.0),
+    ])
+    f = fundamentales.desde_anexos(anexos)
+    upa = dict(f.filter(pl.col("concepto") == "utilidad_accion").select("emisor_id", "valor").iter_rows())
+    assert upa == {"CO-COI13": -25.69, "CO-COO08": 6.0}
+    assert f.filter(pl.col("concepto") == "utilidad_accion_sin_signo").get_column("emisor_id").to_list() == ["CO-COF02"]
+    # Supersociedades confirma la pérdida de Conconcreto en 2024; sin confirmación se descarta
+    ss_fila = {"emisor_id": "CO-COF02", "fecha_corte": d, "fecha_disponible": d, "concepto": "utilidad_total",
+               "valor": -2e11, "unidad": "pesos", "base": "separado_anual", "fuente": "supersociedades"}
+    con = fundamentales.con_signo_confirmado(pl.concat([f, pl.DataFrame([ss_fila], schema=fundamentales.ESQUEMA)]))
+    assert con.filter((pl.col("emisor_id") == "CO-COF02") & (pl.col("concepto") == "utilidad_accion")) \
+        .get_column("valor").to_list() == [-172.61]
+    assert fundamentales.con_signo_confirmado(f).filter(pl.col("emisor_id") == "CO-COF02").is_empty()
+
+
+def test_utilidad_por_accion_repetida_es_celda_sin_actualizar():
+    # Grupo Aval mar-2018: el 211 repite los 89,82 de todo 2017; el 141 dice 26,52
+    anexos = pl.DataFrame([
+        _celda_upa("CO-COT29", date(2017, 12, 31), "211", "UTILIDAD POR ACCION", 89.82, "Número de accionistas"),
+        _celda_upa("CO-COT29", date(2018, 3, 31), "211", "UTILIDAD POR ACCION", 89.82, "Número de accionistas"),
+        _celda_upa("CO-COT29", date(2018, 3, 31), "141", "Utilidad por acción", 26.52),
+        # Menos de un peso se repite por redondeo (BHI en dólares): se conserva
+        _celda_upa("CO-PAT07", date(2024, 6, 30), "141", "Utilidad por acción", 0.01),
+        _celda_upa("CO-PAT07", date(2024, 9, 30), "141", "Utilidad por acción", 0.01),
+    ])
+    f = fundamentales.desde_anexos(anexos).filter(pl.col("concepto") == "utilidad_accion").sort("emisor_id", "fecha_corte")
+    assert f.select("emisor_id", "valor").rows() == [("CO-COT29", 89.82), ("CO-COT29", 26.52), ("CO-PAT07", 0.01), ("CO-PAT07", 0.01)]
+
+
+def test_anio_reportado_por_trimestre_se_acumula_y_supersociedades_completa_diciembre():
+    def fila(corte, concepto, valor, fuente, base="separado", unidad="pesos_por_accion"):
+        return {"emisor_id": "CO-COG20", "fecha_corte": corte, "fecha_disponible": corte, "concepto": concepto,
+                "valor": valor, "unidad": unidad, "base": base, "fuente": fuente}
+    # Terpel 2025: cuatro trimestres sueltos que suman lo que da Supersociedades
+    df = pl.DataFrame([
+        fila(date(2025, 3, 31), "utilidad_accion", 919.83, "anexo_141"),
+        fila(date(2025, 6, 30), "utilidad_accion", 879.55, "anexo_141"),
+        fila(date(2025, 9, 30), "utilidad_accion", 955.72, "anexo_141"),
+        fila(date(2025, 12, 31), "utilidad_accion", 709.07, "anexo_141"),
+        fila(date(2025, 12, 31), "acciones_circulacion", 181424505.0, "anexo_211", unidad="acciones"),
+        fila(date(2025, 12, 31), "utilidad_total", 6.3e11, "supersociedades", base="separado_anual", unidad="pesos"),
+        fila(date(2024, 12, 31), "acciones_circulacion", 181424505.0, "anexo_211", unidad="acciones"),
+        fila(date(2024, 12, 31), "utilidad_total", 5.3e11, "supersociedades", base="separado_anual", unidad="pesos"),
+    ], schema=fundamentales.ESQUEMA)
+    acum = fundamentales.acumular_trimestrales(df).filter(pl.col("concepto") == "utilidad_accion").sort("fecha_corte")
+    assert [round(v, 2) for v in acum.get_column("valor").to_list()] == [919.83, 1799.38, 2755.1, 3464.17]
+    # 2024 no tiene utilidad por acción en los anexos: diciembre sale de Supersociedades
+    extra = fundamentales.upa_desde_supersociedades(df)
+    assert extra.select("fecha_corte", "fuente").rows() == [(date(2024, 12, 31), "supersociedades_derivado")]
+    assert round(extra.item(0, "valor"), 2) == 2921.33

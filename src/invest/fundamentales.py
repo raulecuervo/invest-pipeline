@@ -144,14 +144,39 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
     df = pl.DataFrame(filas, schema={k: v for k, v in ESQUEMA.items() if k != "fecha_disponible"})
     if df.is_empty():
         return pl.DataFrame(schema=ESQUEMA)
-    # Utilidad neta por acción = utilidad - pérdida (los anexos las reportan por separado)
+    # Utilidad neta por acción = utilidad - pérdida (los anexos las reportan por separado). La pérdida va
+    # en valor absoluto: el 141 la escribe positiva y el 187 negativa (ETB dic-2024: -25,69).
     perdida = df.filter(pl.col("concepto") == "perdida_accion").select("emisor_id", "fecha_corte", "fuente",
-                                                                        pl.col("valor").alias("_p"))
-    df = (df.filter(pl.col("concepto") != "perdida_accion")
+                                                                        pl.col("valor").abs().alias("_p"))
+    # Un corte con solo la fila de pérdida casi siempre es una pérdida (Conconcreto dic-2024: 172,61 en el
+    # 141; El Cóndor 2022-2025), pero no siempre: Terpel 2018 dice "pérdida" 737,17 y ganó $133.741
+    # millones (737 por acción), y en el 211 la fila única se llama "pérdida" aunque traiga utilidad (ETB
+    # jun-2026: 7,51, igual a la utilidad del 187). Si el anexo la escribió negativa (el 187 de ETB) es
+    # pérdida; si no, queda sin signo (``utilidad_accion_sin_signo``) y ``con_signo_confirmado`` la acepta
+    # solo si Supersociedades o el XBRL del mismo corte confirman la pérdida. El 211 nunca se usa así.
+    utilidad = df.filter(pl.col("concepto") == "utilidad_accion").select("emisor_id", "fecha_corte", "fuente")
+    sola = (df.filter((pl.col("concepto") == "perdida_accion") & (pl.col("fuente") != "anexo_211")
+                      & (pl.col("valor") != 0))
+            .join(utilidad, on=["emisor_id", "fecha_corte", "fuente"], how="anti"))
+    solo_perdida = pl.concat([
+        sola.filter(pl.col("valor") < 0).with_columns(pl.lit("utilidad_accion").alias("concepto"), pl.lit(0.0).alias("valor")),
+        sola.filter(pl.col("valor") > 0).with_columns(pl.lit("utilidad_accion_sin_signo").alias("concepto")),
+    ])
+    df = (pl.concat([df.filter(pl.col("concepto") != "perdida_accion"), solo_perdida])
           .join(perdida, on=["emisor_id", "fecha_corte", "fuente"], how="left")
           .with_columns(pl.when(pl.col("concepto") == "utilidad_accion")
                         .then(pl.col("valor") - pl.col("_p").fill_null(0.0)).otherwise(pl.col("valor")).alias("valor"))
           .drop("_p"))
+    # La pérdida sin signo no compite por fuente con una utilidad de otro anexo del mismo corte
+    con_utilidad = df.filter(pl.col("concepto") == "utilidad_accion").select("emisor_id", "fecha_corte").unique()
+    df = pl.concat([df.filter(pl.col("concepto") != "utilidad_accion_sin_signo"),
+                    df.filter(pl.col("concepto") == "utilidad_accion_sin_signo")
+                    .join(con_utilidad, on=["emisor_id", "fecha_corte"], how="anti")])
+    # En el 211 una utilidad en cero con la pérdida también en cero es la fila sin diligenciar
+    sin_perdida = perdida.filter(pl.col("_p") != 0).select("emisor_id", "fecha_corte", "fuente")
+    vacia = ((pl.col("concepto") == "utilidad_accion") & (pl.col("fuente") == "anexo_211") & (pl.col("valor") == 0))
+    df = pl.concat([df.filter(~vacia), df.filter(vacia).join(sin_perdida, on=["emisor_id", "fecha_corte", "fuente"])])
+    df = descartar_upa_repetida(df)
     # Valor patrimonial "con valorización" del 141: reemplaza al "sin" del mismo anexo si es positivo
     filas_con = df.filter((pl.col("concepto") == "vpa_con_valorizacion") & (pl.col("valor") > 0))
     con = filas_con.select("emisor_id", "fecha_corte", "fuente", pl.col("valor").alias("_con"))
@@ -313,6 +338,121 @@ def descartar_punto_aislado(df: pl.DataFrame) -> pl.DataFrame:
     marca = pl.struct(["emisor_id", "concepto", "base", "fecha_corte"]).map_elements(
         lambda r: (r["emisor_id"], r["concepto"], r["base"], r["fecha_corte"]) in descartar, return_dtype=pl.Boolean)
     return df.filter(~marca)
+
+
+def con_signo_confirmado(df: pl.DataFrame) -> pl.DataFrame:
+    """Convierte ``utilidad_accion_sin_signo`` (un anexo con solo la fila de pérdida, escrita positiva) en
+    una utilidad por acción negativa cuando otra fuente confirma la pérdida: la utilidad anual de
+    Supersociedades del mismo año (solo para diciembre: los trimestres pueden tener otro signo) o la del
+    XBRL del mismo corte. Sin confirmación la fila se descarta: Terpel 2018 dice "pérdida" y ganó."""
+    sin = df.filter(pl.col("concepto") == "utilidad_accion_sin_signo")
+    resto = df.filter(pl.col("concepto") != "utilidad_accion_sin_signo")
+    if sin.is_empty():
+        return resto
+    ref = resto.filter(
+        ((pl.col("fuente") == "supersociedades") & (pl.col("concepto") == "utilidad_total"))
+        | ((pl.col("fuente") == "xbrl") & (pl.col("concepto") == "utilidad_controladora"))
+    ).group_by("emisor_id", "fecha_corte").agg((pl.col("valor") < 0).any().alias("_perdida"),
+                                               (pl.col("valor") > 0).any().alias("_ganancia"))
+    ya = resto.filter(pl.col("concepto") == "utilidad_accion").select("emisor_id", "fecha_corte", "base").unique()
+    confirmadas = (sin.join(ref, on=["emisor_id", "fecha_corte"])
+                   .filter(pl.col("_perdida") & ~pl.col("_ganancia"))
+                   .join(ya, on=["emisor_id", "fecha_corte", "base"], how="anti")
+                   .with_columns(pl.lit("utilidad_accion").alias("concepto"), (-pl.col("valor").abs()).alias("valor"))
+                   .select(df.columns))
+    return pl.concat([resto, confirmadas])
+
+
+UTILIDAD_MINIMA_SS = 10   # veces la precisión de Supersociedades: error de redondeo de 10 % o menos
+
+
+def upa_desde_supersociedades(df: pl.DataFrame) -> pl.DataFrame:
+    """Utilidad por acción de diciembre (``base = separado``, ``fuente = supersociedades_derivado``) cuando
+    ningún anexo la trae: ganancia anual de Supersociedades / acciones en circulación del 211 más cercano
+    (a menos de 200 días). Supersociedades redondea a 5.000 millones, así que solo se usa si la ganancia
+    es al menos ``UTILIDAD_MINIMA_SS`` veces eso. Conconcreto 2025: el 141 repite 17,70 desde junio y
+    Supersociedades da 50.000 millones / 1.134 millones de acciones = 44,08. Disponible el 30 de junio
+    siguiente, como el resto de Supersociedades."""
+    from invest.ingest.supersociedades import PRECISION
+    vacio = pl.DataFrame(schema=ESQUEMA)
+    ss = df.filter((pl.col("fuente") == "supersociedades") & (pl.col("concepto") == "utilidad_total")
+                   & (pl.col("valor").abs() >= UTILIDAD_MINIMA_SS * PRECISION))
+    if ss.is_empty():
+        return vacio
+    acciones = df.filter((pl.col("concepto") == "acciones_circulacion") & (pl.col("valor") > 0)).select(
+        "emisor_id", pl.col("fecha_corte").alias("_fa"), pl.col("valor").alias("_acc"))
+    ya = df.filter((pl.col("concepto") == "utilidad_accion") & (pl.col("base") == "separado")).select(
+        "emisor_id", "fecha_corte").unique()
+    d = (ss.join(ya, on=["emisor_id", "fecha_corte"], how="anti").join(acciones, on="emisor_id")
+         .with_columns((pl.col("_fa") - pl.col("fecha_corte")).dt.total_days().abs().alias("_dist"))
+         .filter(pl.col("_dist") <= 200).sort("_dist").unique(["emisor_id", "fecha_corte"], keep="first"))
+    if d.is_empty():
+        return vacio
+    return d.select("emisor_id", "fecha_corte", "fecha_disponible", pl.lit("utilidad_accion").alias("concepto"),
+                    (pl.col("valor") / pl.col("_acc")).alias("valor"), pl.lit("pesos_por_accion").alias("unidad"),
+                    pl.lit("separado").alias("base"), pl.lit("supersociedades_derivado").alias("fuente")).cast(ESQUEMA)
+
+
+def acumular_trimestrales(df: pl.DataFrame) -> pl.DataFrame:
+    """La utilidad por acción de los anexos es acumulada en el año. Algunos emisores reportan un año la de
+    cada trimestre: Terpel 2025 dice 919,83, 879,55, 955,72 y 709,07, que suman 3.464,17, y Supersociedades
+    da 630.000 millones / 181,4 millones de acciones = 3.472,52. Si diciembre se aparta más de 25 % de la
+    cifra anual de Supersociedades y la suma de los cuatro trimestres queda a menos de 10 %, el año se pasa
+    a acumulado (marzo, marzo+junio, ...). Sin Supersociedades no se toca nada."""
+    from invest.ingest.supersociedades import PRECISION
+    ss = df.filter((pl.col("fuente") == "supersociedades") & (pl.col("concepto") == "utilidad_total")
+                   & (pl.col("valor").abs() >= UTILIDAD_MINIMA_SS * PRECISION))
+    upa = df.filter((pl.col("concepto") == "utilidad_accion") & (pl.col("base") == "separado")
+                    & pl.col("fuente").str.starts_with("anexo_"))
+    if ss.is_empty() or upa.is_empty():
+        return df
+    acciones = {}
+    for e, f, v in df.filter((pl.col("concepto") == "acciones_circulacion") & (pl.col("valor") > 0)) \
+            .select("emisor_id", "fecha_corte", "valor").iter_rows():
+        acciones.setdefault(e, []).append((f, v))
+    cambios = {}
+    for e, f_dic, u in ss.select("emisor_id", "fecha_corte", "valor").iter_rows():
+        cerca = [r for r in acciones.get(e, []) if abs((r[0] - f_dic).days) <= 200]
+        if not cerca:
+            continue
+        anual = u / min(cerca, key=lambda r: abs((r[0] - f_dic).days))[1]
+        anio = upa.filter((pl.col("emisor_id") == e) & (pl.col("fecha_corte").dt.year() == f_dic.year)).sort("fecha_corte")
+        if anio.height != 4 or anio.get_column("fecha_corte").dt.month().to_list() != [3, 6, 9, 12]:
+            continue
+        valores = anio.get_column("valor").to_list()
+        if abs(valores[-1] / anual - 1) <= 0.25 or abs(sum(valores) / anual - 1) > 0.10:
+            continue
+        acumulado = 0.0
+        for f, v in zip(anio.get_column("fecha_corte").to_list(), valores):
+            acumulado += v
+            cambios[(e, f)] = acumulado
+    if not cambios:
+        return df
+    nuevo = pl.struct(["emisor_id", "fecha_corte"]).map_elements(
+        lambda r: cambios.get((r["emisor_id"], r["fecha_corte"])), return_dtype=pl.Float64)
+    es = (pl.col("concepto") == "utilidad_accion") & (pl.col("base") == "separado") & pl.col("fuente").str.starts_with("anexo_")
+    return df.with_columns(pl.when(es).then(pl.coalesce(nuevo, pl.col("valor"))).otherwise(pl.col("valor")).alias("valor"))
+
+
+def descartar_upa_repetida(df: pl.DataFrame, dias: int = 100) -> pl.DataFrame:
+    """Quita una utilidad por acción idéntica (distinta de cero) a la del corte anterior del mismo anexo,
+    a menos de ``dias``: la cifra es acumulada en el año, así que repetirla exige un trimestre en cero
+    exacto, o, de diciembre a marzo, que el trimestre gane lo mismo que el año entero. Es una celda que no
+    se actualizó: Conconcreto repite 17,70 de jun-2025 a mar-2026; Grupo Aval repite en mar-2018 (211) los
+    89,82 de todo 2017, cuando el 141 dice 26,52."""
+    if df.is_empty():
+        return df
+    u = (df.filter(pl.col("concepto") == "utilidad_accion")
+         .sort("emisor_id", "base", "fuente", "fecha_corte")
+         .with_columns(pl.col("valor").shift(1).over(["emisor_id", "base", "fuente"]).alias("_va"),
+                       pl.col("fecha_corte").shift(1).over(["emisor_id", "base", "fuente"]).alias("_fa")))
+    # Cifras de menos de un peso (BHI en dólares, 0,01) se repiten por el redondeo a dos decimales
+    repetidas = u.filter((pl.col("valor") == pl.col("_va")) & (pl.col("valor").abs() >= 1)
+                         & ((pl.col("fecha_corte") - pl.col("_fa")).dt.total_days() <= dias))
+    if repetidas.is_empty():
+        return df
+    return df.join(repetidas.select("emisor_id", "fecha_corte", "concepto", "base", "fuente"),
+                   on=["emisor_id", "fecha_corte", "concepto", "base", "fuente"], how="anti")
 
 
 def descartar_upa_imposible(df: pl.DataFrame, dias: int = 200) -> pl.DataFrame:
@@ -635,7 +775,10 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
     de_anexos = separado.filter(pl.col("fuente") != "cuif_derivado")
     del_cuif = separado.filter(pl.col("fuente") == "cuif_derivado")
     df = pl.concat([de_anexos, del_cuif, del_xbrl, desde_supersociedades(ss),
-                    con_prioridad_xbrl(del_pdf, del_xbrl)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
+                    con_prioridad_xbrl(del_pdf, del_xbrl)])
+    df = con_signo_confirmado(df)
+    df = acumular_trimestrales(df)
+    df = pl.concat([df, upa_desde_supersociedades(df)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
     if df.is_empty():
         return None, {}
     storage.escribir_completa("gold", "fact_fundamental", df)
