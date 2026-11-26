@@ -393,6 +393,89 @@ def upa_desde_supersociedades(df: pl.DataFrame) -> pl.DataFrame:
                     pl.lit("separado").alias("base"), pl.lit("supersociedades_derivado").alias("fuente")).cast(ESQUEMA)
 
 
+UPA_XBRL_TOLERANCIA = 0.10  # el XBRL vale si cuadra con su utilidad de la controladora / acciones en circulación
+ROE_ANUAL_DUDOSO = 0.5      # un anexo que implica más de 50 % anual sobre el valor patrimonial es dudoso
+UPA_XBRL_DESVIO = 1.5       # ... y se cambia por el XBRL si este es al menos 1,5 veces menor
+
+
+def con_upa_xbrl(df: pl.DataFrame) -> pl.DataFrame:
+    """Utilidad por acción del XBRL (``BasicEarningsLossPerShare``, acumulada del año) donde el anexo falta
+    o es inverosímil. Bolsa Mercantil: ningún anexo trae diciembre (sin él no hay utilidad de 12 meses) y
+    el 211 dice 1.192 a 1.256 de sep-2024 a sep-2025, con 59,2 millones de acciones y 17.617 a 29.881
+    millones de utilidad: unos 300 a 505 por acción, lo que dice el XBRL.
+
+    El XBRL de algunos emisores trae contextos mal rotulados (Ecopetrol 2019: el primer semestre con
+    85 y junio con 152) o escalas equivocadas, así que:
+    - solo vale si cuadra (±``UPA_XBRL_TOLERANCIA``) con la utilidad de la controladora del mismo XBRL
+      dividida por las acciones en circulación del anexo más cercano (a menos de 200 días);
+    - llena los cortes sin utilidad por acción separada;
+    - reemplaza un anexo solo si este implica una rentabilidad anualizada sobre el valor patrimonial por
+      acción de más de ``ROE_ANUAL_DUDOSO`` y es más de ``UPA_XBRL_DESVIO`` veces el del XBRL (mismo signo).
+    Va después de ``upa_desde_supersociedades``: un diciembre separado de Supersociedades pesa más que el
+    consolidado del XBRL, para no mezclar bases en la utilidad de 12 meses.
+    Es consolidado; entra como ``base = separado`` con ``fuente = xbrl_upa`` para que la serie de 12
+    meses tenga un valor por corte. Mismas unidades o nada (BAC reporta en dólares)."""
+    x = df.filter((pl.col("fuente") == "xbrl") & (pl.col("concepto") == "upa_basica") & pl.col("valor").is_not_null()
+                  & (pl.col("unidad") == "pesos_por_accion"))
+    if x.is_empty():
+        return df
+    x = x.unique(["emisor_id", "fecha_corte"], keep="last").select(
+        "emisor_id", "fecha_corte", pl.col("fecha_disponible").alias("_fdx"), pl.col("valor").alias("_x"))
+    util = df.filter((pl.col("fuente") == "xbrl") & (pl.col("concepto") == "utilidad_controladora")).unique(
+        ["emisor_id", "fecha_corte"], keep="last").select("emisor_id", "fecha_corte", pl.col("valor").alias("_u"))
+    acciones = df.filter((pl.col("concepto") == "acciones_circulacion") & (pl.col("valor") > 0)).select(
+        "emisor_id", pl.col("fecha_corte").alias("_fa"), pl.col("valor").alias("_acc"))
+    x = (x.join(util, on=["emisor_id", "fecha_corte"]).join(acciones, on="emisor_id")
+         .with_columns((pl.col("_fa") - pl.col("fecha_corte")).dt.total_days().abs().alias("_dist"))
+         .filter(pl.col("_dist") <= 200).sort("_dist").unique(["emisor_id", "fecha_corte"], keep="first")
+         .filter((pl.col("_x") - pl.col("_u") / pl.col("_acc")).abs()
+                 <= UPA_XBRL_TOLERANCIA * (pl.col("_u") / pl.col("_acc")).abs())
+         .select("emisor_id", "fecha_corte", "_fdx", "_x"))
+    if x.is_empty():
+        return df
+    es_sep = (pl.col("concepto") == "utilidad_accion") & (pl.col("base") == "separado")
+    con_anexo = df.filter(es_sep).select("emisor_id", "fecha_corte", pl.col("valor").alias("_a")).unique(
+        ["emisor_id", "fecha_corte"], keep="last")
+    vpa: dict[str, list] = {}
+    for e, f, v in (df.filter((pl.col("concepto") == "valor_patrimonial_accion") & (pl.col("base") == "separado")
+                              & (pl.col("valor") > 0)).select("emisor_id", "fecha_corte", "valor").iter_rows()):
+        vpa.setdefault(e, []).append((f, v))
+    # Sin valor patrimonial del anexo cerca (Bolsa Mercantil sep-2024 a dic-2025), el del XBRL: patrimonio de
+    # la controladora / acciones en circulación más cercanas
+    pat = (df.filter((pl.col("fuente") == "xbrl") & (pl.col("concepto") == "patrimonio_controladora") & (pl.col("valor") > 0))
+           .select("emisor_id", "fecha_corte", pl.col("valor").alias("_p")).join(acciones, on="emisor_id")
+           .with_columns((pl.col("_fa") - pl.col("fecha_corte")).dt.total_days().abs().alias("_dist"))
+           .filter(pl.col("_dist") <= 200).sort("_dist").unique(["emisor_id", "fecha_corte"], keep="first"))
+    for e, f, v in pat.select("emisor_id", "fecha_corte", pl.col("_p") / pl.col("_acc")).iter_rows():
+        if not any(abs((r[0] - f).days) <= 100 for r in vpa.get(e, [])):
+            vpa.setdefault(e, []).append((f, v))
+
+    def roe_anual(e, f, upa):
+        cerca = [r for r in vpa.get(e, []) if abs((r[0] - f).days) <= 200]
+        if not cerca or upa is None:
+            return None
+        return abs(upa) * 12 / f.month / min(cerca, key=lambda r: abs((r[0] - f).days))[1]
+
+    reemplazar = []
+    for e, f, fdx, vx, va in x.join(con_anexo, on=["emisor_id", "fecha_corte"], how="left").iter_rows():
+        if va is None:
+            reemplazar.append((e, f))
+            continue
+        ra, rx = roe_anual(e, f, va), roe_anual(e, f, vx)
+        if (ra is not None and ra > ROE_ANUAL_DUDOSO and va * vx > 0
+                and abs(va) > UPA_XBRL_DESVIO * abs(vx)):
+            reemplazar.append((e, f))
+    if not reemplazar:
+        return df
+    clave = pl.DataFrame(reemplazar, schema={"emisor_id": pl.Utf8, "fecha_corte": pl.Date}, orient="row")
+    quitar = es_sep & pl.struct("emisor_id", "fecha_corte").is_in(clave.to_struct().implode())
+    nuevas = clave.join(x, on=["emisor_id", "fecha_corte"]).select(
+        "emisor_id", "fecha_corte", pl.col("_fdx").alias("fecha_disponible"), pl.lit("utilidad_accion").alias("concepto"),
+        pl.col("_x").alias("valor"), pl.lit("pesos_por_accion").alias("unidad"), pl.lit("separado").alias("base"),
+        pl.lit("xbrl_upa").alias("fuente")).cast(ESQUEMA)
+    return pl.concat([df.filter(~quitar), nuevas.select(df.columns)])
+
+
 def acumular_trimestrales(df: pl.DataFrame) -> pl.DataFrame:
     """La utilidad por acción de los anexos es acumulada en el año. Algunos emisores reportan un año la de
     cada trimestre: Terpel 2025 dice 919,83, 879,55, 955,72 y 709,07, que suman 3.464,17, y Supersociedades
@@ -797,7 +880,8 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
                     con_prioridad_xbrl(del_pdf, del_xbrl)])
     df = con_signo_confirmado(df)
     df = acumular_trimestrales(df)
-    df = pl.concat([df, upa_desde_supersociedades(df)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
+    # Primero Supersociedades (separado, como los anexos); el XBRL (consolidado) solo donde aún falte
+    df = con_upa_xbrl(pl.concat([df, upa_desde_supersociedades(df)])).sort(["emisor_id", "fecha_corte", "base", "concepto"])
     if df.is_empty():
         return None, {}
     storage.escribir_completa("gold", "fact_fundamental", df)

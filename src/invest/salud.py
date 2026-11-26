@@ -50,7 +50,8 @@ def evaluar(hoy: date | None = None) -> pl.DataFrame:
         ult_ej = next((e for e in reversed(ejecuciones) if e.get("fuente_id") == f["id"]), None)
         vencido = rezago is not None and rezago > _tolerancia(f, limite)
         if ultimo is None:
-            estado = "sin datos"
+            # Una fuente manual que todavía no se ha leído (p. ej. los precios en curso de la Bolsa) no es una falla
+            estado = "manual, sin leer todavía" if f.get("ejecuta_en") == "manual" else "sin datos"
         elif vencido:
             # Las fuentes manuales (las lanza Esteban) no cuentan como falla si no se leen a diario
             estado = "manual, sin leer reciente" if f.get("ejecuta_en") == "manual" else "vencido"

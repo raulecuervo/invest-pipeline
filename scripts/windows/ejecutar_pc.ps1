@@ -1,4 +1,4 @@
-# Ejecución diaria en el PC (Programador de tareas de Windows).
+﻿# Ejecución diaria en el PC (Programador de tareas de Windows).
 #
 # 1. Trae los datos que GitHub Actions guardó en invest-data.
 # 2. Corre los conectores que deben ejecutarse desde el PC (sitios que bloquean IP de centros de datos).
@@ -14,6 +14,10 @@ $Pipeline = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $Datos = Resolve-Path (Join-Path $Pipeline "..\invest-data")
 $Log = Join-Path $Datos "meta\ejecucion_pc.log"
 $env:INVEST_DATA_DIR = $Datos
+# UTF-8 de ida y vuelta con Python: sin esto las tildes llegan cambiadas a la bitácora ("vßlidas") y
+# una tabla con bordes de `invest salud` falla al imprimirse en la página de códigos de la consola
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 function Registrar($texto) {
     $linea = "{0:yyyy-MM-dd HH:mm:ss}  {1}" -f (Get-Date), $texto
@@ -58,10 +62,11 @@ function GuardarCambios($mensaje) {
 
 $script:HuboPull = $false
 if (Test-Path (Join-Path $Datos ".git")) {
-    # Lo que quedó de corridas manuales (BVC, carga del SIMEV) se guarda antes de traer lo de GitHub
+    # Lo que quedó de corridas manuales (BVC, carga del SIMEV) se guarda antes de traer lo de GitHub.
+    # --autostash: la bitácora cambia después de cada commit (este script escribe en ella)
     GuardarCambios ("Cambios locales {0:yyyy-MM-dd HH:mm}" -f (Get-Date))
     $antes = git -C $Datos rev-parse HEAD
-    git -C $Datos pull --rebase --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
+    git -C $Datos pull --rebase --autostash --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
     $script:HuboPull = ($antes -ne (git -C $Datos rev-parse HEAD))
 }
 
@@ -87,12 +92,8 @@ try {
     uv run invest salud 2>&1 | ForEach-Object { Registrar $_ }
     # Alertas nuevas (las que no se habían mostrado): bitácora y notificación de Windows
     try {
-        # UTF-8 de ida y vuelta: si no, las tildes de los títulos llegan cambiadas a la notificación
-        $env:PYTHONIOENCODING = "utf-8"
-        $codificacionAnterior = [Console]::OutputEncoding
-        [Console]::OutputEncoding = [Text.Encoding]::UTF8
+        # UTF-8 de ida y vuelta (arriba): si no, las tildes de los títulos llegan cambiadas a la notificación
         $json = uv run invest alertas --nuevas --json 2>$null | Out-String
-        [Console]::OutputEncoding = $codificacionAnterior
         $nuevas = @($json | ConvertFrom-Json)
         if ($nuevas.Count -gt 0) {
             $nuevas | ForEach-Object { Registrar ("Alerta: " + $_.titulo) }
@@ -114,7 +115,7 @@ if (Test-Path (Join-Path $Datos ".git")) {
     git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
     if ($LASTEXITCODE -ne 0) {
         # GitHub Actions subió algo mientras tanto: se rebasa y se intenta de nuevo
-        git -C $Datos pull --rebase --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
+        git -C $Datos pull --rebase --autostash --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
         git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
     }
 }

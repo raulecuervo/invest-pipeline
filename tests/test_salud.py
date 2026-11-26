@@ -40,3 +40,8 @@ def test_el_aviso_no_marca_la_corrida_en_rojo(carpeta_datos, registros_trm, monk
 
 def _solo_trm(df):
     return df.filter(pl.col("fuente_id") == "trm_datos_gov")
+
+
+def test_fuente_manual_sin_leer_no_es_falla(carpeta_datos):
+    fila = salud.evaluar(hoy=date(2026, 11, 25)).filter(pl.col("fuente_id") == "bvc_en_curso").row(0, named=True)
+    assert fila["estado"] == "manual, sin leer todavía"

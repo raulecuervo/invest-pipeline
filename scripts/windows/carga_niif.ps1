@@ -110,7 +110,7 @@ try {
     Pop-Location
     [Invest.Energia]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null
     if (Test-Path (Join-Path $Datos ".git")) {
-        git -C $Datos pull --rebase --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
+        git -C $Datos pull --rebase --autostash --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
         git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
     }
     Registrar "Carga NIIF: fin"

@@ -51,7 +51,18 @@ def _ingestar(ids: list[str], desde: date | None, hasta: date | None) -> int:
     return codigo
 
 
+def _salida_segura() -> None:
+    """Que un carácter que la consola no tiene (p. ej. los bordes de una tabla en la página de códigos
+    cp1252 de Windows) se reemplace en vez de detener el comando."""
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _salida_segura()
     p = argparse.ArgumentParser(prog="invest", description="Sistema de análisis de activos")
     sub = p.add_subparsers(dest="comando", required=True)
 
