@@ -1373,7 +1373,7 @@ paginas.revision = async (v) => {
     const porLeer = sinLeer.filter((d) => d.decision === "paginas" && !mismasPaginas(d.paginas, d.paginas_leidas));
     const sinDecidir = sinLeer.filter((d) => !d.decision);
     const leer = el("button", { type: "button", class: "boton" + (porLeer.length ? " primario" : ""), disabled: !porLeer.length,
-      title: "Envía a los dos lectores solo las páginas indicadas de esos documentos (llama a la API: unos USD 0,10 a 0,30 por documento)." },
+      title: "Envía a los dos lectores solo las páginas indicadas de esos documentos (llama a la API: dos lectores por documento, como la lectura diaria)." },
       `Leer las páginas indicadas${porLeer.length ? " (" + porLeer.length + ")" : ""}`);
     leer.onclick = () => correrAccion("leer_paginas_indicadas", leer, "Leyendo las páginas indicadas… (unos segundos por documento)",
       "Leídos. Lo que quedó en disputa aparece arriba; para verlo en las fichas: «Incorporar lo decidido» y «Actualizar el modelo».");
