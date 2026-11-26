@@ -568,6 +568,50 @@ def _media_exponencial(xs: list, n: int) -> list:
     return salida
 
 
+# =========================================================================== Documentos
+@app.get("/api/documentos")
+def documentos_lista():
+    """Catálogo de los PDF y anexos descargados, con el nombre del emisor y su especie principal."""
+    from invest import documentos
+    filas = documentos.catalogo().to_dicts()
+    nombres = {r["emisor_id"]: r for r in q("SELECT * FROM dim_emisor")}
+    activos = q("SELECT emisor_id, nemotecnico, especie FROM dim_activo ORDER BY activa DESC, especie")
+    por_especie = {r["especie"]: r["nemotecnico"] for r in activos}
+    por_emisor: dict[str, str] = {}
+    for r in activos:
+        por_emisor.setdefault(r["emisor_id"], r["nemotecnico"])
+    for f in filas:
+        e = nombres.get(f["emisor_id"]) or {}
+        f["emisor"] = e.get("nombre_corto") or e.get("nombre") or f["emisor_id"] or "Sin emisor identificado"
+        f["nemotecnico"] = por_especie.get(e.get("especie_principal")) or por_emisor.get(f["emisor_id"])
+    return responder(filas)
+
+
+@app.get("/api/documentos/archivo")
+def documentos_archivo(ruta: str):
+    """El archivo para verlo en el navegador; de un ZIP, el PDF de los estados que trae adentro."""
+    from invest import documentos
+    from invest.ingest import estados_compania as ec
+    try:
+        archivo = documentos.ruta_segura(ruta)
+    except ValueError:
+        raise HTTPException(400, "Archivo no permitido") from None
+    contenido = archivo.read_bytes()
+    nombre = archivo.name
+    if archivo.suffix.lower() == ".zip":
+        pdf = ec.pdf_de_zip(contenido)
+        if pdf is not None:
+            contenido, nombre = pdf, archivo.stem + ".pdf"
+    tipos = {".pdf": "application/pdf", ".zip": "application/zip",
+             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+    tipo = tipos.get(Path(nombre).suffix.lower(), "application/octet-stream")
+    disposicion = "inline" if tipo == "application/pdf" else "attachment"
+    from urllib.parse import quote
+    return Response(contenido, media_type=tipo,
+                    headers={"Content-Disposition": f"{disposicion}; filename*=UTF-8''{quote(nombre)}"})
+
+
 # =========================================================================== Revisión de estados
 # Las cifras en que los dos lectores y el árbitro no se pusieron de acuerdo (invest-data/revision/
 # estados_compania.csv): la página del PDF con las cifras resaltadas y la decisión de Esteban.
@@ -688,10 +732,14 @@ def revision_guardar(cuerpo: dict = Body(...)):
         raise HTTPException(404, "Fila desconocida")
     fila["revision"], fila["valor_revisado"] = decision, valor if decision == "corregido" else ""
     fila["notas_revision"] = str(cuerpo.get("notas_revision") or fila.get("notas_revision") or "")[:500]
-    with open(ec.ruta_revision(), "w", encoding="utf-8-sig", newline="") as f:
-        escritor = csv.DictWriter(f, fieldnames=ec.COLUMNAS_REVISION, delimiter=";", extrasaction="ignore")
-        escritor.writeheader()
-        escritor.writerows(filas)
+    try:
+        with open(ec.ruta_revision(), "w", encoding="utf-8-sig", newline="") as f:
+            escritor = csv.DictWriter(f, fieldnames=ec.COLUMNAS_REVISION, delimiter=";", extrasaction="ignore")
+            escritor.writeheader()
+            escritor.writerows(filas)
+    except PermissionError:  # Windows: el archivo abierto en Excel no se deja escribir
+        raise HTTPException(409, "El archivo revision/estados_compania.csv está abierto en otro programa "
+                                 "(¿Excel?). Ciérrelo y vuelva a elegir.") from None
     return responder({"ok": True, "fila": fila})
 
 

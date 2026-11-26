@@ -638,3 +638,30 @@ def test_sin_acceso_a_fable_usa_el_respaldo(cfg, carpeta_datos, monkeypatch):
     correr(web, cliente, monkeypatch)
     ok = {r["concepto"]: r for r in storage.leer_tabla("silver", ec.TABLA).iter_rows(named=True)}
     assert ok["utilidad_total"]["estado"] == "arbitrado"
+
+
+def test_el_cero_del_arbitro_vale_si_coincide():
+    """Grupo Argos dic-2025: A no registra las obligaciones financieras corrientes, B y el árbitro dicen 0
+    (el balance imprime «-», que no se puede buscar en el texto). Vale B, también en arbitrajes guardados."""
+    a, b = registro(), registro()
+    b["cifras"]["obligaciones_financieras_corrientes"] = {"valor": 0.0, "pagina": 1, "rotulo": "x"}
+    arb = registro()
+    arb["cifras"]["obligaciones_financieras_corrientes"] = {"valor": 0.0, "pagina": 1, "rotulo": "x"}
+    guardado = {"estado": "ok", "modelo": "claude-fable-5-2", "encabezado": None, "registro": arb,
+                "decisiones": {"obligaciones_financieras_corrientes": None}}
+    elegido, pendientes, _, _ = ec._con_arbitraje(a, b, {}, guardado)
+    assert elegido["obligaciones_financieras_corrientes"] == ("b", "arbitrado") and not pendientes
+
+
+def test_revision_descarta_documentos_que_ya_no_estan_en_disputa(carpeta_datos):
+    fila = {c: "" for c in ec.COLUMNAS_REVISION}
+    viejo = {**fila, "documento_id": "viejo", "emisor_id": "CO-X", "fecha_corte": "2026-06-30", "concepto": "pasivos", "revision": "a"}
+    sigue = {**fila, "documento_id": "sigue", "emisor_id": "CO-Y", "fecha_corte": "2025-12-31", "concepto": "efectivo"}
+    ec.exportar_revision([viejo, sigue])
+    import csv
+    ec.exportar_revision([sigue], {"viejo", "sigue"})
+    with open(ec.ruta_revision(), encoding="utf-8-sig") as f:
+        assert [r["documento_id"] for r in csv.DictReader(f, delimiter=";")] == ["sigue"]
+    ec.exportar_revision([], {"sigue"})  # ya no queda ninguna: el archivo queda vacío, no con la fila vieja
+    with open(ec.ruta_revision(), encoding="utf-8-sig") as f:
+        assert list(csv.DictReader(f, delimiter=";")) == []

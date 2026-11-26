@@ -682,7 +682,7 @@ def version_de(reg: dict) -> int:
 #   4. lo demás queda en invest-data/revision/estados_compania.csv para decidirlo a mano mirando el PDF
 #      (columna revision: a, b, corregido con valor_revisado, o rechazado) y entra en la próxima corrida
 #      sin volver a llamar a la API ("revisado").
-RESOLUCION_VERSION = 2
+RESOLUCION_VERSION = 3  # 3: el cero del árbitro vale si coincide con una lectura
 ESTADOS_ACEPTADOS = {"consenso", "resuelto", "arbitrado", "revisado"}
 ARCHIVO_REVISION = "estados_compania.csv"
 COLUMNAS_REVISION = ["documento_id", "emisor_id", "nombre", "fecha_corte", "concepto", "unidades_a", "valor_a",
@@ -796,12 +796,10 @@ def arbitrar(pdf: bytes, contexto: str, a: dict | None, b: dict | None, cliente,
     for c in pendientes:
         vr = _cifras(r)[c]
         decisiones[c] = None
-        if vr is None or (verificable and not cifra_en_texto(vr, compacto)):
+        # Un cero no se puede buscar en el texto (los estados lo imprimen como «-»): basta que coincida
+        if vr is None or (vr != 0 and verificable and not cifra_en_texto(vr, compacto)):
             continue
-        for ag, x in (("a", a), ("b", b)):
-            if x and _cifras(x)[c] is not None and _iguales(r, x, c):
-                decisiones[c] = ag
-                break
+        decisiones[c] = _lado_que_coincide(r, a, b, c)
     lado = None
     if encabezado:
         for ag, x in (("a", a), ("b", b)):
@@ -809,6 +807,14 @@ def arbitrar(pdf: bytes, contexto: str, a: dict | None, b: dict | None, cliente,
                 lado = ag
     return {"estado": "ok", "modelo": modelo, "paginas": paginas, "encabezado": lado, "decisiones": decisiones,
             "registro": r, "version": VERSION_LECTURA}
+
+
+def _lado_que_coincide(r: dict, a: dict | None, b: dict | None, c: str) -> str | None:
+    """'a' o 'b': la lectura con la que coincide el árbitro en el concepto c."""
+    for ag, x in (("a", a), ("b", b)):
+        if x and _cifras(x)[c] is not None and _iguales(r, x, c):
+            return ag
+    return None
 
 
 def ruta_revision() -> Path:
@@ -859,8 +865,11 @@ def _con_arbitraje(a, b, cfg, arbitraje: dict | None):
         lado = arbitraje.get("encabezado")
         if encabezado and not lado:
             return elegido, pendientes, encabezado, None
+        registro = arbitraje.get("registro") or {}
         for c in list(pendientes):
             ag = (arbitraje.get("decisiones") or {}).get(c)
+            if not ag and registro and _cifras(registro)[c] == 0:
+                ag = _lado_que_coincide(registro, a, b, c)  # arbitrajes guardados antes de aceptar ceros
             if ag and (not encabezado or ag == lado):
                 elegido[c] = (ag, "arbitrado")
                 pendientes.remove(c)
@@ -903,16 +912,22 @@ def filas_revision(doc: dict, log: dict, emisor: dict, cfg: dict, arbitraje: dic
     return salida
 
 
-def exportar_revision(pendientes: list[dict]) -> Path | None:
-    """Reescribe el archivo de revisión: las filas nuevas sin decidir y las ya decididas, tal como están."""
+def exportar_revision(pendientes: list[dict], revisados: set[str] | None = None) -> Path | None:
+    """Reescribe el archivo de revisión: las filas nuevas sin decidir y las ya decididas, tal como están.
+    De los documentos de revisados (los que se juzgaron en esta corrida) solo quedan las cifras que siguen
+    en disputa: si se releyó y hubo consenso, o el árbitro ya lo resolvió, la decisión vieja no aplica."""
     ruta = ruta_revision()
     previas = []
     if ruta.exists():
         with open(ruta, encoding="utf-8-sig", errors="replace", newline="") as f:
             previas = list(csv.DictReader(f, delimiter=";"))
+    if revisados:
+        vigentes = {(r["documento_id"], r["concepto"]) for r in pendientes}
+        previas = [r for r in previas if r.get("documento_id") not in revisados
+                   or (r.get("documento_id"), r.get("concepto")) in vigentes]
     decididas = {(r["documento_id"], r["concepto"]): r for r in previas if (r.get("revision") or "").strip()}
     filas = list(decididas.values()) + [r for r in pendientes if (r["documento_id"], r["concepto"]) not in decididas]
-    if not filas:
+    if not filas and not ruta.exists():
         return None
     ruta.parent.mkdir(parents=True, exist_ok=True)
     # Punto y coma y BOM: Excel en español lo abre en columnas y con tildes
@@ -1396,9 +1411,11 @@ class ConectorEstadosCompania(Conector):
         incorporados = self.estado_nuevo.setdefault("incorporados", {})
         emisores = emisores_config(self.cfg)
         revision = leer_revision()
-        registros, por_revisar = [], []
+        registros, por_revisar, revisados = [], [], set()
         for d in docs:
             reg = leidos.get((d["documento_id"], d["huella_pdf"]))
+            if reg is not None:
+                revisados.add(d["documento_id"])
             arb = arbitrajes.get(d["documento_id"])
             arb = arb if arb and arb.get("huella") == d["huella_pdf"] else None
             if reg is not None and reg["estado"] == "en_disputa":
@@ -1414,7 +1431,7 @@ class ConectorEstadosCompania(Conector):
             registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg, revision, arb)
             incorporados[d["documento_id"]] = marca
         sin_decidir = [f for f in por_revisar if (f["documento_id"], f["concepto"]) not in revision]
-        if exportar_revision(por_revisar) and sin_decidir:
+        if exportar_revision(por_revisar, revisados) and sin_decidir:
             self.notas.append(f"{len(sin_decidir)} cifras en disputa por decidir en revision/{ARCHIVO_REVISION}")
         resumen = {k: v for k, v in self.conteo.items() if v}
         if resumen:

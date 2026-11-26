@@ -181,3 +181,28 @@ def test_revision_de_estados_guarda_la_decision_e_imagen(cliente, carpeta_datos)
     assert cliente.post("/api/revision_estados", json={"documento_id": "d1", "concepto": "pasivos", "revision": "corregido"}).status_code == 400
     r = cliente.post("/api/revision_estados", json={"documento_id": "d1", "concepto": "pasivos", "revision": "b"})
     assert r.status_code == 200 and ec.leer_revision()[("d1", "pasivos")]["revision"] == "b"
+
+
+def test_documentos_por_categoria_activo_y_anio(cliente, carpeta_datos):
+    import io
+    import zipfile
+    destino = carpeta_datos / "anexos" / "companias" / "CO-COA01" / "2025-12-31_estados.pdf"
+    destino.parent.mkdir(parents=True)
+    destino.write_bytes(b"%PDF-1.4 estados")
+    zipeado = io.BytesIO()
+    with zipfile.ZipFile(zipeado, "w") as z:
+        z.writestr("EEFF Consolidados 2025.pdf", b"%PDF-1.4 " + b"x" * 5000)
+    (carpeta_datos / "anexos" / "sfc" / "2026").mkdir(parents=True)
+    (carpeta_datos / "anexos" / "sfc" / "2026" / "aaa_INFORME.zip").write_bytes(zipeado.getvalue())
+    docs = {d["archivo"]: d for d in cliente.get("/api/documentos").json()}
+    d = docs["anexos/companias/CO-COA01/2025-12-31_estados.pdf"]
+    assert (d["categoria"], d["emisor"], d["anio"], d["origen"]) == ("Estados financieros", "A", 2025, "Sitio de la compañía")
+    assert docs["anexos/sfc/2026/aaa_INFORME.zip"]["anio"] == 2026
+    r = cliente.get("/api/documentos/archivo", params={"ruta": d["archivo"]})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and "inline" in r.headers["content-disposition"]
+    # Del ZIP se abre el PDF que trae adentro
+    r = cliente.get("/api/documentos/archivo", params={"ruta": "anexos/sfc/2026/aaa_INFORME.zip"})
+    assert r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+    # Nada fuera de anexos/ ni fuentes_compania/
+    for ruta in ("../../etc/passwd", "modelo.duckdb", "usuario/carteras.csv", "anexos/../modelo.duckdb"):
+        assert cliente.get("/api/documentos/archivo", params={"ruta": ruta}).status_code == 400

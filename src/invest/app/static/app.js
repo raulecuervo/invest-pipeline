@@ -1330,34 +1330,52 @@ paginas.alertas = async (v) => {
 // la página del PDF con las cifras resaltadas y la decisión (se guarda en invest-data/revision/estados_compania.csv)
 const COLOR_A = "#F5B54A", COLOR_B = "#4CC9F0", COLOR_ARB = "#B48CFF";
 const NOMBRE_CONCEPTO = (c) => estado.variables[c]?.nombre || c.replaceAll("_", " ");
+const TEXTO_DECISION = { a: "A es la correcta", b: "B es la correcta", corregido: "Otra cifra", rechazado: "Ninguna vale" };
 paginas.revision = async (v) => {
   v.append(el("div", {}, el("h1", {}, "Revisión de estados financieros"),
     el("div", { class: "sub" }, "Cifras en que los dos lectores y el árbitro no se pusieron de acuerdo. Mire la página, elija la correcta y luego «Incorporar lo decidido».")));
-  const filas = await api("/api/revision_estados");
-  const pendientes = filas.filter((f) => !f.revision), decididas = filas.filter((f) => f.revision);
-  const estadoTxt = el("span", { class: "nota" });
-  const incorporar = el("button", { type: "button", class: "boton", disabled: !decididas.length,
-    title: "Corre la lectura de estados sin documentos nuevos ni API: solo incorpora lo decidido. Luego «Actualizar el modelo» en Salud de datos." }, "Incorporar lo decidido");
-  incorporar.onclick = async () => {
-    incorporar.disabled = true; estadoTxt.textContent = "Incorporando…";
-    const r = await postear("/api/acciones/incorporar_revision");
-    if (!r.ok) { estadoTxt.textContent = r.problemas.join("; "); incorporar.disabled = false; return; }
-    const sondeo = setInterval(async () => {
-      const t = await api("/api/acciones/" + r.trabajo);
-      if (!t.fin) return;
-      clearInterval(sondeo); incorporar.disabled = false;
-      estadoTxt.textContent = t.codigo === 0 ? "Listo. Para verlo en las fichas: «Actualizar el modelo» en Salud de datos." : "No se pudo: " + ([...t.salida].pop() || "").slice(0, 160);
-    }, 1500);
+  const contenido = el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } });
+  v.append(contenido);
+  let aviso = "";  // se conserva entre repintadas: confirma lo último que se guardó
+  const pintar = async () => {
+    const filas = await api("/api/revision_estados");
+    const pendientes = filas.filter((f) => !f.revision), decididas = filas.filter((f) => f.revision);
+    const estadoTxt = el("span", { class: "nota", role: "status" }, aviso);
+    const incorporar = el("button", { type: "button", class: "boton" + (decididas.length ? " primario" : ""), disabled: !decididas.length,
+      title: "Corre la lectura de estados sin documentos nuevos ni API: solo incorpora lo decidido. Luego «Actualizar el modelo» en Salud de datos." }, "Incorporar lo decidido");
+    incorporar.onclick = async () => {
+      incorporar.disabled = true; estadoTxt.textContent = "Incorporando…";
+      const r = await postear("/api/acciones/incorporar_revision");
+      if (!r.ok) { estadoTxt.textContent = r.problemas.join("; "); incorporar.disabled = false; return; }
+      const sondeo = setInterval(async () => {
+        const t = await api("/api/acciones/" + r.trabajo);
+        if (!t.fin) return;
+        clearInterval(sondeo);
+        aviso = t.codigo === 0 ? "Incorporado. Para verlo en las fichas: «Actualizar el modelo» en Salud de datos." : "No se pudo: " + ([...t.salida].pop() || "").slice(0, 160);
+        await pintar();
+      }, 1500);
+    };
+    const guardar = async (f, revision, valor) => {
+      const r = await postear("/api/revision_estados", { documento_id: f.documento_id, concepto: f.concepto, revision, valor_revisado: valor || "" });
+      const quien = `${f.nombre || f.emisor_id} · ${NOMBRE_CONCEPTO(f.concepto)}`;
+      aviso = revision ? `Guardado: ${quien} → ${TEXTO_DECISION[revision]}${r.fila?.valor_revisado ? " " + r.fila.valor_revisado : ""}. Cuando termine, «Incorporar lo decidido».`
+        : `Deshecho: ${quien} vuelve a estar por decidir.`;
+      const y = window.scrollY; await pintar(); window.scrollTo(0, y);
+    };
+    const tarjetas = [...pendientes, ...decididas].map((f) => tarjetaRevision(f, guardar));
+    contenido.replaceChildren(
+      el("section", { class: "panel" }, el("div", { class: "encabezado" },
+        el("h2", {}, `${pendientes.length} por decidir · ${decididas.length} decidida${decididas.length === 1 ? "" : "s"}`),
+        el("span", { style: { display: "inline-flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, incorporar, estadoTxt)),
+        leyenda([[COLOR_A, "Lector A"], [COLOR_B, "Lector B"], [COLOR_ARB, "Árbitro"]]),
+        el("p", { class: "desc" }, "Las cifras se resaltan en la página donde aparecen impresas. Si una no aparece resaltada, no está escrita así en el documento (pudo ser calculada). Lo decidido se guarda al instante; «Incorporar lo decidido» lo pasa a los estados.")),
+      ...(filas.length ? tarjetas : [el("div", { class: "vacio" }, "No hay cifras en disputa.")]));
   };
-  v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" },
-    el("h2", {}, `${pendientes.length} por decidir · ${decididas.length} decididas`), el("span", { style: { display: "inline-flex", gap: "8px", alignItems: "center" } }, incorporar, estadoTxt)),
-    leyenda([[COLOR_A, "Lector A"], [COLOR_B, "Lector B"], [COLOR_ARB, "Árbitro"]]),
-    el("p", { class: "desc" }, "Las cifras se resaltan en la página donde aparecen impresas. Si una no aparece resaltada, no está escrita así en el documento (pudo ser calculada).")));
-  if (!filas.length) { v.append(el("div", { class: "vacio" }, "No hay cifras en disputa.")); return; }
-  for (const f of [...pendientes, ...decididas]) v.append(tarjetaRevision(f));
+  await pintar();
 };
-function tarjetaRevision(f) {
-  const caja = el("section", { class: "panel tarjeta-revision" + (f.revision ? " decidida" : "") });
+function tarjetaRevision(f, guardar) {
+  const decidida = !!f.revision;
+  const caja = el("section", { class: "panel tarjeta-revision" + (decidida ? " decidida" : "") });
   const cifra = (val, u) => val === "" || val == null ? "no la registra" : `${num(Number(val), Number(val) % 1 ? 2 : 0)} ${u ? "(" + u + ")" : ""}`;
   const fila = (color, quien, val, u, pag) => el("div", { class: "evento" }, el("i", { class: "muestra-media", style: { background: color } }),
     el("strong", { style: { minWidth: "90px" } }, quien), el("span", {}, cifra(val, u)), pag ? el("span", { class: "nota" }, "pág. " + pag) : null);
@@ -1365,39 +1383,126 @@ function tarjetaRevision(f) {
   const enviadas = (f.paginas_enviadas || "").split(",").filter(Boolean);
   const paginasVer = [...new Set([f.pagina_a, f.pagina_b, f.pagina_arbitro].filter(Boolean))];
   if (!paginasVer.length && enviadas.length) paginasVer.push(enviadas[0]);
-  const imagenes = el("div", { class: "imagenes-revision" }, paginasVer.map((pg) => {
+  const figuras = () => el("div", { class: "imagenes-revision" }, paginasVer.map((pg) => {
     const src = (rec) => `/api/revision_estados/imagen?archivo=${encodeURIComponent(f.archivo)}&pagina=${pg}&valores=${encodeURIComponent(valores)}&recorte=${rec}`;
     return el("figure", {}, el("img", { src: src(1), alt: `Página ${pg} del documento`, loading: "lazy" }),
       el("figcaption", { class: "nota" }, `Página ${pg} · `, el("a", { href: src(0), target: "_blank", style: { color: "var(--acento)" } }, "ver la página completa")));
   }));
-  const estadoTxt = el("span", { class: "nota" }, f.revision ? `Decidido: ${f.revision}${f.valor_revisado ? " " + f.valor_revisado : ""}` : "");
-  const guardar = async (revision, valor) => {
-    try {
-      const r = await postear("/api/revision_estados", { documento_id: f.documento_id, concepto: f.concepto, revision, valor_revisado: valor || "" });
-      Object.assign(f, r.fila); caja.replaceWith(tarjetaRevision(f));
-    } catch (e) { estadoTxt.textContent = String(e.message || e); }
+  // Las decididas quedan plegadas: la imagen solo se carga si se abre
+  let imagenes;
+  if (decidida) {
+    imagenes = el("details", {}, el("summary", { class: "nota", style: { cursor: "pointer" } }, "Ver la página otra vez"));
+    imagenes.addEventListener("toggle", () => { if (imagenes.open && imagenes.children.length === 1) imagenes.append(figuras()); }, { once: false });
+  } else imagenes = figuras();
+  const estadoTxt = el("span", { class: "nota", role: "status" });
+  const enviar = async (boton, revision, valor) => {
+    if (revision === "corregido" && !String(valor || "").trim()) { estadoTxt.textContent = "Escriba la cifra primero."; return; }
+    caja.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    boton.textContent = "Guardando…";
+    try { await guardar(f, revision, valor); }
+    catch (e) { estadoTxt.textContent = "No se guardó: " + String(e.message || e); caja.querySelectorAll("button").forEach((b) => { b.disabled = false; }); }
+  };
+  const boton = (texto, revision, valor) => {
+    const elegido = decidida && f.revision === revision && (revision !== "corregido" || String(valor ?? f.valor_revisado) === String(f.valor_revisado));
+    const b = el("button", { type: "button", class: "boton" + (elegido ? " primario" : ""), "aria-pressed": String(elegido) }, (elegido ? "✓ " : "") + texto);
+    b.onclick = () => enviar(b, revision, typeof valor === "function" ? valor() : valor);
+    return b;
   };
   const otra = el("input", { type: "text", inputmode: "decimal", placeholder: `cifra en ${f.unidades_a || "las unidades del documento"}`, style: { width: "190px", height: "36px" } });
   const esDocumento = f.concepto === "documento";
+  const hayArbitro = !esDocumento && f.valor_arbitro !== "" && f.valor_arbitro != null && f.unidades_arbitro === f.unidades_a;
   const botones = el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
-    el("button", { type: "button", class: "boton", onclick: () => guardar("a") }, esDocumento ? "Vale la lectura A" : "A es la correcta"),
-    el("button", { type: "button", class: "boton", onclick: () => guardar("b") }, esDocumento ? "Vale la lectura B" : "B es la correcta"),
-    !esDocumento && f.valor_arbitro !== "" && f.valor_arbitro != null && f.unidades_arbitro === f.unidades_a
-      ? el("button", { type: "button", class: "boton", onclick: () => guardar("corregido", f.valor_arbitro) }, "La del árbitro") : null,
-    esDocumento ? null : otra,
-    esDocumento ? null : el("button", { type: "button", class: "boton", onclick: () => guardar("corregido", otra.value) }, "Guardar otra cifra"),
-    el("button", { type: "button", class: "boton", onclick: () => guardar("rechazado") }, "Ninguna"),
-    f.revision ? el("button", { type: "button", class: "boton", onclick: () => guardar("") }, "Deshacer") : null,
+    // Si un lector no registra la cifra, elegirlo no aporta nada: para eso está «Ninguna»
+    esDocumento || (f.valor_a !== "" && f.valor_a != null) || f.revision === "a" ? boton(esDocumento ? "Vale la lectura A" : "A es la correcta", "a") : null,
+    esDocumento || (f.valor_b !== "" && f.valor_b != null) || f.revision === "b" ? boton(esDocumento ? "Vale la lectura B" : "B es la correcta", "b") : null,
+    hayArbitro ? boton("La del árbitro", "corregido", f.valor_arbitro) : null,
+    esDocumento || decidida ? null : otra,
+    esDocumento || decidida ? null : boton("Guardar otra cifra", "corregido", () => otra.value),
+    boton("Ninguna", "rechazado"),
+    decidida ? (() => { const b = el("button", { type: "button", class: "boton" }, "Deshacer"); b.onclick = () => enviar(b, ""); return b; })() : null,
     estadoTxt);
+  const chip = decidida
+    ? el("span", { class: "chip" }, "✓ Decidido: " + (TEXTO_DECISION[f.revision] || f.revision) + (f.revision === "corregido" && f.valor_revisado ? " " + num(Number(f.valor_revisado), Number(f.valor_revisado) % 1 ? 2 : 0) : ""))
+    : el("span", { class: "chip gris" }, f.diferencia || "por decidir");
   caja.append(
-    el("div", { class: "encabezado" }, el("h2", {}, `${f.nombre || f.emisor_id} · ${fecha(f.fecha_corte)} · ${esDocumento ? "encabezado del documento" : NOMBRE_CONCEPTO(f.concepto)}`),
-      el("span", { class: "chip gris" }, f.diferencia || "")),
+    el("div", { class: "encabezado" }, el("h2", {}, `${f.nombre || f.emisor_id} · ${fecha(f.fecha_corte)} · ${esDocumento ? "encabezado del documento" : NOMBRE_CONCEPTO(f.concepto)}`), chip),
     esDocumento ? el("p", { class: "desc" }, f.diferencia) : el("div", {}, fila(COLOR_A, "Lector A", f.valor_a, f.unidades_a, f.pagina_a),
       fila(COLOR_B, "Lector B", f.valor_b, f.unidades_b, f.pagina_b),
       f.modelo_arbitro ? fila(COLOR_ARB, "Árbitro", f.valor_arbitro, f.unidades_arbitro, f.pagina_arbitro) : el("div", { class: "nota" }, "Aún sin árbitro.")),
     imagenes, botones);
   return caja;
 }
+
+// ===== Documentos =====
+// Los PDF y anexos descargados (Superfinanciera, sitios de las compañías, puestos a mano), por categoría,
+// activo y año; cada uno se abre en otra pestaña (de un ZIP, el PDF de los estados que trae adentro)
+const LECTURA_DOC = { consenso: ["Leído", "b-bueno"], en_disputa: ["En disputa", "b-neutral"], sin_paginas: ["Sin estados adentro", "b-nd"],
+  sin_texto: ["Escaneado (sin texto)", "b-nd"], error: ["Error al leer", "b-debil"], sin_consenso: ["Sin consenso", "b-neutral"] };
+paginas.documentos = async (v) => {
+  v.append(el("div", {}, el("h1", {}, "Documentos"),
+    el("div", { class: "sub" }, "Lo que el sistema ha descargado: información relevante de la Superfinanciera y estados financieros de los sitios de las compañías.")));
+  const docs = await api("/api/documentos");
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const unicos = (k) => [...new Set(docs.map((d) => d[k]).filter((x) => x != null && x !== ""))];
+  const emisores = [...new Map(docs.map((d) => [d.emisor_id || "", d.emisor + (d.nemotecnico ? ` (${d.nemotecnico})` : "")])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1], "es"));
+  const selector = (nombre, opciones, todos) => {
+    const s = el("select", { "aria-label": nombre, style: { height: "36px" } }, el("option", { value: "" }, todos),
+      opciones.map(([val, txt]) => el("option", { value: val }, txt)));
+    s.value = params.get(nombre) || ""; return s;
+  };
+  const fCategoria = selector("categoria", unicos("categoria").sort().map((c) => [c, c]), "Todas las categorías");
+  const fActivo = selector("activo", emisores, "Todos los activos");
+  const fAnio = selector("anio", unicos("anio").sort((a, b) => b - a).map((a) => [String(a), String(a)]), "Todos los años");
+  const fOrigen = selector("origen", unicos("origen").sort().map((o) => [o, o]), "Todos los orígenes");
+  const fTexto = el("input", { type: "search", placeholder: "Buscar en el título", "aria-label": "Buscar en el título", value: params.get("texto") || "", style: { height: "36px", width: "220px" } });
+  const resumen = el("span", { class: "nota", role: "status" });
+  const lista = el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } });
+  const MAX = 400;
+  const pintar = () => {
+    const q = { categoria: fCategoria.value, activo: fActivo.value, anio: fAnio.value, origen: fOrigen.value, texto: fTexto.value.trim() };
+    const hash = "#/documentos" + (Object.values(q).some(Boolean) ? "?" + new URLSearchParams(Object.entries(q).filter(([, x]) => x)) : "");
+    history.replaceState(null, "", hash);
+    const t = q.texto.toLowerCase();
+    const vistos = docs.filter((d) => (!q.categoria || d.categoria === q.categoria) && (!q.activo || (d.emisor_id || "") === q.activo)
+      && (!q.anio || String(d.anio) === q.anio) && (!q.origen || d.origen === q.origen) && (!t || (d.titulo || "").toLowerCase().includes(t)));
+    resumen.textContent = `${vistos.length} de ${docs.length} documentos` + (vistos.length > MAX ? ` · se muestran los ${MAX} más recientes; afine los filtros` : "");
+    // Agrupados por activo y, dentro, por año (lo más reciente primero)
+    const grupos = new Map();
+    for (const d of vistos.slice(0, MAX)) {
+      const k = d.emisor_id || "";
+      if (!grupos.has(k)) grupos.set(k, { nombre: d.emisor, nemotecnico: d.nemotecnico, anios: new Map() });
+      const g = grupos.get(k), a = d.anio ?? "Sin fecha";
+      if (!g.anios.has(a)) g.anios.set(a, []);
+      g.anios.get(a).push(d);
+    }
+    const ordenados = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    lista.replaceChildren(...(ordenados.length ? ordenados.map((g) => el("section", { class: "panel" },
+      el("div", { class: "encabezado" }, el("h2", {}, g.nombre + (g.nemotecnico ? ` · ${g.nemotecnico}` : "")),
+        el("span", { class: "chip gris" }, `${[...g.anios.values()].flat().length} documentos`)),
+      [...g.anios.entries()].map(([anio, items]) => el("div", { class: "grupo-documentos" },
+        el("h3", {}, String(anio)),
+        el("ul", { class: "lista-documentos" }, items.map((d) => {
+          const lect = LECTURA_DOC[d.lectura];
+          const enlace = `/api/documentos/archivo?ruta=${encodeURIComponent(d.archivo)}`;
+          return el("li", {},
+            el("span", { class: "nota fecha-doc" }, d.fecha ? fecha(d.fecha) : "—"),
+            el("a", { href: enlace, target: "_blank", rel: "noopener", class: "titulo-doc", title: d.archivo }, d.titulo || d.archivo),
+            el("span", { class: "chip gris" }, d.categoria),
+            lect ? el("span", { class: "chip " + lect[1], title: "Lectura de los estados financieros" }, lect[0]) : null,
+            el("span", { class: "nota" }, `${d.origen} · ${d.tipo.toUpperCase()} · ${d.kb >= 1024 ? num(d.kb / 1024, 1) + " MB" : d.kb + " KB"}`));
+        })))))) : [el("div", { class: "vacio" }, "Ningún documento con esos filtros.")]));
+  };
+  for (const f of [fCategoria, fActivo, fAnio, fOrigen]) f.addEventListener("change", pintar);
+  fTexto.addEventListener("input", pintar);
+  const limpiar = el("button", { type: "button", class: "boton" }, "Quitar filtros");
+  limpiar.onclick = () => { for (const f of [fCategoria, fActivo, fAnio, fOrigen, fTexto]) f.value = ""; pintar(); };
+  v.append(el("section", { class: "panel" },
+    el("div", { class: "controles-precio" }, fCategoria, fActivo, fAnio, fOrigen, fTexto, limpiar),
+    el("p", { class: "desc" }, "Los ZIP de la Superfinanciera se abren directamente en el PDF de los estados que traen. Los documentos son solo para consulta personal: no se redistribuyen."),
+    resumen), lista);
+  pintar();
+};
 
 paginas.salud = async (v) => {
   const d = await api("/api/salud");

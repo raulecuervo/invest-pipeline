@@ -170,3 +170,12 @@ form.formulario .acciones { grid-column: 1 / -1; display: flex; gap: 8px; align-
 .imagenes-revision { display: flex; flex-direction: column; gap: 10px; }
 .imagenes-revision figure { margin: 0; }
 .imagenes-revision img { width: 100%; max-width: 1000px; border-radius: 8px; border: 1px solid var(--borde); background: #fff; }
+
+/* ===== Documentos ===== */
+.grupo-documentos h3 { margin: 12px 0 6px; font-size: 13px; color: var(--texto2); font-weight: 650; }
+.lista-documentos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lista-documentos li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--borde); }
+.lista-documentos li:first-child { border-top: 0; }
+.lista-documentos .fecha-doc { min-width: 92px; }
+.lista-documentos .titulo-doc { flex: 1 1 360px; color: var(--texto); text-decoration: none; }
+.lista-documentos .titulo-doc:hover { color: var(--acento-suave); text-decoration: underline; }
