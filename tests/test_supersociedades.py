@@ -167,6 +167,33 @@ def test_corte_aislado_que_duplica_el_valor_patrimonial_se_descarta():
     assert fundamentales.descartar_punto_aislado(df2).height == 5
 
 
+
+def test_tramo_corto_fuera_de_escala_se_descarta_y_un_cambio_de_nivel_no():
+    # BVC mar y jun-2019: 825 y 4.640 entre 8.167 (dic-2018) y 8.156 (sep-2019)
+    def fila(corte, valor):
+        return {"emisor_id": "CO-COR01", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",
+                "valor": valor, "unidad": "pesos_por_accion", "base": "separado", "fuente": "anexo_211"}
+    df = pl.DataFrame([fila(date(2018, 12, 31), 8166.73), fila(date(2019, 3, 31), 825.06), fila(date(2019, 6, 30), 4639.55),
+                       fila(date(2019, 9, 30), 8156.0), fila(date(2019, 12, 31), 8430.0)], schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_punto_aislado(df).get_column("valor").to_list() == [8166.73, 8156.0, 8430.0]
+    # Una escisión que parte el patrimonio a la mitad y no vuelve se conserva entera
+    df2 = pl.DataFrame([fila(date(2021, 9, 30), 1000.0), fila(date(2021, 12, 31), 1020.0), fila(date(2022, 3, 31), 500.0),
+                        fila(date(2022, 6, 30), 510.0), fila(date(2022, 9, 30), 515.0)], schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_punto_aislado(df2).height == 5
+
+
+def test_tramo_largo_en_miles_se_descarta():
+    # Paz del Río: 0,02 en seis cortes seguidos (jun-2020 a sep-2022) entre 19,95 y 21,24
+    def fila(corte, valor):
+        return {"emisor_id": "CO-COD12", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",
+                "valor": valor, "unidad": "pesos_por_accion", "base": "separado", "fuente": "anexo_211"}
+    cortes = [date(2020, 3, 31), date(2020, 6, 30), date(2020, 12, 31), date(2021, 6, 30), date(2021, 12, 31),
+              date(2022, 6, 30), date(2022, 9, 30), date(2022, 12, 31)]
+    valores = [19.95, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 21.24]
+    df = pl.DataFrame([fila(c, v) for c, v in zip(cortes, valores)], schema=fundamentales.ESQUEMA)
+    assert fundamentales.descartar_saltos(df).get_column("valor").to_list() == [19.95, 21.24]
+
+
 def test_anexo_de_menor_prioridad_en_otra_escala_se_descarta():
     def fila(corte, valor, fuente):
         return {"emisor_id": "CO-PAT07", "fecha_corte": corte, "fecha_disponible": corte, "concepto": "valor_patrimonial_accion",

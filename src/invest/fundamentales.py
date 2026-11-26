@@ -190,7 +190,8 @@ def desde_anexos(anexos: pl.DataFrame) -> pl.DataFrame:
 
 SALTO_MAXIMO = 20.0   # veces; un split de verdad queda en gold/fact_split y no se descarta
 SALTO_PUNTUAL = 1.5   # veces: un solo corte que se aparta así de dos vecinos que coinciden
-VECINOS_COINCIDEN = 1.10
+VECINOS_COINCIDEN = 1.20
+TRAMO_PUNTUAL = 3      # cortes seguidos
 VECINOS_DIAS = 200
 # Solo el valor patrimonial: es un saldo y se mueve poco. La utilidad por acción es acumulada en el año y
 # puede pasar de 0,2 a 13 sin error (o cambiar de signo), así que se controla contra el valor patrimonial.
@@ -248,12 +249,12 @@ def descartar_fuente_discordante(df: pl.DataFrame) -> pl.DataFrame:
     return df.filter(~marca)
 
 
-def descartar_saltos(df: pl.DataFrame, tramo_maximo: int = 4) -> pl.DataFrame:
+def descartar_saltos(df: pl.DataFrame, tramo_maximo: int = 8) -> pl.DataFrame:
     """Quita un tramo de hasta ``tramo_maximo`` cortes seguidos de valor patrimonial por acción que se aparta
     más de ``SALTO_MAXIMO`` veces del corte anterior y del siguiente, cuando esos dos coinciden entre sí y no
     hay un split del emisor entre medio. Es otra escala (miles de pesos, dólares), no un cambio real:
-    Paz del Río dic-2020 y dic-2021 dicen 0,02 entre 20,61 (2019) y 19,24 (2024).
-    En los extremos de la serie no se descarta nada: ahí no se distingue un error de un cambio de nivel.
+    Paz del Río dice 0,02 en seis cortes seguidos (jun-2020 a sep-2022) entre 19,95 (mar-2020) y 21,24
+    (dic-2022): el tramo llega a ocho cortes (dos años). En los extremos de la serie no se descarta nada: ahí no se distingue un error de un cambio de nivel.
     """
     if df.is_empty():
         return df
@@ -280,11 +281,13 @@ def descartar_saltos(df: pl.DataFrame, tramo_maximo: int = 4) -> pl.DataFrame:
     return df.filter(~marca)
 
 def descartar_punto_aislado(df: pl.DataFrame) -> pl.DataFrame:
-    """Quita un único corte de valor patrimonial por acción que se aparta ``SALTO_PUNTUAL`` veces o más de
-    los dos cortes vecinos cuando esos dos coinciden (a menos de 10 %), están a menos de ``VECINOS_DIAS``
-    días entre sí y no hay un split entre medio. El patrimonio no se duplica ni se parte en dos en un
+    """Quita un tramo de hasta ``TRAMO_PUNTUAL`` cortes seguidos de valor patrimonial por acción que se
+    aparta ``SALTO_PUNTUAL`` veces o más de los dos cortes que lo rodean cuando esos dos coinciden (a menos
+    de ``VECINOS_COINCIDEN``), están cerca en el tiempo (``VECINOS_DIAS`` más 100 días por cada corte de más
+    en el tramo) y no hay un split entre medio. El patrimonio no se duplica ni se parte en dos en un
     trimestre para volver al nivel anterior al siguiente: Grupo Sura mar-2026 dice 87.310 entre 42.455
-    (dic-2025) y 42.453 (jun-2026)."""
+    (dic-2025) y 42.453 (jun-2026); la BVC dice 825 y 4.640 en mar y jun-2019 entre 8.167 y 8.156.
+    Un cambio de nivel de verdad (una escisión) no vuelve, así que los dos vecinos no coinciden."""
     if df.is_empty():
         return df
     con_split = _fechas_split()
@@ -294,13 +297,17 @@ def descartar_punto_aislado(df: pl.DataFrame) -> pl.DataFrame:
         filas = sorted((f, v) for f, v in g.select("fecha_corte", "valor").iter_rows() if v and v > 0)
         splits = con_split.get(emisor, [])
         for i in range(1, len(filas) - 1):
-            (fa, a), (f, v), (fd, d) = filas[i - 1], filas[i], filas[i + 1]
-            if (fd - fa).days > VECINOS_DIAS or max(a, d) / min(a, d) > VECINOS_COINCIDEN:
-                continue
-            if any(fa <= x <= fd for x in splits):
-                continue
-            if min(max(v, a) / min(v, a), max(v, d) / min(v, d)) >= SALTO_PUNTUAL:
-                descartar.add((emisor, concepto, base, f))
+            for largo in range(1, TRAMO_PUNTUAL + 1):
+                if i + largo >= len(filas):
+                    break
+                (fa, a), (fd, d), tramo = filas[i - 1], filas[i + largo], filas[i:i + largo]
+                if (fd - fa).days > VECINOS_DIAS + 100 * (largo - 1) or max(a, d) / min(a, d) > VECINOS_COINCIDEN:
+                    continue
+                if any(fa <= x <= fd for x in splits):
+                    continue
+                if all(min(max(v, a) / min(v, a), max(v, d) / min(v, d)) >= SALTO_PUNTUAL for _, v in tramo):
+                    descartar.update((emisor, concepto, base, f) for f, _ in tramo)
+                    break
     if not descartar:
         return df
     marca = pl.struct(["emisor_id", "concepto", "base", "fecha_corte"]).map_elements(
@@ -621,6 +628,12 @@ def construir() -> tuple[pl.DataFrame | None, dict]:
     del_pdf = desde_pdf_compania(ee)
     de_anexos = desde_anexos(anexos)
     del_cuif = desde_cuif(de_anexos, storage.leer_tabla("silver", "fact_cuif_mensual"))
+    # Los filtros de escala se repiten sobre la serie separada completa (anexos + CUIF): el primer anexo
+    # de BBVA (mar-2017, 26.537) solo tiene vecinos del CUIF (278,76 en dic-2016)
+    separado = pl.concat([de_anexos, del_cuif])
+    separado = descartar_punto_aislado(descartar_saltos(separado))
+    de_anexos = separado.filter(pl.col("fuente") != "cuif_derivado")
+    del_cuif = separado.filter(pl.col("fuente") == "cuif_derivado")
     df = pl.concat([de_anexos, del_cuif, del_xbrl, desde_supersociedades(ss),
                     con_prioridad_xbrl(del_pdf, del_xbrl)]).sort(["emisor_id", "fecha_corte", "base", "concepto"])
     if df.is_empty():
