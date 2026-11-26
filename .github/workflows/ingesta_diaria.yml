@@ -14,6 +14,10 @@ name: Ingesta diaria
 on:
   schedule:
     - cron: "17 0 * * *"   # 19:17 en Bogotá (UTC-5). Minuto poco usado para evitar retrasos
+    # Respaldo a las 06:47 de Bogotá: GitHub puede atrasar o saltarse una corrida programada (el
+    # 25-nov-2026 la de las 19:17 corrió a las 03:48) y la SFC publica con rezago variable. Sin datos
+    # nuevos la segunda corrida no cambia nada.
+    - cron: "47 11 * * *"
   workflow_dispatch:
     inputs:
       desde:
@@ -123,7 +127,7 @@ jobs:
         run: uv run invest salud --solo actions
 
       - name: Resultado
+        # Un fallo pasajero de una fuente (no respondió) no pone la corrida en rojo si su dato sigue al
+        # día: eso lo decide el paso Salud de datos, que sí falla si algo se vence. Aquí solo se avisa.
         if: ${{ steps.ingesta.outcome == 'failure' }}
-        run: |
-          echo "Alguna fuente falló en la ingesta (ver el paso Ingesta); lo demás quedó guardado."
-          exit 1
+        run: echo "::warning::Alguna fuente falló en la ingesta (ver el paso Ingesta); lo demás quedó guardado y Salud de datos dice si algo quedó vencido."

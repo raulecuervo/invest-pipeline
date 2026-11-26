@@ -8,7 +8,7 @@
 #   - después de una corrida detenida por fallas del SIMEV espera 10 minutos y sigue;
 #   - para si tres corridas seguidas no avanzan o si llega a 30 corridas;
 #   - guarda (commit) los datos después de cada corrida y, al final, reconstruye las tablas
-#     (invest dims y invest modelo) y sube todo a GitHub.
+#     (invest dims, factores, ficha y modelo) y sube todo a GitHub.
 #
 # Uso:  powershell -ExecutionPolicy Bypass -File scripts\windows\carga_niif.ps1
 #       (opcional: -MaxCorridas 5 -EsperaMinutos 10 -SinReconstruir)
@@ -98,8 +98,11 @@ try {
     }
 
     if (-not $SinReconstruir) {
-        Registrar "Carga NIIF: reconstruyendo tablas (invest dims, invest modelo)"
+        Registrar "Carga NIIF: reconstruyendo tablas (invest dims, factores, ficha, modelo)"
         uv run invest dims 2>&1 | Out-Null
+        # Los fundamentales nuevos cambian los factores de valor y utilidad: se revalidan y se rehace el puntaje
+        uv run invest factores 2>&1 | Out-Null
+        uv run invest ficha 2>&1 | Out-Null
         uv run invest modelo 2>&1 | Where-Object { "$_" -match '^\[contrato\]|^Contrato' } | ForEach-Object { Registrar $_ }
         GuardarCambios ("Carga NIIF: tablas reconstruidas {0:yyyy-MM-dd HH:mm}" -f (Get-Date))
     }

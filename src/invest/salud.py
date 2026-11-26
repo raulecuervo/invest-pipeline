@@ -48,13 +48,16 @@ def evaluar(hoy: date | None = None) -> pl.DataFrame:
         if ultimo is not None:
             rezago = max(len(sesiones_entre(ultimo, hoy)) - 1, 0) if ultimo <= hoy else 0
         ult_ej = next((e for e in reversed(ejecuciones) if e.get("fuente_id") == f["id"]), None)
+        vencido = rezago is not None and rezago > _tolerancia(f, limite)
         if ultimo is None:
             estado = "sin datos"
-        elif ult_ej and ult_ej.get("estado") == "error":
-            estado = "error en la última ejecución"
-        elif rezago is not None and rezago > _tolerancia(f, limite):
+        elif vencido:
             # Las fuentes manuales (las lanza Esteban) no cuentan como falla si no se leen a diario
             estado = "manual, sin leer reciente" if f.get("ejecuta_en") == "manual" else "vencido"
+        elif ult_ej and ult_ej.get("estado") == "error":
+            # Un fallo pasajero (FRED no respondió el 24-nov) con el dato todavía al día es un aviso, no
+            # una falla: la próxima corrida lo reintenta. Si el dato se vence, pasa a "vencido".
+            estado = "al día (falló la última corrida)"
         else:
             estado = "al día"
         filas.append(

@@ -336,7 +336,11 @@ def main(argv: list[str] | None = None) -> int:
         df = salud.evaluar()
         with __import__("polars").Config(tbl_rows=50, tbl_cols=10, fmt_str_lengths=40):
             print(df.select(["fuente_id", "ultimo_dato", "rezago_dias_habiles", "estado"]))
-        malos = df.filter((df["estado"] != "al día") & ~df["estado"].str.starts_with("manual"))
+        malos = df.filter(~df["estado"].str.starts_with("al día") & ~df["estado"].str.starts_with("manual"))
+        avisos = df.filter(df["estado"] == "al día (falló la última corrida)")
+        if not avisos.is_empty():
+            print("Aviso: falló la última corrida, pero el dato sigue al día (se reintenta en la próxima): "
+                  + ", ".join(avisos["fuente_id"].to_list()))
         if a.solo:
             # En GitHub Actions, una fuente del PC atrasada (p. ej. la carga NIIF) no es una falla de la ingesta
             # de la nube: se avisa, pero no se marca la corrida en rojo
