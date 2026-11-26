@@ -45,7 +45,24 @@ fuentes:
     fase: 1
     tabla_destino: fact_precio_bvc
     requiere: "extra pc (uv sync --extra pc) y una vez: uv run playwright install chromium"
-    nota: "La API rest.bvc.com.co exige un token de sesión (/api/handshake) que la web entrega a su propio sitio; no se replica. Su CDN responde 403 a los navegadores sin ventana y no se esquiva: es lectura manual. Esteban la lanza y se abre una ventana de Chromium con la página 'Mercado local en línea', de la que se lee la tabla del día (cierre, apertura, máximo, mínimo, promedio, volumen, cantidad). Solo después de las 16:15 de un día bursátil. Equivalencias nemotécnico → especie en config/nemotecnicos.yaml"
+    nota: "La API rest.bvc.com.co exige un token de sesión (/api/handshake) que la web entrega a su propio sitio; no se replica. Su CDN responde 403 a los navegadores sin ventana y no se esquiva: es lectura manual. Esteban la lanza y se abre una ventana de Chromium con la página 'Mercado local en línea', de la que se lee la tabla del día (cierre, apertura, máximo, mínimo, promedio, volumen, cantidad). Solo después de las 16:15 de un día bursátil. Desde el 25-nov-2026 recupera además los días hábiles de las últimas 10 sesiones que falten, con el filtro de fecha de la misma página (un día se guarda solo si la tabla cambió; se detiene en el primero que la Bolsa no entrega). Equivalencias nemotécnico → especie en config/nemotecnicos.yaml"
+
+  - id: bvc_en_curso
+    nombre: Bolsa de Colombia, precio en curso durante la sesión (15 minutos de retraso)
+    tipo_dato: precios_acciones
+    url: https://www.bvc.com.co/mercado-local-en-linea?tab=renta-variable_mercado-local
+    acceso: navegador
+    frecuencia: a_pedido
+    ventana_publicacion: "15 minutos de retraso, durante la sesión"
+    recarga_dias: 0
+    ejecuta_en: manual   # la lanza Esteban (botón "Ver precios de ahora" del aplicativo); nunca programada
+    licencia: términos de uso de la Bolsa de Colombia; uso personal
+    redistribuible: false
+    estado: implementado
+    fase: 1
+    tabla_destino: fact_precio_bvc_en_curso
+    requiere: "extra pc (uv sync --extra pc) y una vez: uv run playwright install chromium"
+    nota: "La misma tabla de bvc_web leída mientras el mercado está abierto. Una fila por día y nemotécnico con la última lectura (hora_lectura) y el estado de la página; nunca se guarda como cierre. El aplicativo la muestra en la Ficha, Mercado y Mi cartera solo mientras no haya cierre de ese día."
 
   - id: bvc_indices
     nombre: Bolsa de Colombia, índices (MSCI COLCAP y MSCI NUAM USD)

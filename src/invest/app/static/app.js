@@ -332,6 +332,28 @@ function csv(nombre, columnas, filas) {
 }
 
 const panel = (titulo, ...hijos) => el("section", { class: "panel" }, titulo ? el("h2", {}, titulo) : null, ...hijos);
+// Botón "Ver precios de ahora": lectura manual de la Bolsa durante la sesión (15 min de retraso), guardada
+// aparte del cierre. Al terminar vuelve a pintar la página.
+function botonAhora(texto = "Ver precios de ahora") {
+  const estadoTxt = el("span", { class: "nota" });
+  const b = el("button", { type: "button", class: "boton", title: "Abre una ventana de la Bolsa de Colombia y lee la tabla del día (15 minutos de retraso). No se guarda como cierre." }, texto);
+  b.onclick = async () => {
+    b.disabled = true; estadoTxt.textContent = "Leyendo la Bolsa (se abre una ventana)…";
+    const r = await postear("/api/acciones/leer_en_curso");
+    if (!r.ok) { estadoTxt.textContent = r.problemas.join("; "); b.disabled = false; return; }
+    const sondeo = setInterval(async () => {
+      const t = await api("/api/acciones/" + r.trabajo);
+      if (!t.fin) return;
+      clearInterval(sondeo); b.disabled = false;
+      const ultima = [...t.salida].reverse().find((x) => /bvc_en_curso/.test(x)) || "";
+      estadoTxt.textContent = t.codigo === 0 ? "Listo." : "No se pudo leer: " + ultima.slice(0, 160);
+      if (t.codigo === 0) ir();
+    }, 1500);
+  };
+  return el("span", { style: { display: "inline-flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, b, estadoTxt);
+}
+const horaCorta = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" }) : "";
+
 const kpi = (l, v, d, clase, varId) => el("div", {}, el("div", { class: "l" }, l, varId ? info(varId) : null), el("div", { class: "v" }, v), d ? el("div", { class: "d " + (clase || "") }, d) : null);
 const cargando = () => el("div", { class: "vacio" }, "Cargando…");
 // Recorta un texto largo en el último espacio antes del límite y agrega "…" (el texto completo va en el title)
@@ -355,6 +377,18 @@ paginas.mercado = async (v) => {
     kpi("MSCI COLCAP", col ? num(col.valor, 2) : "—", col && delta(col, (x) => (x >= 0 ? "+" : "") + num(x / col.anterior * 100, 2) + " % en la sesión del " + fecha(col.fecha)), claseD(col)),
     kpi("Tesoro EE. UU. 10 años", t10 ? pp(t10.valor) : "—", vix ? "VIX " + num(vix.valor, 1) : null));
   v.append(ind);
+  const ahora = await api("/api/en_curso");
+  v.append(panel(null,
+    el("div", { class: "encabezado" },
+      el("h2", {}, ahora.precios.length ? `Ahora en la Bolsa · ${horaCorta(ahora.hora)} (15 min de retraso)` : "Ahora en la Bolsa"),
+      botonAhora()),
+    ahora.precios.length
+      ? el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "6px 20px" } },
+          ahora.precios.slice(0, 18).map((r) => el("a", { href: "#/ficha/" + r.especie, class: "evento", style: { justifyContent: "space-between" } },
+            el("strong", {}, r.nemotecnico || r.nombre_corto), el("span", {}, num(r.precio, r.precio < 100 ? 2 : 0), " ",
+              el("span", { class: (r.variacion || 0) >= 0 ? "sube" : "baja" }, pct(r.variacion, 1))))))
+      : el("p", { class: "desc" }, "Durante la sesión (9:30 a. m. a 3:55 p. m.), el botón lee la tabla de la Bolsa con 15 minutos de retraso y muestra aquí el último precio de cada acción, su variación del día y, en la Ficha y Mi cartera, los múltiplos y el valor a ese precio. Se guarda aparte del cierre: el cierre del día sigue llegando con «Leer la Bolsa de Colombia» después de las 4:15 p. m."),
+    ahora.precios.length ? el("p", { class: "desc" }, `Ordenadas por monto negociado en el día. ${ahora.estado || ""}. No es el cierre: el cierre llega con «Leer la Bolsa de Colombia» después de las 4:15 p. m. (Salud de datos).`) : null));
 
   const cajaMapa = el("div");
   let colorPor = "retorno_1m";
@@ -523,7 +557,12 @@ paginas.ficha = async (v, especie) => {
   const cab = el("section", { class: "panel", style: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "12px 28px" } },
     el("div", {}, el("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, el("h1", {}, c.nombre_corto || c.emisor_nombre), c.nemotecnico ? el("span", { class: "chip gris" }, c.nemotecnico) : null),
       el("div", { class: "sub" }, `${c.sector || c.sector_sfc || "Sin sector"} · ${c.clase_accion || ""} · bursatilidad ${c.iba_categoria || "—"}${c.en_universo ? " · en el universo líquido" : " · fuera del universo"}`)),
-    el("div", { style: { display: "flex", alignItems: "baseline", gap: "8px" } }, el("span", { style: { fontSize: "26px", fontWeight: 700 } }, num(c.precio, c.precio < 100 ? 2 : 0)), el("span", { class: "nota" }, "COP al " + fecha(c.fecha))),
+    el("div", {}, el("div", { style: { display: "flex", alignItems: "baseline", gap: "8px" } }, el("span", { style: { fontSize: "26px", fontWeight: 700 } }, num(c.precio, c.precio < 100 ? 2 : 0)), el("span", { class: "nota" }, "COP al " + fecha(c.fecha))),
+      d.en_curso ? el("div", { class: "nota", title: "Lectura de la Bolsa durante la sesión, con 15 minutos de retraso. No es el cierre." },
+        el("strong", { style: { color: "var(--texto)" } }, "Ahora " + num(d.en_curso.precio, d.en_curso.precio < 100 ? 2 : 0)), " ",
+        el("span", { class: (d.en_curso.variacion || 0) >= 0 ? "sube" : "baja" }, pct(d.en_curso.variacion, 1)),
+        ` · ${horaCorta(d.en_curso.hora)}, 15 min de retraso`,
+        d.en_curso.p_vl != null ? ` · P/VL ${num(d.en_curso.p_vl, 2)}` : "", d.en_curso.p_u != null ? ` · P/U ${num(d.en_curso.p_u, 1)}` : "") : null),
     el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, el("span", { class: "nota-puntaje " + banda(c.puntaje_global), style: { fontSize: "17px", padding: "4px 10px" } }, c.puntaje_global == null ? "N/D" : num(c.puntaje_global, 1)),
       el("span", { class: "nota" }, "global de 10", el("br"), "vs " + (c.grupo_comparacion === "universo" ? "el universo" : c.grupo_comparacion)), info("puntaje_global")),
     c.cuadrante ? el("span", { class: "chip" }, (c.decision || CUADRANTE[c.cuadrante]) + (c.estado === "informativo" ? " · informativo" : "")) : null,
@@ -690,7 +729,7 @@ paginas.cartera = async (v, pedida) => {
     v.append(el("div", { class: "aviso" }, `No existe la cartera «${pedida}»; se muestra ${eleccion.actual}.`));
   }
   v.append(el("div", { class: "encabezado" }, el("div", {}, el("h1", {}, "Mi cartera"), el("div", { class: "sub" }, "Valores en pesos, con el último precio disponible")),
-    el("div", { style: { display: "flex", gap: "8px" } }, eleccion ? eleccion.sel : null, el("a", { class: "boton", href: "#/carteras", style: { display: "inline-flex", alignItems: "center" } }, "Registrar transacción"))));
+    el("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, eleccion ? eleccion.sel : null, botonAhora(), el("a", { class: "boton", href: "#/carteras", style: { display: "inline-flex", alignItems: "center" } }, "Registrar transacción"))));
   if (!eleccion) { v.append(panel(null, el("div", { class: "vacio" }, "Todavía no hay carteras. Cree una en ", el("a", { href: "#/carteras", style: { color: "var(--acento)" } }, "Carteras y transacciones"), "."))); return; }
   const d = await api("/api/cartera/" + encodeURIComponent(eleccion.actual));
   if (d.vacia) { v.append(panel(null, el("div", { class: "vacio" }, "Esta cartera no tiene transacciones todavía."))); return; }
@@ -698,8 +737,10 @@ paginas.cartera = async (v, pedida) => {
   const ganancia = d.posiciones.reduce((a, p) => a + (p.ganancia_no_realizada_cop || 0), 0);
   const ult = d.desempeno[d.desempeno.length - 1] || {};
   const anual = d.dividendos.filter((x) => x.fecha <= new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10)).reduce((a, x) => a + (x.total || 0), 0);
+  const totalAhora = d.hora_en_curso ? d.posiciones.reduce((a, p) => a + (p.valor_en_curso ?? p.valor_cop ?? 0), 0) : null;
   v.append(el("section", { class: "indicadores" },
     kpi("Valor", pesos(total), "al " + fecha(d.fecha)),
+    totalAhora != null ? kpi("Valor ahora", pesos(totalAhora), `${(totalAhora - total) >= 0 ? "+" : ""}${pesos(totalAhora - total)} frente al cierre · ${horaCorta(d.hora_en_curso)}, 15 min de retraso`, totalAhora >= total ? "sube" : "baja") : null,
     kpi("Ganancia no realizada", pesos(ganancia), null, ganancia >= 0 ? "sube" : "baja"),
     kpi("TWR acumulado", pct(ult.twr_acumulado), ult.retorno_benchmark != null ? "mes: " + pct(ult.retorno_mes) + " · bench. " + pct(ult.retorno_benchmark) : null),
     kpi("XIRR desde el inicio", pct(ult.xirr_desde_inicio), "anual efectivo"),
@@ -729,6 +770,7 @@ paginas.cartera = async (v, pedida) => {
     { k: "precio", t: "Precio", f: (r) => r.especie === "EFECTIVO" ? "" : num(r.precio, 0) },
     { k: "costo_fiscal_cop", t: "Costo fiscal", f: (r) => pesos(r.costo_fiscal_cop) },
     { k: "valor_cop", t: "Valor", f: (r) => pesos(r.valor_cop) },
+    ...(d.hora_en_curso ? [{ k: "precio_en_curso", t: "Precio ahora", f: (r) => r.precio_en_curso == null ? "" : el("span", {}, num(r.precio_en_curso, 0), " ", el("span", { class: (r.variacion_en_curso || 0) >= 0 ? "sube" : "baja" }, pct(r.variacion_en_curso, 1))) }] : []),
     { k: "peso", t: "Peso", f: (r) => pct(r.peso) },
     { k: "ganancia_no_realizada_cop", t: "Ganancia", f: (r) => el("span", { class: r.ganancia_no_realizada_cop >= 0 ? "sube" : "baja" }, pesos(r.ganancia_no_realizada_cop)) },
     { k: "puntaje_global", t: "Puntaje", f: (r) => r.especie === "EFECTIVO" ? "" : notaPuntaje(r.puntaje_global) },
@@ -997,14 +1039,16 @@ paginas.salud = async (v) => {
   const b2 = el("button", { type: "button", class: "boton" }, "Actualizar el modelo");
   const b3 = el("button", { type: "button", class: "boton" }, "Verificar el contrato");
   const b4 = el("button", { type: "button", class: "boton" }, "Leer estados de compañías (con ventana)");
+  const b5 = el("button", { type: "button", class: "boton" }, "Ver precios de ahora");
+  b5.onclick = () => lanzar("leer_en_curso", b5);
   b1.onclick = () => lanzar("leer_bvc", b1); b2.onclick = () => lanzar("actualizar_modelo", b2);
   b4.onclick = () => lanzar("leer_estados_ventana", b4);
   const contrato = el("div");
   b3.onclick = async () => { b3.disabled = true; contrato.textContent = "Verificando…"; const r = await api("/api/salud/contrato");
     contrato.replaceChildren(r.problemas.length ? el("div", { class: "estado-mal" }, r.problemas.join("; ")) : el("div", { class: "estado-ok" }, "Contrato sin problemas")); b3.disabled = false; };
   v.append(panel("Acciones",
-    el("p", { class: "desc" }, "Leer la Bolsa: después de las 4:15 p. m. de un día bursátil; se abre una ventana de Chromium (la Bolsa no permite navegadores sin ventana). Actualizar el modelo: incorpora los precios nuevos (invest dims) y recalcula técnico, riesgo, valoración, puntajes, calendario y carteras, solo los pasos con datos nuevos (unos minutos si cambió todo, segundos si no; invest modelo --todo fuerza todo). Leer estados de compañías: abre una ventana en las páginas de inversionistas de Cementos Argos, Celsia, Nutresa y Grupo Argos (sitios que bloquean a los programas); si piden una verificación, resuélvala usted en la ventana; se guardan los PDF de estados consolidados y los que usted abra, y luego se leen con los dos agentes."),
-    el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, b1, b4, b2, b3), consola, contrato));
+    el("p", { class: "desc" }, "Leer la Bolsa: después de las 4:15 p. m. de un día bursátil se guarda el cierre del día; a cualquier hora recupera además los días de las últimas 10 sesiones que falten, con el filtro de fecha de la página (se abre una ventana de Chromium: la Bolsa no permite navegadores sin ventana). Ver precios de ahora: durante la sesión, el último precio con 15 minutos de retraso, guardado aparte del cierre. Actualizar el modelo: incorpora los precios nuevos (invest dims) y recalcula técnico, riesgo, valoración, puntajes, calendario y carteras, solo los pasos con datos nuevos (unos minutos si cambió todo, segundos si no; invest modelo --todo fuerza todo). Leer estados de compañías: abre una ventana en las páginas de inversionistas de Cementos Argos, Celsia, Nutresa y Grupo Argos (sitios que bloquean a los programas); si piden una verificación, resuélvala usted en la ventana; se guardan los PDF de estados consolidados y los que usted abra, y luego se leen con los dos agentes."),
+    el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, b1, b5, b4, b2, b3), consola, contrato));
   const claseEstado = (e) => e === "al día" ? "estado-ok" : (e || "").startsWith("manual") ? "estado-medio" : "estado-mal";
   v.append(panel("Fuentes", tabla([
     { k: "fuente", t: "Fuente", izq: true }, { k: "ultimo_dato", t: "Último dato", f: (r) => fecha(r.ultimo_dato) },

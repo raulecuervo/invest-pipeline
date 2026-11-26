@@ -29,7 +29,7 @@ def consola(monkeypatch):
 
 
 def correr(monkeypatch, ahora, datos):
-    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None: datos)
+    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None, fechas=(): datos)
     return bvc.ConectorBVC(ahora=ahora).ejecutar()
 
 
@@ -76,7 +76,7 @@ def test_indices_hoy_y_ayer(carpeta_datos, monkeypatch):
     datos = {"hoy": "HOY 2026/11/23", "estado": "Mercado cerrado", "encabezado": bvc.ENCABEZADO_INDICES,
              "filas": [["MSCI NUAM USD", "1,643.11", "1,605.72", "37.39", "2.33%"],
                        ["MSCI COLCAP", "2,345.81", "2,299.41", "46.40", "2.02%"]]}
-    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None: datos)
+    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None, fechas=(): datos)
     res = bvc.ConectorBVCIndices(ahora=datetime(2026, 11, 23, 19, 47, tzinfo=BOG)).ejecutar()
     assert res.estado == "ok", res.detalle
     df = storage.leer_tabla("silver", "fact_serie_macro").filter(pl.col("serie_id") == "msci_colcap").sort("fecha")
@@ -88,7 +88,7 @@ def test_sin_consola_no_abre_la_pagina(carpeta_datos, monkeypatch):
     # Lectura manual: en una tarea programada (sin consola) no se abre la página de la BVC
     monkeypatch.setattr(bvc, "hay_consola", lambda: False)
     abierta = []
-    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None: abierta.append(url))
+    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None, fechas=(): abierta.append(url))
     res = bvc.ConectorBVC(ahora=datetime(2026, 11, 23, 19, 0, tzinfo=BOG)).ejecutar()
     assert res.estado == "error" and "manual" in res.detalle and not abierta
 
@@ -104,7 +104,7 @@ def test_bloqueo_no_se_reintenta_ni_se_pide_otra_pagina(carpeta_datos, monkeypat
     monkeypatch.setattr(bvc, "_bloqueo_previo", None)
     pedidas = []
 
-    def rechazo(url=None, visible=None):
+    def rechazo(url=None, visible=None, fechas=()):
         pedidas.append(url)
         raise bvc.BloqueoBVC("la Bolsa rechazó la lectura (HTTP 403); no se reintenta")
 
@@ -124,3 +124,56 @@ def test_boton_del_aplicativo_cuenta_como_lectura_manual(monkeypatch):
     assert not bvc.hay_consola()
     monkeypatch.setenv("INVEST_LECTURA_MANUAL", "1")
     assert bvc.hay_consola()
+
+
+def test_recupera_dias_perdidos_con_el_filtro(carpeta_datos, monkeypatch):
+    # Lectura del martes 24 a las 19:47: el lunes 23 ya está; faltan el viernes 20 y los anteriores
+    pedidas = {}
+
+    def leer(url=None, visible=None, fechas=()):
+        pedidas["fechas"] = list(fechas)
+        dia = {"hoy": "HOY 2026/11/24", "estado": "Mercado cerrado", "encabezado": ENCABEZADO, "filas": FILAS[:2]}
+        dia["previos"] = {"2026-11-20": {**pagina(), "filas": [FILAS[0]]},
+                          "2026-11-19": {"error": "la tabla no cambió: la Bolsa no entregó ese día"}}
+        return dia
+
+    correr(monkeypatch, datetime(2026, 11, 23, 19, 47, tzinfo=BOG), pagina())  # deja el 23
+    monkeypatch.setattr(bvc, "leer_pagina", leer)
+    res = bvc.ConectorBVC(ahora=datetime(2026, 11, 24, 19, 47, tzinfo=BOG)).ejecutar()
+    assert pedidas["fechas"][0] == date(2026, 11, 20) and date(2026, 11, 23) not in pedidas["fechas"]
+    assert len(pedidas["fechas"]) == bvc.DIAS_RECUPERAR - 1
+    assert "días recuperados: 2026-11-20" in res.detalle and "2026-11-19 no se recuperó" in res.detalle
+    df = storage.leer_tabla("silver", "fact_precio_bvc")
+    assert sorted(df.get_column("fecha").unique().to_list()) == [date(2026, 11, 20), date(2026, 11, 23), date(2026, 11, 24)]
+
+
+def test_antes_del_cierre_solo_recupera_dias_anteriores(carpeta_datos, monkeypatch):
+    def leer(url=None, visible=None, fechas=()):
+        return {**pagina(hoy="HOY 2026/11/24", estado="Mercado abierto"),
+                "previos": {"2026-11-23": {**pagina(), "filas": [FILAS[0]]}}}
+
+    monkeypatch.setattr(bvc, "leer_pagina", leer)
+    res = bvc.ConectorBVC(ahora=datetime(2026, 11, 24, 11, 0, tzinfo=BOG)).ejecutar()
+    df = storage.leer_tabla("silver", "fact_precio_bvc")
+    assert df.get_column("fecha").unique().to_list() == [date(2026, 11, 23)]  # el 24 abierto no se guarda
+    assert "solo días anteriores" in res.detalle
+
+
+def test_precio_en_curso_se_guarda_aparte(carpeta_datos, monkeypatch):
+    monkeypatch.setattr(bvc, "_bloqueo_previo", None)
+    datos = pagina(hoy="HOY 2026/11/24", estado="Mercado abierto")
+    monkeypatch.setattr(bvc, "leer_pagina", lambda url=None, visible=None, fechas=(): datos)
+    res = bvc.ConectorBVCEnCurso(ahora=datetime(2026, 11, 24, 11, 40, tzinfo=BOG)).ejecutar()
+    assert res.estado in ("ok", "revisar"), res.detalle
+    df = storage.leer_tabla("silver", "fact_precio_bvc_en_curso")
+    eco = df.filter(pl.col("nemotecnico") == "ECOPETROL").row(0, named=True)
+    assert eco["cierre"] == 2340.0 and eco["hora_lectura"] == datetime(2026, 11, 24, 11, 40)
+    assert eco["estado_mercado"] == "Mercado abierto"
+    assert storage.leer_tabla("silver", "fact_precio_bvc") is None  # nunca como cierre
+    # Una lectura posterior reemplaza a la anterior del mismo día
+    bvc.ConectorBVCEnCurso(ahora=datetime(2026, 11, 24, 14, 5, tzinfo=BOG)).ejecutar()
+    df = storage.leer_tabla("silver", "fact_precio_bvc_en_curso").filter(pl.col("nemotecnico") == "ECOPETROL")
+    assert df.height == 1 and df.item(0, "hora_lectura") == datetime(2026, 11, 24, 14, 5)
+    # Antes de que abra el mercado la página sigue con el día anterior: no se guarda
+    res = bvc.ConectorBVCEnCurso(ahora=datetime(2026, 11, 25, 8, 0, tzinfo=BOG)).ejecutar()
+    assert res.estado == "sin_novedades" and "no ha abierto" in res.detalle

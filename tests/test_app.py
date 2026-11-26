@@ -114,3 +114,28 @@ def test_ficha_acepta_nemotecnico_y_aviso_de_codigo_nuevo(cliente, monkeypatch):
     assert cliente.get("/api/estado").json()["reiniciar"] is False
     monkeypatch.setattr(servidor, "HUELLA_INICIO", "otra")
     assert cliente.get("/api/estado").json()["reiniciar"] is True
+
+
+def test_precio_en_curso_hasta_que_llega_el_cierre(cliente):
+    from datetime import datetime
+
+    from invest.app import servidor
+    from invest.ingest import bvc
+
+    hoy = date(2025, 1, 3)
+    fila = {c: None for c in bvc.ESQUEMA_EN_CURSO}
+    fila.update({"fecha": hoy, "nemotecnico": "AAA", "especie": "coa01paao001", "cierre": 104.0, "variacion_pct": 4.0,
+                 "volumen_cop": 5e8, "hora_lectura": datetime(2025, 1, 3, 11, 40), "estado_mercado": "Mercado abierto"})
+    storage.upsert_por_anio("silver", "fact_precio_bvc_en_curso", pl.DataFrame([fila], schema=bvc.ESQUEMA_EN_CURSO),
+                            ["fecha", "nemotecnico"])
+    p = servidor.precios_en_curso(hoy)["coa01paao001"]
+    assert p["precio"] == 104.0 and abs(p["variacion"] - 0.04) < 1e-12 and p["hora"] == "2025-01-03T11:40"
+    assert servidor.precios_en_curso(date(2025, 1, 6)) == {}  # solo la lectura de hoy
+    # Con el cierre del día en fact_precio_diario, el precio en curso deja de mostrarse
+    storage.escribir_por_anio("gold", "fact_precio_diario", pl.DataFrame(
+        [{"fecha": d, "especie": "coa01paao001", "precio": x, "precio_promedio": x}
+         for d, x in ((date(2025, 1, 2), 100.0), (hoy, 103.0))]), "fecha")
+    from invest import modelo
+    modelo.construir_duckdb()
+    assert servidor.precios_en_curso(hoy) == {}
+    assert cliente.get("/api/en_curso").status_code == 200

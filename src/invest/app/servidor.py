@@ -40,7 +40,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from invest import modelo, usuario
+from invest import modelo, storage, usuario
 from invest.config import data_dir
 
 ESTATICOS = Path(__file__).parent / "static"
@@ -186,6 +186,48 @@ def variables():
 
 
 # --------------------------------------------------------------------------- mercado
+# --------------------------------------------------------------------------- precio en curso
+def precios_en_curso(hoy: date | None = None) -> dict[str, dict]:
+    """Última lectura en curso de hoy (silver/fact_precio_bvc_en_curso) por especie, solo para las especies
+    que todavía no tienen precio de hoy en fact_precio_diario (el cierre manda siempre)."""
+    from zoneinfo import ZoneInfo
+
+    hoy = hoy or datetime.now(ZoneInfo("America/Bogota")).date()
+    try:
+        df = storage.leer_tabla("silver", "fact_precio_bvc_en_curso")
+    except Exception:  # noqa: BLE001 - todavía no hay lecturas
+        return {}
+    if df is None or df.is_empty():
+        return {}
+    df = df.filter((pl.col("fecha") == hoy) & pl.col("especie").is_not_null() & pl.col("cierre").is_not_null())
+    if df.is_empty():
+        return {}
+    con_cierre = {r["especie"] for r in q("SELECT DISTINCT especie FROM fact_precio_diario WHERE fecha = ?", [hoy])}
+    salida = {}
+    for r in df.iter_rows(named=True):
+        if r["especie"] in con_cierre:
+            continue
+        salida[r["especie"]] = {
+            "precio": r["cierre"], "variacion": r["variacion_pct"] / 100 if r["variacion_pct"] is not None else None,
+            "volumen_cop": r["volumen_cop"], "nemotecnico": r["nemotecnico"],
+            "hora": r["hora_lectura"].isoformat(timespec="minutes") if r["hora_lectura"] else None,
+            "estado": r["estado_mercado"],
+        }
+    return salida
+
+
+@app.get("/api/en_curso")
+def en_curso():
+    p = precios_en_curso()
+    filas = sorted(({"especie": e, **v} for e, v in p.items()), key=lambda r: -(r["volumen_cop"] or 0))
+    nombres = {r["especie"]: r["nombre_corto"] for r in q(
+        "SELECT a.especie, e.nombre_corto FROM dim_activo a LEFT JOIN dim_emisor e USING (emisor_id)")} if filas else {}
+    for r in filas:
+        r["nombre_corto"] = nombres.get(r["especie"])
+    hora = max((r["hora"] for r in filas if r["hora"]), default=None)
+    return responder({"hora": hora, "estado": filas[0]["estado"] if filas else None, "precios": filas})
+
+
 @app.get("/api/mercado")
 def mercado():
     kpis = q("""
@@ -336,7 +378,13 @@ def ficha(especie: str):
                  WHERE {sector} = ? OR f.especie = ? ORDER BY f.capitalizacion DESC NULLS LAST""",
                  [cab["sector"], especie])
     avisos = q1("SELECT alertas FROM fact_ficha_accion WHERE especie = ?", [especie])
-    return responder({"cabecera": cab, "auditoria": auditoria, "tecnico": tecnico, "riesgo": riesgo, "eventos": eventos,
+    ahora = precios_en_curso().get(especie)
+    if ahora:
+        propia = next((p for p in pares if p["especie"] == especie), None) or {}
+        factor = ahora["precio"] / propia["precio"] if propia.get("precio") else None
+        ahora = {**ahora, "p_vl": propia.get("p_vl") * factor if factor and propia.get("p_vl") else None,
+                 "p_u": propia.get("p_u") * factor if factor and propia.get("p_u") else None}
+    return responder({"cabecera": cab, "en_curso": ahora, "auditoria": auditoria, "tecnico": tecnico, "riesgo": riesgo, "eventos": eventos,
                       "calendario": calendario, "metricas": metricas, "pares": pares,
                       "avisos": [a for a in ((avisos or {}).get("alertas") or "").split("; ") if a]})
 
@@ -568,8 +616,16 @@ def cartera_vista(cartera_id: str):
             -- un mismo pago puede venir del aviso (por emisor) y del historial (por especie): uno por especie y día
             QUALIFY row_number() OVER (PARTITION BY c.fecha, a.especie ORDER BY c.especie NULLS LAST) = 1
             ORDER BY c.fecha""", [cartera_id, f, *especies])
+    ahora = precios_en_curso()
+    hora = None
+    for p in posiciones:
+        e = ahora.get(p["especie"])
+        if e and p.get("cantidad") is not None:
+            p["precio_en_curso"], p["variacion_en_curso"] = e["precio"], e["variacion"]
+            p["valor_en_curso"] = p["cantidad"] * e["precio"]  # valor_cop = cantidad × precio (cartera.py)
+            hora = max(hora or e["hora"], e["hora"])
     return responder({"fecha": f, "posiciones": posiciones, "asignacion": asignacion, "desempeno": desempeno,
-                      "valor": valor, "dividendos": dividendos})
+                      "valor": valor, "dividendos": dividendos, "hora_en_curso": hora})
 
 
 # --------------------------------------------------------------------------- datos del usuario
@@ -666,6 +722,7 @@ def contrato():
 
 ACCIONES = {
     "leer_bvc": ["ingest", "bvc_web", "bvc_indices"],  # lectura manual: la lanza Esteban con el botón
+    "leer_en_curso": ["ingest", "bvc_en_curso"],         # precio durante la sesión (15 min de retraso), aparte
     "leer_estados_ventana": ["estados-ventana"],        # lectura manual con ventana de los sitios protegidos
     "actualizar_modelo": ["modelo", "--con-dims"],  # dims primero: ahí entran los precios leídos de la Bolsa
     "rehacer_base": ["modelo", "--sin-calcular"],
@@ -677,7 +734,7 @@ def _correr(trabajo_id: str, argumentos: list[str]) -> None:
     t = _trabajos[trabajo_id]
     try:
         entorno = dict(os.environ)
-        if t["accion"] in ("leer_bvc", "leer_estados_ventana"):
+        if t["accion"] in ("leer_bvc", "leer_en_curso", "leer_estados_ventana"):
             entorno["INVEST_LECTURA_MANUAL"] = "1"  # la pidió una persona desde el aplicativo
         proceso = subprocess.Popen([sys.executable, "-m", "invest", *argumentos], stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",

@@ -11,8 +11,18 @@ Reglas para no guardar datos de otro día:
 - solo después de las 16:15 (hora de Bogotá; el mercado cierra a las 15:55 y la página tiene 15
   minutos de retraso) y nunca si la página todavía dice "Mercado abierto";
 - solo si la fecha de la página ("HOY aaaa/mm/dd") es una sesión bursátil y es la de hoy.
-Si la tarea del PC corre al día siguiente (PC apagado), ese día se pierde aquí y queda el precio
-promedio de la SFC.
+Días perdidos (25-nov-2026): la misma página tiene un filtro por fecha (botón "Filtros", calendario y
+"Filtrar") que muestra la tabla de un día pasado, con cierre, apertura, máximo, mínimo, volumen y
+cantidad (el promedio sale "-"). En la misma ventana, después de la tabla de hoy, se piden los días
+hábiles de las últimas ``DIAS_RECUPERAR`` sesiones que no estén en silver/fact_precio_bvc, del más
+reciente al más viejo, con una pausa entre uno y otro. Un día se guarda solo si la tabla cambió después
+de filtrar (la página sigue diciendo "HOY" con la fecha de hoy, así que el cambio es la única prueba).
+Si la Bolsa no entrega un día (responde 417 a algunos pedidos seguidos y la tabla no cambia), se
+detiene ahí y no se reintenta: la próxima lectura manual lo vuelve a intentar.
+
+Precio en curso (``ConectorBVCEnCurso``, fuente ``bvc_en_curso``): la misma tabla leída durante la
+sesión, con 15 minutos de retraso. Se guarda aparte (silver/fact_precio_bvc_en_curso, una fila por
+día y nemotécnico, la última lectura) y nunca como cierre.
 
 Requiere el extra ``pc``:  ``uv sync --extra pc``  y una vez  ``uv run playwright install chromium``.
 """
@@ -31,6 +41,7 @@ import polars as pl
 import yaml
 
 from invest.calendario import dia_habil_anterior, es_habil
+from invest import storage
 from invest.config import CONFIG_DIR, data_dir
 from invest.ingest.base import Conector
 
@@ -65,6 +76,53 @@ JS_TABLA = """() => {
     encabezado: t ? [...t.querySelectorAll('thead th')].map(th => th.textContent.trim()) : [],
     filas: t ? [...t.querySelectorAll('tbody tr')].map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent.trim())) : [],
   };
+}"""
+
+
+DIAS_RECUPERAR = 10          # sesiones hacia atrás que se revisan en cada lectura manual
+PAUSA_ENTRE_DIAS_S = 8       # entre un día pedido y el siguiente: la Bolsa rechaza pedidos muy seguidos
+
+# Elige un día en el calendario del filtro y espera a que la tabla cambie. Solo clics, como una persona.
+JS_ELEGIR_FECHA = """async ([anio, mes, dia]) => {
+  const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  const visible = e => !!(e && e.offsetParent);
+  const firma = () => [...document.querySelectorAll('table tbody tr')].slice(0, 40).map(tr => tr.textContent).join('|');
+  const antes = firma();
+  if (!visible(document.querySelector('.react-calendar'))) {
+    const f = [...document.querySelectorAll('p')].find(e => e.textContent.trim() === 'Filtros' && visible(e));
+    if (!f) return {ok: false, error: 'la página no tiene el botón Filtros'};
+    f.click();
+    for (let i = 0; i < 40 && !visible(document.querySelector('.react-calendar')); i++) await esperar(250);
+  }
+  const cal = document.querySelector('.react-calendar');
+  if (!visible(cal)) return {ok: false, error: 'el calendario del filtro no se abrió'};
+  const objetivo = `${MESES[mes - 1]} - ${anio}`;
+  for (let i = 0; i < 70; i++) {
+    const etiqueta = cal.querySelector('.react-calendar__navigation__label').textContent.trim();
+    if (etiqueta === objetivo) break;
+    const [m, a] = etiqueta.split(' - ');
+    const actual = Number(a) * 12 + MESES.indexOf(m);
+    const meta = anio * 12 + mes - 1;
+    const boton = cal.querySelector(meta < actual ? '.react-calendar__navigation__prev-button' : '.react-calendar__navigation__next-button');
+    if (!boton || boton.disabled) return {ok: false, error: `el calendario no llega a ${objetivo}`};
+    boton.click(); await esperar(150);
+  }
+  const abbr = cal.querySelector(`abbr[aria-label="${dia} de ${MESES[mes - 1]} de ${anio}"]`);
+  if (!abbr) return {ok: false, error: 'el día no está en el calendario'};
+  const celda = abbr.closest('button');
+  if (celda.disabled) return {ok: false, error: 'el calendario no deja elegir ese día'};
+  celda.click(); await esperar(200);
+  if (!celda.className.includes('--active')) return {ok: false, error: 'el día no quedó elegido'};
+  const filtrar = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Filtrar' && visible(b));
+  if (!filtrar) return {ok: false, error: 'la página no tiene el botón Filtrar'};
+  filtrar.click();
+  for (let i = 0; i < 120; i++) {
+    await esperar(250);
+    const f = firma();
+    if (f && f !== antes) { await esperar(1500); return {ok: true, cambio: true}; }
+  }
+  return {ok: true, cambio: false};
 }"""
 
 
@@ -107,8 +165,12 @@ def es_bloqueo(estado_http: int | None, titulo: str = "", texto: str = "") -> bo
     return bool(re.search(r"could not be satisfied|request blocked|access denied|403 error", f"{titulo} {texto[:600]}", re.I))
 
 
-def leer_pagina(url: str = URL, timeout_s: int = 90, visible: bool | None = None) -> dict:
+def leer_pagina(url: str = URL, timeout_s: int = 90, visible: bool | None = None, fechas: tuple = ()) -> dict:
     """Abre la página en Chromium y devuelve lo que muestra.
+
+    Con ``fechas`` (días pasados, del más reciente al más viejo) pide además cada uno con el filtro de
+    la página y deja sus tablas en ``previos`` ({fecha ISO: tabla, o {"error": motivo}}); se detiene en
+    el primer día que la Bolsa no entrega.
 
     La Bolsa de Colombia responde 403 a los navegadores sin ventana (bloqueo de su CDN). Por decisión de
     Esteban (23-nov-2026) no se esquiva: estos conectores son de lectura manual, se lanzan a mano y abren
@@ -143,7 +205,18 @@ def leer_pagina(url: str = URL, timeout_s: int = 90, visible: bool | None = None
                 base = _diagnostico(pagina, url)
                 raise BloqueoBVC(f"la Bolsa rechazó la lectura; no se reintenta. Diagnóstico en {base.name}.png/.json")
             pagina.wait_for_timeout(2000)  # deja terminar de pintar la tabla
-            return pagina.evaluate(JS_TABLA)
+            datos = pagina.evaluate(JS_TABLA)
+            previos: dict[str, dict] = {}
+            for f in fechas:
+                pagina.wait_for_timeout(PAUSA_ENTRE_DIAS_S * 1000)
+                r = pagina.evaluate(JS_ELEGIR_FECHA, [f.year, f.month, f.day])
+                if not r.get("ok") or not r.get("cambio"):
+                    previos[f.isoformat()] = {"error": r.get("error") or "la tabla no cambió: la Bolsa no entregó ese día"}
+                    break
+                previos[f.isoformat()] = pagina.evaluate(JS_TABLA)
+            if fechas:
+                datos["previos"] = previos
+            return datos
         finally:
             navegador.close()
 
@@ -214,6 +287,11 @@ def _leer_si_cerro(con: Conector, url: str) -> tuple[dict | None, date | None]:
     return datos, fecha
 
 
+def _filas(datos: dict, fecha: date) -> list[dict]:
+    nombres = [COLUMNAS.get(h, h) for h in datos["encabezado"]]
+    return [{"fecha": fecha, **dict(zip(nombres, fila))} for fila in datos["filas"] if fila]
+
+
 class ConectorBVC(Conector):
     fuente_id = "bvc_web"
     tabla = "fact_precio_bvc"
@@ -223,16 +301,68 @@ class ConectorBVC(Conector):
         super().__init__()
         self._ahora = ahora  # para pruebas
 
+    def faltantes(self, hoy: date) -> list[date]:
+        """Sesiones de las últimas ``DIAS_RECUPERAR`` (sin hoy) que no están en silver/fact_precio_bvc."""
+        try:
+            previa = storage.leer_tabla("silver", self.tabla)
+        except Exception:  # noqa: BLE001 - primera lectura
+            previa = None
+        tenidas = set() if previa is None or previa.is_empty() else set(previa.get_column("fecha").unique().to_list())
+        dias, d = [], hoy
+        while len(dias) < DIAS_RECUPERAR:
+            d = dia_habil_anterior(d)
+            dias.append(d)
+        return [x for x in dias if x not in tenidas]
+
     def descargar(self, desde: date, hasta: date) -> list[dict]:
-        datos, fecha = _leer_si_cerro(self, URL)
-        if datos is None:
+        ahora = (self._ahora or datetime.now(timezone.utc)).astimezone(BOGOTA)
+        hoy = ahora.date()
+        leer_hoy = es_habil(hoy) and ahora.time() >= HORA_MINIMA
+        previas = self.faltantes(hoy)
+        if not leer_hoy and not previas:
+            self.sin_novedades = True
+            self.notas.append("fuera del horario: se lee después de las 16:15 de un día bursátil")
             return []
+        if not hay_consola():
+            raise RuntimeError("lectura manual: correr a mano desde PowerShell (uv run invest ingest bvc_web bvc_indices)")
+        global _bloqueo_previo
+        if _bloqueo_previo:
+            raise BloqueoBVC(f"no se lee: la Bolsa rechazó la lectura anterior de esta corrida ({_bloqueo_previo})")
+        try:
+            datos = leer_pagina(URL, visible=True, fechas=tuple(previas))
+        except BloqueoBVC as e:
+            _bloqueo_previo = str(e)[:80]
+            raise
         faltan = [c for c in COLUMNAS if c not in datos.get("encabezado", [])]
         if faltan:
             raise ValueError(f"La tabla de la Bolsa de Colombia cambió: faltan las columnas {faltan}")
         self.crudos["mercado_local.json"] = json.dumps(datos, ensure_ascii=False).encode("utf-8")
-        nombres = [COLUMNAS.get(h, h) for h in datos["encabezado"]]
-        return [{"fecha": fecha, **dict(zip(nombres, fila))} for fila in datos["filas"] if fila]
+        registros: list[dict] = []
+        if leer_hoy:
+            fecha = fecha_pagina(datos.get("hoy"))
+            if fecha != hoy:
+                self.notas.append(f"la página muestra otra fecha ({fecha})")
+            elif "abierto" in (datos.get("estado") or "").lower():
+                self.notas.append("la página todavía muestra el mercado abierto")
+            else:
+                registros += _filas(datos, fecha)
+        else:
+            self.notas.append("hoy fuera del horario (después de las 16:15): solo días anteriores")
+        recuperados = []
+        for f_iso, tabla in (datos.get("previos") or {}).items():
+            if "error" in tabla:
+                self.notas.append(f"{f_iso} no se recuperó: {tabla['error']}")
+                continue
+            if [c for c in COLUMNAS if c not in tabla.get("encabezado", [])]:
+                self.notas.append(f"{f_iso} no se recuperó: la tabla filtrada cambió de columnas")
+                continue
+            registros += _filas(tabla, date.fromisoformat(f_iso))
+            recuperados.append(f_iso)
+        if recuperados:
+            self.notas.append("días recuperados: " + ", ".join(sorted(recuperados)))
+        if not registros:
+            self.sin_novedades = True
+        return registros
 
     def interpretar(self, registros: list[dict]) -> pl.DataFrame:
         if not registros:
@@ -260,6 +390,69 @@ class ConectorBVC(Conector):
             .when(pl.col("cierre") <= 0).then(pl.lit("cierre no positivo"))
             .otherwise(pl.lit(None))
         )
+        df = df.with_columns(motivo.alias("motivo"))
+        return df.filter(pl.col("motivo").is_null()).drop("motivo"), df.filter(pl.col("motivo").is_not_null())
+
+
+# --------------------------------------------------------------------------- precio en curso
+ESQUEMA_EN_CURSO = {**ESQUEMA, "hora_lectura": pl.Datetime("us"), "estado_mercado": pl.Utf8}
+
+
+class ConectorBVCEnCurso(ConectorBVC):
+    """La tabla de hoy leída durante la sesión (15 minutos de retraso), aparte del cierre.
+
+    Una fila por día y nemotécnico con la última lectura (``hora_lectura``, hora de Bogotá) y el estado
+    que mostraba la página. El aplicativo la usa solo mientras no haya un cierre de ese día.
+    """
+
+    fuente_id = "bvc_en_curso"
+    tabla = "fact_precio_bvc_en_curso"
+    claves = ("fecha", "nemotecnico")
+
+    def descargar(self, desde: date, hasta: date) -> list[dict]:
+        ahora = (self._ahora or datetime.now(timezone.utc)).astimezone(BOGOTA)
+        if not es_habil(ahora.date()):
+            self.sin_novedades = True
+            self.notas.append("hoy no es día bursátil")
+            return []
+        if not hay_consola():
+            raise RuntimeError("lectura manual: se lanza desde el aplicativo o PowerShell (uv run invest ingest bvc_en_curso)")
+        global _bloqueo_previo
+        if _bloqueo_previo:
+            raise BloqueoBVC(f"no se lee: la Bolsa rechazó la lectura anterior de esta corrida ({_bloqueo_previo})")
+        try:
+            datos = leer_pagina(URL, visible=True)
+        except BloqueoBVC as e:
+            _bloqueo_previo = str(e)[:80]
+            raise
+        faltan = [c for c in COLUMNAS if c not in datos.get("encabezado", [])]
+        if faltan:
+            raise ValueError(f"La tabla de la Bolsa de Colombia cambió: faltan las columnas {faltan}")
+        fecha = fecha_pagina(datos.get("hoy"))
+        if fecha != ahora.date():
+            self.sin_novedades = True
+            self.notas.append(f"la página muestra otra fecha ({fecha}): el mercado de hoy no ha abierto")
+            return []
+        self.crudos["en_curso.json"] = json.dumps(datos, ensure_ascii=False).encode("utf-8")
+        hora = ahora.replace(tzinfo=None, microsecond=0)
+        estado = datos.get("estado")
+        self.notas.append(f"lectura de las {hora:%H:%M} ({estado or 'estado sin leer'})")
+        return [{**r, "hora_lectura": hora, "estado_mercado": estado} for r in _filas(datos, fecha)]
+
+    def interpretar(self, registros: list[dict]) -> pl.DataFrame:
+        base = super().interpretar(registros)
+        if base.is_empty():
+            return pl.DataFrame(schema=ESQUEMA_EN_CURSO)
+        extra = pl.DataFrame([{"hora_lectura": r["hora_lectura"], "estado_mercado": r["estado_mercado"]} for r in registros],
+                             schema={"hora_lectura": pl.Datetime("us"), "estado_mercado": pl.Utf8})
+        return pl.concat([base, extra], how="horizontal").select(list(ESQUEMA_EN_CURSO)).cast(ESQUEMA_EN_CURSO)
+
+    def validar(self, df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+        # Durante la sesión el último precio puede quedar por fuera del rango si la página no ha refrescado
+        # máximo y mínimo: solo se descarta lo imposible
+        motivo = (pl.when(pl.col("cierre") <= 0).then(pl.lit("precio no positivo"))
+                  .when(pl.col("maximo") < pl.col("minimo")).then(pl.lit("máximo menor que mínimo"))
+                  .otherwise(pl.lit(None)))
         df = df.with_columns(motivo.alias("motivo"))
         return df.filter(pl.col("motivo").is_null()).drop("motivo"), df.filter(pl.col("motivo").is_not_null())
 
