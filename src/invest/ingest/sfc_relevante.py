@@ -43,7 +43,7 @@ FILAS_POR_PEDIDO = 2000
 # Anexos que se guardan: los que cambian la serie de precios o el retorno total
 CATEGORIAS_CON_ANEXO = {"dividendo", "ex_dividendo", "capital", "escision_fusion", "opa"}
 DIAS_ANEXOS = 400          # solo anexos recientes; el histórico completo pesaría cientos de MB
-MAX_ANEXOS_POR_CORRIDA = 60
+MAX_ANEXOS_POR_CORRIDA = 100
 DIAS_ANEXOS_ESTADOS = 800   # estados financieros: dos cierres anuales y los trimestres entre ellos
 _ES_ESTADOS = re.compile(r"ESTADOS? FINANCIER|INFORME PERIODICO|FIN DE EJERCICIO|INFORME FINANCIERO|EEFF")
 _NO_ESTADOS = re.compile(r"PROYECTO|CONVOCATORIA|ASUNTOS SOCIALES|ENCUESTA|CODIGO PAIS|CALIFICACION")
@@ -54,7 +54,7 @@ _MESES = {m: i + 1 for i, m in enumerate(
     ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE",
      "NOVIEMBRE", "DICIEMBRE"])}
 _TRIMESTRES = {"PRIMER": 1, "SEGUNDO": 2, "TERCER": 3, "CUARTO": 4}
-MAX_MESES_PENDIENTES = 6   # meses que se vuelven a consultar por corrida para bajar anexos que faltan
+MAX_MESES_PENDIENTES = 12  # meses que se vuelven a consultar por corrida para bajar anexos que faltan
 
 _RE_VS = re.compile(r'name="javax\.faces\.ViewState"[^>]*value="([^"]*)"')
 _RE_VS_PARCIAL = re.compile(r'<update id="[^"]*ViewState[^"]*"><!\[CDATA\[(.*?)\]\]>', re.S)

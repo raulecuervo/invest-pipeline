@@ -135,5 +135,6 @@ def test_modelo_con_dims_reconstruye_los_precios(datos, monkeypatch, capsys):
     monkeypatch.setattr(cli.dims, "construir", lambda: llamado.append(1) or {"fact_precio_diario": "ok"})
     cli.main(["modelo", "--con-dims"])
     assert llamado == [1] and "dims:" in capsys.readouterr().out
-    from invest.app import servidor
+    # El aplicativo (FastAPI) es un extra que el CI no instala: la revisión del botón va solo si está
+    servidor = pytest.importorskip("invest.app.servidor", exc_type=ImportError)
     assert servidor.ACCIONES["actualizar_modelo"] == ["modelo", "--con-dims"]

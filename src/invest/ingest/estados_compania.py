@@ -908,7 +908,8 @@ class ConectorEstadosCompania(Conector):
     def _leer(self, pendientes: list[dict]) -> list[dict]:
         """Lee con los dos agentes hasta ``max_documentos_por_corrida`` documentos pendientes."""
         lim = self.cfg.get("limites", {})
-        maximo = int(lim.get("max_documentos_por_corrida", 6))
+        # INVEST_EE_MAX_DOCUMENTOS: tope de una corrida puntual (scripts/windows/recuperar.ps1 -Documentos N)
+        maximo = int(os.environ.get("INVEST_EE_MAX_DOCUMENTOS") or lim.get("max_documentos_por_corrida", 6))
         if not pendientes:
             return []
         cliente = self.cliente
