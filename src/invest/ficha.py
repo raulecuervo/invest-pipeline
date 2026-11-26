@@ -37,6 +37,14 @@ def factores_validados(validacion: pl.DataFrame | None) -> list[str]:
     return validacion.filter(pl.col("veredicto") == "validado").get_column("factor").to_list()
 
 
+def minimo_factores(n_validados: int, cfg: dict) -> int:
+    """Factores validados que necesita una acción para tener puntaje combinado: todos menos los que permite
+    ``validacion.factores_faltantes_combinado`` (1 por omisión), y nunca menos de dos. Con tres validados,
+    una acción sin utilidad de 12 meses (Cibest durante la ventana de su sucesión) se combina con los otros dos."""
+    faltantes = int(cfg.get("validacion", {}).get("factores_faltantes_combinado", 1))
+    return max(min(2, n_validados), n_validados - faltantes)
+
+
 def puntajes(factores: pl.DataFrame, validados: list[str], cfg: dict | None = None) -> pl.DataFrame:
     """Puntaje combinado por mes y acción (ver docstring del módulo)."""
     cfg = cfg or config_factores()
@@ -51,7 +59,7 @@ def puntajes(factores: pl.DataFrame, validados: list[str], cfg: dict | None = No
                        .then(pl.col("percentil")).otherwise(1 - pl.col("percentil")).alias("_p"))
          .group_by("fecha", "especie")
          .agg(pl.col("_p").mean().alias("puntaje"), pl.col("retorno_siguiente").first(), pl.len().alias("_n"))
-         .filter(pl.col("_n") == len(validados)).drop("_n")
+         .filter(pl.col("_n") >= minimo_factores(len(validados), cfg)).drop("_n")
          # Mismo orden que factores._metricas para que los empates caigan en el mismo tercio
          .sort(["fecha", "especie"])
          .with_columns(pl.len().over("fecha").cast(pl.UInt32).alias("acciones_mes"),

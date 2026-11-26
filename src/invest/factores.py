@@ -153,6 +153,31 @@ def _valor_libros_mes(meses: list[date]) -> pl.DataFrame:
             .select("especie", "fecha_mes", "_vp"))
 
 
+def _utilidad_mes(meses: list[date]) -> pl.DataFrame:
+    """Utilidad por acción de 12 meses conocida a cada fin de mes, por especie (``gold/fact_metrica_fundamental``,
+    estados separados, en pesos; a lo sumo 15 meses después de quedar disponible, como el valor patrimonial)."""
+    vacio = pl.DataFrame(schema={"especie": pl.Utf8, "fecha_mes": pl.Date, "_upa": pl.Float64})
+    met = storage.leer_tabla("gold", "fact_metrica_fundamental")
+    activos = storage.leer_dim("dim_activo")
+    if met is None or activos is None or met.is_empty():
+        return vacio
+    u = (met.filter((pl.col("metrica") == "upa_12m") & (pl.col("unidad") == "pesos_por_accion")
+                    & pl.col("valor").is_not_null())
+         .select("emisor_id", "fecha_disponible", "fecha_corte", pl.col("valor").alias("_upa"))
+         .sort(["emisor_id", "fecha_disponible", "fecha_corte"])
+         .unique(subset=["emisor_id", "fecha_disponible"], keep="last", maintain_order=True))
+    if u.is_empty():
+        return vacio
+    grilla = (u.select("emisor_id").unique().join(pl.DataFrame({"fecha_mes": meses}), how="cross")
+              .sort(["emisor_id", "fecha_mes"]))
+    por_emisor = grilla.join_asof(u.drop("fecha_corte"), left_on="fecha_mes", right_on="fecha_disponible",
+                                  by="emisor_id", strategy="backward", check_sortedness=False)
+    por_emisor = por_emisor.filter(pl.col("_upa").is_not_null()
+                                   & ((pl.col("fecha_mes") - pl.col("fecha_disponible")).dt.total_days() <= 460))
+    return (por_emisor.join(activos.select("especie", "emisor_id"), on="emisor_id")
+            .select("especie", "fecha_mes", "_upa"))
+
+
 def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
     cfg = config()
     retornos = storage.leer_tabla("gold", "fact_retorno_diario")
@@ -202,11 +227,14 @@ def construir(hoy: date | None = None) -> tuple[pl.DataFrame | None, dict]:
     liq_mes = _asof(liq, meses, ["monto_medio_60", "liquida"]).drop("fecha_dato")
 
     valor = _valor_libros_mes(meses)
+    utilidad = _utilidad_mes(meses)
     df = (
         base.join(ventanas, on=["especie", "fecha_mes"], how="left")
         .join(liq_mes, on=["especie", "fecha_mes"], how="left")
         .join(valor, on=["especie", "fecha_mes"], how="left")
-        .with_columns((pl.col("_vp") / pl.col("precio_promedio")).alias("valor_libros_precio"))
+        .join(utilidad, on=["especie", "fecha_mes"], how="left")
+        .with_columns((pl.col("_vp") / pl.col("precio_promedio")).alias("valor_libros_precio"),
+                      (pl.col("_upa") / pl.col("precio_promedio")).alias("rendimiento_utilidad_12m"))
         .with_columns(
             (pl.col("i_m1") / pl.col("i_m12") - 1).alias("momentum_12_1"),
             (pl.col("i_m1") / pl.col("i_m6") - 1).alias("momentum_6_1"),
@@ -332,13 +360,14 @@ def validar(factores: pl.DataFrame | None = None) -> tuple[pl.DataFrame | None, 
     # resultados, así que no entra en la corrección de Holm ni puede quedar "validado": es informativa.
     validados = [r["factor"] for r in filas if r["veredicto"] == "validado"]
     if len(validados) >= 2:
+        from invest.ficha import minimo_factores
         signos = {k: int(cfg["factores"][k].get("signo", 1)) for k in validados}
         comb = (factores.filter(pl.col("factor").is_in(validados) & (pl.col("fecha") >= inicio))
                 .with_columns(pl.when(pl.col("factor").replace_strict(signos, default=1) > 0)
                               .then(pl.col("percentil")).otherwise(1 - pl.col("percentil")).alias("_p"))
                 .group_by("fecha", "especie")
                 .agg(pl.col("_p").mean().alias("valor"), pl.col("retorno_siguiente").first(), pl.len().alias("_n"))
-                .filter(pl.col("_n") == len(validados)))
+                .filter(pl.col("_n") >= minimo_factores(len(validados), cfg)))
         total = _metricas(comb, 1, minimo, q, L, costo)
         dentro = _metricas(comb.filter(pl.col("fecha") < corte), 1, minimo, q, L, costo)
         fuera = _metricas(comb.filter(pl.col("fecha") >= corte), 1, minimo, q, L, costo)

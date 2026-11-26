@@ -33,6 +33,9 @@ factores:
   valor_libros_precio:
     signo: 1
     descripcion: "Valor patrimonial por acción publicado (anexos de la SFC, estados separados) sobre el precio a fin de mes (hipótesis: las acciones baratas frente a su patrimonio rinden más)"
+  rendimiento_utilidad_12m:
+    signo: 1
+    descripcion: "Utilidad por acción de 12 meses conocida a fin de mes (estados separados) sobre el precio: el inverso del P/U, que admite utilidades negativas (hipótesis: las acciones baratas frente a sus utilidades rinden más)"
 
 validacion:
   inicio: "2008-01-31"            # antes hay muy pocas acciones líquidas
@@ -41,6 +44,7 @@ validacion:
   nivel: 0.05                     # sobre el valor p ajustado por Holm (varios factores a la vez)
   nivel_debil: 0.10
   cuantiles: 3                    # spread entre el tercio superior y el inferior
+  factores_faltantes_combinado: 1 # el puntaje combinado admite una acción sin uno de los validados (mínimo dos)
   # Costo de una compra o una venta (comisión, impuestos y la mitad del diferencial de compra y venta).
   # 0,5 % es una referencia conservadora para acciones líquidas de la BVC; en las poco líquidas es mayor.
   costo_ida: 0.005

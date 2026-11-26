@@ -124,3 +124,12 @@ def test_nombre_corto():
     assert tablero.nombre_corto("cot13paad031", "ADP GRUPO DE INVERSIONES SURAMERICANA S.A.", "preferencial",
                                 {"cot13": "Grupo Sura"}) == "Grupo Sura (pref.)"
     assert tablero.nombre_corto("cox99paao001", "AO PEC NUEVA EMPRESA S.A. E.S.P. (ANTES VIEJA)", "ordinaria", {}) == "Nueva Empresa"
+
+
+def test_minimo_de_factores_para_el_combinado():
+    from invest.ficha import minimo_factores
+    cfg = {"validacion": {"factores_faltantes_combinado": 1}}
+    assert minimo_factores(3, cfg) == 2
+    assert minimo_factores(2, cfg) == 2
+    assert minimo_factores(4, {"validacion": {}}) == 3
+    assert minimo_factores(3, {"validacion": {"factores_faltantes_combinado": 0}}) == 3

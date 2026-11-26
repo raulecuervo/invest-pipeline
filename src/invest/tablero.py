@@ -29,6 +29,7 @@ NOMBRES_FACTOR = {
     "liquidez_60": "Prima por iliquidez",
     "rendimiento_dividendo_12m": "Rendimiento por dividendo 12m",
     "valor_libros_precio": "Valor en libros / precio",
+    "rendimiento_utilidad_12m": "Utilidad 12m / precio",
     "combinado_validados": "Puntaje combinado",
 }
 
@@ -114,6 +115,8 @@ def datos() -> dict | None:
                 "mom": _num(r.get("momentum_12_1_valor")), "mom_p": _num(r.get("momentum_12_1_percentil")),
                 "div": _num(r.get("rendimiento_dividendo_12m_valor")),
                 "div_p": _num(r.get("rendimiento_dividendo_12m_percentil")),
+                "ut": _num(r.get("rendimiento_utilidad_12m_valor")),
+                "ut_p": _num(r.get("rendimiento_utilidad_12m_percentil")),
                 "r12": _num(r.get("retorno_12m")), "r1": _num(r.get("retorno_1m")),
                 "vol": _num(r.get("volatilidad_1a_valor")), "monto60": _num(r.get("monto_medio_60")),
                 "frac60": _num(r.get("fraccion_dias_60")), "pvl": _num(r.get("precio_valor_libros")),
@@ -394,7 +397,7 @@ function matriz() {
     g.append(sv("circle", {cx: p.cx, cy: p.cy, r: sel ? 7.5 : 6, fill: `var(${TERCIO[p.a.tercio]})`, stroke: "var(--surface)", "stroke-width": 2}));
     if (sel) g.append(sv("circle", {cx: p.cx, cy: p.cy, r: 11, fill: "none", stroke: "var(--ink)", "stroke-width": 1.5}));
     g.append(sv("text", {x: p.lx, y: p.ly, "text-anchor": p.anchor, class: sel ? "lbl-strong" : "lbl"}, p.a.corto));
-    const filas = () => [["Puntaje", p100(p.a.puntaje)], ["Posición", `${p.a.posicion} de ${p.a.n}`], [D.validados[0], p100(p.a.mom_p)], [D.validados[1], p100(p.a.div_p)]];
+    const filas = () => [["Puntaje", p100(p.a.puntaje)], ["Posición", `${p.a.posicion} de ${p.a.n}`], [D.validados[0], p100(p.a.mom_p)], [D.validados[1], p100(p.a.div_p)], ["Utilidad 12m / precio", p100(p.a.ut_p)]];
     g.addEventListener("pointermove", ev => mostrarTip(ev, p.a.corto, filas()));
     g.addEventListener("pointerleave", ocultarTip);
     g.addEventListener("focus", ev => { const r = g.getBoundingClientRect(); mostrarTip({clientX: r.right, clientY: r.top}, p.a.corto, filas()); });
@@ -423,6 +426,8 @@ const COLS = [
   {k: "mom_p", t: "Percentil", f: a => p100(a.mom_p)},
   {k: "div", t: "Dividendo 12m", f: a => pct(a.div)},
   {k: "div_p", t: "Percentil", f: a => p100(a.div_p)},
+  {k: "ut", t: "Utilidad 12m / precio", f: a => pct(a.ut)},
+  {k: "ut_p", t: "Percentil", f: a => p100(a.ut_p)},
   {k: "r12", t: "Retorno 12m", f: a => pct(a.r12)},
   {k: "vol", t: "Volatilidad", f: a => pct(a.vol, 0)},
   {k: "monto60", t: "Negociado/día", f: a => mm(a.monto60)},

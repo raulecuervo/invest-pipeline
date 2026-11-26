@@ -849,6 +849,8 @@ tablas:
       rendimiento_dividendo_12m_percentil: Float64
       valor_libros_precio_valor: Float64
       valor_libros_precio_percentil: Float64
+      rendimiento_utilidad_12m_valor: Float64
+      rendimiento_utilidad_12m_percentil: Float64
       puntaje: Float64
       posicion: UInt32
       tercio: String
