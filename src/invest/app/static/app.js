@@ -290,6 +290,159 @@ function lineas(caja, series, op = {}) {
   caja.append(s);
 }
 
+// ------------------------------------------------------------------ precio: línea o velas, con medias móviles
+const MEDIAS = [["sma20", "MM 20", "#F5B54A"], ["sma50", "MM 50", "#B48CFF"], ["sma100", "MM 100", "#4CC9F0"],
+  ["sma200", "MM 200", "#9AA4B8"], ["ema20", "MME 20", "#FF8FB1"], ["ema50", "MME 50", "#7FD1AE"]];
+const SUBE = "#3DD68C", BAJA = "#FF7A6B";
+function prefPrecio() {
+  try { return { tipo: "linea", cada: "auto", medias: ["sma200"], ...JSON.parse(localStorage.getItem("invest.precio") || "{}") }; }
+  catch (_) { return { tipo: "linea", cada: "auto", medias: ["sma200"] }; }
+}
+function guardarPrefPrecio(p) { try { localStorage.setItem("invest.precio", JSON.stringify(p)); } catch (_) { /* sin almacenamiento */ } }
+const claveSemana = (s) => { const d = new Date(s.slice(0, 10) + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); return d.toISOString().slice(0, 10); };
+// Velas por día, semana o mes. Con apertura, máximo, mínimo y cierre de la Bolsa en todos los días del
+// periodo, la vela es la real; si no, va del último precio del periodo anterior al último del periodo,
+// con el rango de los precios promedio diarios de la SFC (aproximada)
+function agruparVelas(serie, cada) {
+  const clave = cada === "mes" ? (s) => s.slice(0, 7) : cada === "semana" ? claveSemana : (s) => s.slice(0, 10);
+  const grupos = [];
+  for (const r of serie) {
+    if (r.precio_ajustado == null) continue;
+    const k = clave(r.fecha);
+    if (!grupos.length || grupos[grupos.length - 1].k !== k) grupos.push({ k, filas: [] });
+    grupos[grupos.length - 1].filas.push(r);
+  }
+  let anterior = null;
+  return grupos.map(({ filas }) => {
+    const ult = filas[filas.length - 1];
+    const real = filas.every((r) => r.apertura != null && r.maximo != null && r.minimo != null && r.cierre != null);
+    let o, h, l, c;
+    if (real) {
+      o = filas[0].apertura; c = ult.cierre;
+      h = Math.max(...filas.map((r) => r.maximo)); l = Math.min(...filas.map((r) => r.minimo));
+    } else {
+      const ps = filas.map((r) => r.precio_ajustado);
+      o = anterior ?? ps[0]; c = ps[ps.length - 1];
+      h = Math.max(o, ...ps); l = Math.min(o, ...ps);
+    }
+    anterior = real ? ult.precio_ajustado : c;
+    return { x: ult.fecha, desde: filas[0].fecha, o, h, l, c, real, fila: ult };
+  });
+}
+function velas(caja, barras, medias, op = {}) {
+  caja.replaceChildren();
+  const W = Math.max(caja.clientWidth || 600, 320), H = op.alto || 280, m = { l: 56, r: 16, t: 10, b: 24 };
+  if (!barras.length) { caja.append(el("div", { class: "vacio" }, "Sin datos.")); return; }
+  const vals = [...barras.flatMap((b) => [b.h, b.l]), ...medias.flatMap((md) => barras.map((b) => b.fila[md[0]]).filter((v) => v != null))];
+  let y0 = Math.min(...vals), y1 = Math.max(...vals);
+  if (y0 === y1) { y0 -= 1; y1 += 1; }
+  const pad = (y1 - y0) * 0.06; y0 -= pad; y1 += pad;
+  const n = barras.length, paso = (W - m.l - m.r) / Math.max(n, 1);
+  const X = (i) => m.l + paso * (i + 0.5);
+  const Y = (y) => H - m.b - (y - y0) / (y1 - y0) * (H - m.t - m.b);
+  const s = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": op.titulo || "Velas" });
+  const fy = op.fy || ((v) => num(v, 1));
+  for (let i = 0; i <= 4; i++) {
+    const v = y0 + (y1 - y0) * i / 4;
+    s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "#1A2540" }), sv("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, fy(v)));
+  }
+  const porDia = n > 1 && diasEntre(barras[0].x, barras[n - 1].x) <= 125;
+  const cadaRot = Math.max(1, Math.ceil(n / 7)); let rotAnt = null;
+  barras.forEach((b, i) => {
+    if (i % cadaRot !== 0) return;
+    const r = porDia ? fechaDia(b.x) : fechaCorta(b.x);
+    if (r === rotAnt) return; rotAnt = r;
+    s.append(sv("text", { x: X(i), y: H - 6, "text-anchor": "middle" }, r));
+  });
+  const ancho = Math.max(1, Math.min(14, paso * 0.62));
+  barras.forEach((b, i) => {
+    const color = b.c >= b.o ? SUBE : BAJA;
+    s.append(sv("line", { x1: X(i), x2: X(i), y1: Y(b.h), y2: Y(b.l), stroke: color, "stroke-width": 1 }));
+    const yA = Y(Math.max(b.o, b.c)), yB = Y(Math.min(b.o, b.c));
+    s.append(sv("rect", { x: X(i) - ancho / 2, y: yA, width: ancho, height: Math.max(1, yB - yA), fill: b.real ? color : "none",
+      stroke: color, "stroke-width": b.real ? 0 : 1 }));
+  });
+  for (const [k, , color] of medias) {
+    let d = "", abierto = false;
+    barras.forEach((b, i) => {
+      const v = b.fila[k];
+      if (v == null) { abierto = false; return; }
+      d += (abierto ? "L" : "M") + X(i).toFixed(1) + "," + Y(v).toFixed(1); abierto = true;
+    });
+    s.append(sv("path", { d, fill: "none", stroke: color, "stroke-width": 1.5, "stroke-linejoin": "round" }));
+  }
+  const cruz = sv("line", { y1: m.t, y2: H - m.b, stroke: "#5B6B8C", visibility: "hidden" });
+  s.append(cruz);
+  const zona = sv("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  zona.addEventListener("pointermove", (ev) => {
+    const r = s.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - m.l) / paso)));
+    const b = barras[i];
+    cruz.setAttribute("x1", X(i)); cruz.setAttribute("x2", X(i)); cruz.setAttribute("visibility", "visible");
+    const titulo = b.desde === b.x ? fecha(b.x) : `${fecha(b.desde)} a ${fecha(b.x)}`;
+    mostrarTip(ev, titulo, [["Apertura", fy(b.o)], ["Máximo", fy(b.h)], ["Mínimo", fy(b.l)], ["Cierre", fy(b.c)],
+      ["Variación", pct(b.o ? b.c / b.o - 1 : null, 1)], ...medias.map(([k, nombre]) => [nombre, b.fila[k] == null ? "—" : fy(b.fila[k])]),
+      ["Origen", b.real ? "Bolsa de Colombia" : "precios promedio (aprox.)"]]);
+  });
+  zona.addEventListener("pointerleave", () => { cruz.setAttribute("visibility", "hidden"); ocultarTip(); });
+  s.append(zona);
+  caja.append(s);
+}
+// Panel de precio con periodo, línea o velas, periodicidad de las velas y medias móviles. `cargar(dias)`
+// devuelve la serie de /api/ficha/<especie>/precio. `conMedias`: false en acciones poco líquidas
+function panelPrecio(cargar, op = {}) {
+  const pref = prefPrecio();
+  let periodo = op.periodo || "1a";
+  const caja = el("div"), cajaLeyenda = el("div"), nota = el("p", { class: "desc" });
+  const conMedias = op.conMedias !== false;
+  const grupo = (opciones, actual, cambiar, etiqueta) => {
+    const g = el("div", { class: "grupo", role: "group", "aria-label": etiqueta });
+    const pintar = () => g.replaceChildren(...opciones.map(([id, t, titulo]) => el("button", { type: "button", "aria-pressed": String(actual() === id), title: titulo || null,
+      onclick: () => { cambiar(id); pintar(); } }, t)));
+    pintar(); return g;
+  };
+  const tipo = grupo([["linea", "Línea"], ["velas", "Velas"]], () => pref.tipo, (id) => { pref.tipo = id; guardarPrefPrecio(pref); cada.hidden = id !== "velas"; pintar(); }, "Tipo de gráfico");
+  const cada = grupo([["auto", "Auto"], ["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]], () => pref.cada,
+    (id) => { pref.cada = id; guardarPrefPrecio(pref); pintar(); }, "Periodicidad de las velas");
+  cada.hidden = pref.tipo !== "velas";
+  const medias = el("div", { class: "grupo", role: "group", "aria-label": "Medias móviles" },
+    MEDIAS.map(([k, nombre, color]) => el("button", { type: "button", "aria-pressed": String(pref.medias.includes(k)), disabled: !conMedias,
+      title: k.startsWith("ema") ? "Media exponencial (pesa más lo reciente)" : "Media simple de las últimas sesiones",
+      onclick: (ev) => { pref.medias = pref.medias.includes(k) ? pref.medias.filter((x) => x !== k) : [...pref.medias, k];
+        ev.currentTarget.setAttribute("aria-pressed", String(pref.medias.includes(k))); guardarPrefPrecio(pref); pintar(); } },
+      el("i", { class: "muestra-media", style: { background: color } }), nombre)));
+  let serie = [];
+  const pintar = () => {
+    const elegidas = conMedias ? MEDIAS.filter(([k]) => pref.medias.includes(k)) : [];
+    const fy = (x) => num(x, x < 100 ? 2 : 0);
+    if (pref.tipo === "velas") {
+      const auto = serie.length <= 130 ? "dia" : serie.length <= 800 ? "semana" : "mes";
+      const c = pref.cada === "auto" ? auto : pref.cada;
+      const barras = agruparVelas(serie, c);
+      velas(caja, barras, elegidas, { alto: op.alto || 300, titulo: "Velas del precio ajustado", fy });
+      const reales = barras.filter((b) => b.real).length;
+      nota.textContent = `Velas ${{ dia: "diarias", semana: "semanales", mes: "mensuales" }[c]}${pref.cada === "auto" ? " (automático según el periodo)" : ""}. `
+        + (reales === barras.length ? "Todas con apertura, máximo, mínimo y cierre de la Bolsa."
+          : (reales ? `${reales} de ${barras.length} con datos de la Bolsa (rellenas); las huecas son aproximadas: ` : "Velas aproximadas (huecas): ")
+            + "la SFC solo publica el precio promedio del día, así que van del último precio del periodo anterior al último del periodo, con el rango de los promedios diarios. Las reales se acumulan desde la primera lectura de la Bolsa (23-nov-2026).");
+      cajaLeyenda.replaceChildren(leyenda([[SUBE, "Sube"], [BAJA, "Baja"], ...elegidas.map(([, nombre, color]) => [color, nombre, "linea"])]));
+    } else {
+      lineas(caja, [{ nombre: "Precio ajustado", color: "#E6EAF2", puntos: serie.map((r) => ({ x: r.fecha, y: r.precio_ajustado })), grosor: 2.25 },
+        ...elegidas.map(([k, nombre, color]) => ({ nombre, color, puntos: serie.map((r) => ({ x: r.fecha, y: r[k] })), grosor: 1.5 }))],
+      { alto: op.alto || 300, titulo: "Precio ajustado por dividendos y sus medias móviles", fy });
+      nota.textContent = "";
+      cajaLeyenda.replaceChildren(leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ...elegidas.map(([, nombre, color]) => [color, nombre, "linea"])]));
+    }
+    if (!conMedias) nota.textContent += " Acción poco líquida: las medias móviles abarcarían negocios de meses y no se dibujan.";
+  };
+  const recargar = async () => { serie = await cargar(diasPeriodo(periodo) ?? 36500); pintar(); };
+  const nodo = el("section", { class: "panel ancho" },
+    el("div", { class: "encabezado" }, el("h2", {}, op.titulo || "Precio"), botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "max"], periodo, (id) => { periodo = id; recargar(); })),
+    el("div", { class: "controles-precio" }, tipo, cada, medias), caja, cajaLeyenda, nota);
+  requestAnimationFrame(recargar);
+  return nodo;
+}
+
 function leyenda(items) {
   return el("div", { class: "leyenda" }, items.map(([color, texto, tipo]) => el("span", {}, el("i", { class: tipo === "linea" ? "linea" : "", style: { background: color } }), texto)));
 }
@@ -697,19 +850,9 @@ paginas.ficha = async (v, especie) => {
       el("div", { class: "riel" }, el("div", { style: { width: p == null ? "0" : p * 10 + "%", background: COLOR_BANDA[banda(p)] } })), notaPuntaje(p),
       d.escala ? botonCalculo("el factor " + f, (ancla) => explicarFactor(f, d.auditoria, d.escala, ancla)) : null);
   });
-  const cajaPrecio = el("div");
-  let periodoPrecio = "1a";
   const t = d.tecnico || {};
   // En una acción poco líquida la media de 200 abarca negocios de meses o años: no se dibuja ni se usa
   const tecnicoValido = t.tecnico_valido !== false;
-  const pintarPrecio = async () => {
-    const dias = diasPeriodo(periodoPrecio) ?? 36500;
-    const serie = await api(`/api/ficha/${encodeURIComponent(especie)}/precio?dias=${dias}`);
-    lineas(cajaPrecio, [
-      { nombre: "Precio ajustado", color: "#E6EAF2", puntos: serie.map((r) => ({ x: r.fecha, y: r.precio_ajustado })), grosor: 2.25 },
-      ...(tecnicoValido ? [{ nombre: "Media de 200", color: "#5B6B8C", discontinua: true, puntos: serie.map((r) => ({ x: r.fecha, y: r.sma200 })) }] : []),
-    ], { alto: 280, titulo: "Precio ajustado por dividendos y su media de 200 sesiones", fy: (x) => num(x, x < 100 ? 2 : 0) });
-  };
   v.append(el("div", { class: "fila" },
     el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } },
       panel("Puntaje por factor · 1 a 10", ...barras,
@@ -720,10 +863,7 @@ paginas.ficha = async (v, especie) => {
         ["Fuerza relativa 12 meses", pct(t.fuerza_relativa_12m), "fuerza_relativa_12m"]].map(([n, val, id]) =>
         el("div", { class: "evento", style: { justifyContent: "space-between" } }, el("span", {}, n, info(id, val)), el("strong", {}, val))),
         tecnicoValido ? null : el("p", { class: "desc" }, "Acción poco líquida: la media de 200 y el RSI se calcularían con negocios esporádicos (N/A). Los retornos usan el último negocio de hace 12 meses, si lo hubo."))),
-    el("section", { class: "panel ancho" }, el("div", { class: "encabezado" }, el("h2", {}, "Precio"),
-      botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "max"], periodoPrecio, (id) => { periodoPrecio = id; pintarPrecio(); })), cajaPrecio,
-      leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ...(tecnicoValido ? [["#5B6B8C", "Media de 200 sesiones", "linea"]] : [])]))));
-  requestAnimationFrame(pintarPrecio);
+    panelPrecio((dias) => api(`/api/ficha/${encodeURIComponent(especie)}/precio?dias=${dias}`), { conMedias: tecnicoValido })));
 
   const cajaBandas = el("div");  // Valoración (bandas): panel "Valoración frente a su historia"
   v.append(cajaBandas);

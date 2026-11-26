@@ -139,3 +139,12 @@ def test_precio_en_curso_hasta_que_llega_el_cierre(cliente):
     modelo.construir_duckdb()
     assert servidor.precios_en_curso(hoy) == {}
     assert cliente.get("/api/en_curso").status_code == 200
+
+
+def test_medias_moviles_del_precio():
+    from invest.app import servidor
+    xs = [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert servidor._media_simple(xs, 3) == [None, None, 2.0, 3.0, 4.0]
+    assert servidor._media_simple([1.0, None, 3.0, 4.0, 5.0], 2) == [None, None, None, 3.5, 4.5]
+    e = servidor._media_exponencial(xs, 3)
+    assert e[:2] == [None, None] and e[2] == 2.0 and e[3] == pytest.approx(0.5 * 4 + 0.5 * 2.0) and e[4] == pytest.approx(0.5 * 5 + 0.5 * 3.0)

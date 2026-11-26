@@ -84,6 +84,7 @@ emisores:
   - emisor_id: CO-COT09
     nombre: Grupo Argos
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     ventana: true      # la página índice pide una verificación a los programas (24-nov-2026): invest estados-ventana
     moneda: COP
     unidades_esperadas: [miles, millones]
@@ -104,6 +105,7 @@ emisores:
   - emisor_id: CO-COT04
     nombre: Grupo Nutresa
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     ventana: true      # responde 401/403 a los programas (24-nov-2026): invest estados-ventana
     moneda: COP
     unidades_esperadas: [millones]
@@ -124,6 +126,7 @@ emisores:
   - emisor_id: CO-COG31
     nombre: Grupo Éxito
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     moneda: COP
     unidades_esperadas: [millones]
     paginas_indice: []   # grupoexito.com.co/es/inversionistas no se pudo leer desde aquí; la plantilla es estable
@@ -139,6 +142,7 @@ emisores:
   - emisor_id: CO-COC07
     nombre: Mineros
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     moneda: USD
     unidades_esperadas: [miles]
     paginas_indice:
@@ -155,6 +159,7 @@ emisores:
   - emisor_id: CO-COD38
     nombre: Cementos Argos
     descarga: manual
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     ventana: true
     patrones:
       - 'argos\.co/wp-content/uploads/.*(estados[-_ ]financieros|eeff).*consolidad[^/]*\.pdf'
@@ -172,6 +177,7 @@ emisores:
   - emisor_id: CO-COT60
     nombre: Celsia
     descarga: manual
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     ventana: true
     inicio: https://www.celsia.com/es/   # sin página de informes verificada: se abre la portada y Esteban navega a los estados
     moneda: COP
@@ -229,6 +235,7 @@ emisores:
   - emisor_id: CO-COO08
     nombre: Corferias
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     moneda: COP
     unidades_esperadas: [miles]
     paginas_indice: []
@@ -244,6 +251,7 @@ emisores:
   - emisor_id: CO-COD12
     nombre: Acerías Paz del Río
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     acepta_separados: true   # publica estados de la sola compañía (sin consolidados)
     moneda: COP
     unidades_esperadas: [miles, millones]
@@ -259,6 +267,7 @@ emisores:
   - emisor_id: CO-COF02
     nombre: Conconcreto
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice: []
@@ -269,6 +278,7 @@ emisores:
   - emisor_id: CO-COF20
     nombre: Construcciones El Cóndor
     descarga: automatica
+    estados_desde_sfc: true   # respaldo: informe periódico en la información relevante de la SFC
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice: []
@@ -308,14 +318,14 @@ emisores:
     otros_formatos: "Sin estados publicados en la web (búsqueda del 25-nov-2026: solo agregadores como TradingView o stockanalysis, que no se usan). Está en reorganización. Llegan por la información relevante de la SFC (estados_desde_sfc)."
 
   # ------------------------------------------------------------------ Solo por la información relevante de la SFC
-  - emisor_id: CO-COF20
-    nombre: Construcciones El Cóndor
-    descarga: pendiente     # no se buscó en su sitio: el informe periódico llega por la SFC
+  - emisor_id: CO-COW19
+    nombre: Protección
+    descarga: pendiente     # sus anexos del SIMEV llegan hasta 2021
     estados_desde_sfc: true
     moneda: COP
-    unidades_esperadas: [miles, millones]
+    unidades_esperadas: [millones, miles]
     paginas_indice: []
-    otros_formatos: "Informe periódico trimestral y de fin de ejercicio en la información relevante de la SFC (25-nov-2026: cortes sep-2025, dic-2025 y sep-2026)."
+    otros_formatos: "Administradora de fondos de pensiones. Informe periódico trimestral y de fin de ejercicio en la información relevante de la SFC (alias exacto en config/emisores_alias.yaml)."
 
   - emisor_id: CO-COTK7
     nombre: Grupo Cibest

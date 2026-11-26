@@ -200,13 +200,43 @@ def evento_id(fecha: date, hora: str, entidad: str, tema: str, resumen: str) -> 
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
 
 
-def emisores_con_estados_sfc() -> set[str]:
-    """Emisores (``CO-XXXXX``) cuyos estados financieros se bajan de la información relevante."""
+def emisores_con_estados_sfc() -> dict[str, bool]:
+    """Emisores (``CO-XXXXX``) cuyos estados financieros se bajan de la información relevante, con si
+    aceptan estados separados (``acepta_separados``: Paz del Río no publica consolidados)."""
     ruta = CONFIG_DIR / "estados_compania.yaml"
     if not ruta.exists():
-        return set()
+        return {}
     cfg = yaml.safe_load(ruta.read_text(encoding="utf-8")) or {}
-    return {e["emisor_id"] for e in cfg.get("emisores") or [] if e.get("estados_desde_sfc")}
+    return {e["emisor_id"]: bool(e.get("acepta_separados")) for e in cfg.get("emisores") or []
+            if e.get("estados_desde_sfc")}
+
+
+def cortes_ya_cubiertos() -> set[tuple[str, str]]:
+    """(emisor_id, corte) que ``estados_compania`` ya tiene del sitio de la compañía o puestos a mano:
+    para esos no se baja el informe de la SFC (el repositorio de datos no crece de balde)."""
+    docs = (storage.leer_estado_fuente("estados_compania") or {}).get("documentos") or {}
+    return {(d["emisor_id"], d["corte"]) for clave, d in docs.items()
+            if d.get("corte") and not str(clave).startswith("sfc:")}
+
+
+def cortes_con_anexo_sfc(previos: pl.DataFrame | None, emisores: dict, alias: dict) -> set[tuple[str, str]]:
+    """(emisor_id, corte) con un informe financiero de la SFC ya guardado: de cada corte basta uno (el
+    mismo día suelen llegar dos a cuatro radicaciones del mismo informe)."""
+    if previos is None or previos.is_empty():
+        return set()
+    salida = set()
+    for entidad, tema, resumen, fecha in previos.filter(pl.col("anexo_archivo").is_not_null()).select(
+            "entidad", "tema", "resumen", "fecha").iter_rows():
+        emisor = eventos.emisor_de(entidad, emisores, alias)
+        corte = corte_de_resumen(resumen, fecha)
+        if emisor and corte and es_informe_financiero(tema, resumen):
+            salida.add((f"CO-{emisor.upper()}", corte.isoformat()))
+    return salida
+
+
+def solo_separados(resumen: str | None) -> bool:
+    r = eventos.normal(resumen)
+    return "SEPARADO" in r and "CONSOLIDADO" not in r
 
 
 def es_informe_financiero(tema: str | None, resumen: str | None) -> bool:
@@ -252,7 +282,7 @@ def corte_de_resumen(resumen: str | None, publicado: date | None) -> date | None
 
 
 def anexo_deseado(tema: str | None, resumen: str | None, entidad: str | None, fecha: date | None, hoy: date,
-                  emisores: dict, alias: dict, con_estados: set[str]) -> bool:
+                  emisores: dict, alias: dict, con_estados, cubiertos: set | frozenset = frozenset()) -> bool:
     """Si el anexo de un evento se guarda: dividendos y capital de cualquier emisor con acciones, y
     estados financieros de los emisores de ``con_estados``."""
     if fecha is None:
@@ -263,8 +293,15 @@ def anexo_deseado(tema: str | None, resumen: str | None, entidad: str | None, fe
     dias = (hoy - fecha).days
     if dias <= DIAS_ANEXOS and eventos.clasificar(tema, resumen) in CATEGORIAS_CON_ANEXO:
         return True
-    return (dias <= DIAS_ANEXOS_ESTADOS and f"CO-{emisor.upper()}" in con_estados
-            and es_informe_financiero(tema, resumen))
+    emisor_id = f"CO-{emisor.upper()}"
+    if not (dias <= DIAS_ANEXOS_ESTADOS and emisor_id in con_estados and es_informe_financiero(tema, resumen)):
+        return False
+    # Solo lo que hace falta: ni un corte que ya llegó del sitio de la compañía o a mano, ni los estados
+    # separados de quien publica consolidados
+    corte = corte_de_resumen(resumen, fecha)
+    if corte and (emisor_id, corte.isoformat()) in cubiertos:
+        return False
+    return not (solo_separados(resumen) and isinstance(con_estados, dict) and not con_estados.get(emisor_id))
 
 
 def ventanas_mensuales(desde: date, hasta: date) -> list[tuple[date, date]]:
@@ -279,7 +316,7 @@ def ventanas_mensuales(desde: date, hasta: date) -> list[tuple[date, date]]:
 
 def meses_con_anexos_pendientes(previos: pl.DataFrame | None, hoy: date, emisores: dict, alias: dict,
                                 cubiertos: list[tuple[date, date]],
-                                con_estados: set[str] | None = None,
+                                con_estados=None, cortes_cubiertos: set | frozenset = frozenset(),
                                 omitidos: dict | None = None) -> list[tuple[date, date]]:
     """Meses (más recientes primero) con eventos que debían tener PDF guardado y aún no lo tienen,
     por ejemplo porque una corrida llegó al tope de anexos. No incluye los meses ya consultados."""
@@ -296,7 +333,7 @@ def meses_con_anexos_pendientes(previos: pl.DataFrame | None, hoy: date, emisore
             continue
         if any(ini <= fecha <= fin for ini, fin in cubiertos):
             continue
-        if anexo_deseado(tema, resumen, entidad, fecha, hoy, emisores, alias, con_estados or set()):
+        if anexo_deseado(tema, resumen, entidad, fecha, hoy, emisores, alias, con_estados or set(), cortes_cubiertos):
             meses.add(fecha.replace(day=1))
     salida = []
     for inicio in sorted(meses, reverse=True)[:MAX_MESES_PENDIENTES]:
@@ -349,8 +386,9 @@ class ConectorSFCRelevante(Conector):
         http.nueva_sesion()
         ventanas = ventanas_mensuales(desde, hasta)
         con_estados = emisores_con_estados_sfc()
+        cubiertos = cortes_ya_cubiertos() | cortes_con_anexo_sfc(previos, emisores, alias)
         omitidos = self.estado_nuevo.setdefault("anexos_omitidos", {})
-        pendientes = meses_con_anexos_pendientes(previos, hoy, emisores, alias, ventanas, con_estados, omitidos)
+        pendientes = meses_con_anexos_pendientes(previos, hoy, emisores, alias, ventanas, con_estados, cubiertos, omitidos)
         if pendientes:
             self.notas.append(f"{len(pendientes)} meses consultados de nuevo por anexos pendientes")
         for ini, fin in ventanas + pendientes:
@@ -369,7 +407,7 @@ class ConectorSFCRelevante(Conector):
                 quiere_anexo = (
                     reg["anexo_archivo"] is None and f["anexo_control"] and anexos < MAX_ANEXOS_POR_CORRIDA
                     and reg["evento_id"] not in omitidos
-                    and anexo_deseado(f["tema"], f["resumen"], f["entidad"], d, hoy, emisores, alias, con_estados)
+                    and anexo_deseado(f["tema"], f["resumen"], f["entidad"], d, hoy, emisores, alias, con_estados, cubiertos)
                 )
                 if quiere_anexo:
                     try:
@@ -385,6 +423,10 @@ class ConectorSFCRelevante(Conector):
                         storage.guardar_anexo(relativa, contenido)
                         reg["anexo_archivo"] = relativa
                         anexos += 1
+                        emisor = eventos.emisor_de(f["entidad"], emisores, alias)
+                        corte = corte_de_resumen(f["resumen"], d)
+                        if emisor and corte and es_informe_financiero(f["tema"], f["resumen"]):
+                            cubiertos.add((f"CO-{emisor.upper()}", corte.isoformat()))
                 registros.append(reg)
         if anexos:
             self.notas.append(f"{anexos} anexos guardados")

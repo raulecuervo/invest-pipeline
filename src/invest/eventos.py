@@ -109,10 +109,15 @@ def alias_manuales() -> dict[str, str]:
     if not archivo.exists():
         return {}
     datos = yaml.safe_load(archivo.read_text(encoding="utf-8"))
-    return {clave_nombre(a["entidad"]): a["emisor"] for a in (datos or {}).get("alias", []) if a.get("emisor")}
+    # exacta: true compara el nombre completo (normalizado), para entidades cuyo nombre reducido es genérico
+    # ("ADMINISTRADORA DE FONDOS DE PENSIONES, ..." de Protección también sería el de Porvenir)
+    return {("=" + normal(a["entidad"])) if a.get("exacta") else clave_nombre(a["entidad"]): a["emisor"]
+            for a in (datos or {}).get("alias", []) if a.get("emisor")}
 
 
 def emisor_de(entidad: str | None, emisores: dict[str, str], alias: dict[str, str] | None = None) -> str | None:
+    if alias and ("=" + normal(entidad)) in alias:
+        return alias["=" + normal(entidad)]
     clave = clave_nombre(entidad)
     if alias and clave in alias:
         return alias[clave]

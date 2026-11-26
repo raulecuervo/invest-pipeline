@@ -7,6 +7,14 @@
 #   - entidad: "BANCOLOMBIA S.A."
 #     emisor: cotk7        # sus eventos quedan con el emisor de Grupo Cibest
 #
-# Una entidad con emisor vacío ("") se deja sin enlazar a propósito.
+# Una entidad con emisor vacío ("") se deja sin enlazar a propósito. Con `exacta: true` se compara el
+# nombre completo (sin tildes ni mayúsculas), para nombres cuya forma reducida es genérica.
 
-alias: []
+alias:
+  # El nombre reducido sería "ADMINISTRADORA DE FONDOS DE PENSIONES" (corta en la coma), el mismo de Porvenir
+  - entidad: 'ADMINISTRADORA DE FONDOS DE PENSIONES, CESANTIA Y DEL COMPONENTE COMPLEMENTARIO DE AHORRO INDIVIDUAL PROTECCION S.A. pudiéndose identificar también con la sigla "PROTECCION"'
+    emisor: cow19
+    exacta: true
+  # La especie es "AO BOLSA NACIONAL AGROPECUARIA S.A."; la entidad publica como BMC desde 2010
+  - entidad: "BMC BOLSA MERCANTIL DE COLOMBIA S.A."
+    emisor: cor02

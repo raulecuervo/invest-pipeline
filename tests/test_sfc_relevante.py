@@ -218,3 +218,27 @@ def test_anexo_de_estados_solo_para_los_emisores_marcados():
     assert rel.anexo_deseado(tema, resumen, "ORGANIZACION TERPEL S.A.", fecha, hoy, emisores, {}, {"CO-COG20"})
     assert not rel.anexo_deseado(tema, resumen, "GRUPO ARGOS S.A.", fecha, hoy, emisores, {}, {"CO-COG20"})
     assert not rel.anexo_deseado(tema, resumen, "ORGANIZACION TERPEL S.A.", fecha, date(2029, 1, 1), emisores, {}, {"CO-COG20"})
+
+
+def test_estados_solo_lo_que_falta():
+    emisores = {eventos.clave_nombre("AO ENKA DE COLOMBIA S.A.", es_especie=True): "cod05"}
+    tema, hoy = "Informes de fin de Ejercicio.", date(2026, 11, 25)
+    consolidado = "publicar Estados Financieros Consolidados de fin de ejercicio 2025"
+    separado = "publicar Estados Financieros Separados de fin de ejercicio 2025"
+    args = ("ENKA DE COLOMBIA S.A.", date(2026, 3, 12), hoy, emisores, {})
+    assert rel.anexo_deseado(tema, consolidado, *args, {"CO-COD05": False})
+    # Los separados solo si el emisor no publica consolidados
+    assert not rel.anexo_deseado(tema, separado, *args, {"CO-COD05": False})
+    assert rel.anexo_deseado(tema, separado, *args, {"CO-COD05": True})
+    # Un corte que ya llegó del sitio de la compañía no se vuelve a bajar
+    assert not rel.anexo_deseado(tema, consolidado, *args, {"CO-COD05": False}, {("CO-COD05", "2025-12-31")})
+
+
+def test_alias_exacto_para_nombres_genericos(monkeypatch, tmp_path):
+    archivo = tmp_path / "emisores_alias.yaml"
+    archivo.write_text('alias:\n  - {entidad: "ADMINISTRADORA DE FONDOS DE PENSIONES, CESANTIA PROTECCION S.A.", emisor: cow19, exacta: true}\n',
+                       encoding="utf-8")
+    monkeypatch.setattr(eventos, "CONFIG_DIR", tmp_path)
+    alias = eventos.alias_manuales()
+    assert eventos.emisor_de("ADMINISTRADORA DE FONDOS DE PENSIONES, CESANTÍA PROTECCIÓN S.A.", {}, alias) == "cow19"
+    assert eventos.emisor_de("ADMINISTRADORA DE FONDOS DE PENSIONES, CESANTIAS PORVENIR S.A.", {}, alias) is None

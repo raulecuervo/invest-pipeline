@@ -28,7 +28,7 @@ import sys
 import threading
 import uuid
 from collections import deque
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -483,16 +483,66 @@ def ficha_banco(especie: str):
 
 @app.get("/api/ficha/{especie}/precio")
 def ficha_precio(especie: str, dias: int = 365):
+    """Serie diaria del precio ajustado de los últimos ``dias`` días con sus medias móviles (simples de 20,
+    50, 100 y 200 sesiones y exponenciales de 20 y 50, calculadas sobre toda la historia para que no
+    arranquen vacías) y, desde que hay lectura de la Bolsa, apertura, máximo, mínimo y cierre del día
+    llevados a la misma escala del precio ajustado (velas)."""
     especie = resolver_especie(especie)
-    filas = q("""
-        WITH s AS (
-            SELECT fecha, precio_promedio, precio_ajustado, valor_transado,
-                   avg(precio_ajustado) OVER (ORDER BY fecha ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma200,
-                   count(*) OVER (ORDER BY fecha ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS n
-            FROM v_precio_ajustado WHERE especie = ?)
-        SELECT fecha, precio_promedio, precio_ajustado, valor_transado, CASE WHEN n = 200 THEN sma200 END AS sma200
-        FROM s WHERE fecha >= (SELECT max(fecha) FROM s) - to_days(CAST(? AS INTEGER)) ORDER BY fecha""", [especie, dias])
+    ohlc = "p.apertura_bvc, p.maximo_bvc, p.minimo_bvc, p.cierre_bvc" \
+        if _graf_tabla_existe("fact_precio_diario", ("apertura_bvc", "maximo_bvc", "minimo_bvc", "cierre_bvc")) \
+        else "NULL AS apertura_bvc, NULL AS maximo_bvc, NULL AS minimo_bvc, NULL AS cierre_bvc"
+    filas = q(f"""SELECT v.fecha, v.precio_promedio, v.precio_ajustado, v.valor_transado, {ohlc}
+                  FROM v_precio_ajustado v
+                  LEFT JOIN fact_precio_diario p ON p.especie = v.especie AND p.fecha = v.fecha
+                  WHERE v.especie = ? ORDER BY v.fecha""", [especie])
+    precios = [f["precio_ajustado"] for f in filas]
+    medias = {f"sma{n}": _media_simple(precios, n) for n in MEDIAS_SIMPLES}
+    medias |= {f"ema{n}": _media_exponencial(precios, n) for n in MEDIAS_EXPONENCIALES}
+    for i, f in enumerate(filas):
+        for k, serie in medias.items():
+            f[k] = serie[i]
+        # La Bolsa da precios del día sin ajustar: se llevan a la escala del precio ajustado
+        factor = (f["precio_ajustado"] / f["precio_promedio"]) if f["precio_promedio"] else None
+        for k in ("apertura", "maximo", "minimo", "cierre"):
+            v = f.pop(f"{k}_bvc")
+            f[k] = v * factor if v is not None and factor is not None else None
+    if filas:
+        desde = filas[-1]["fecha"] - timedelta(days=int(dias))
+        filas = [f for f in filas if f["fecha"] >= desde]
     return responder(filas)
+
+
+MEDIAS_SIMPLES = (20, 50, 100, 200)
+MEDIAS_EXPONENCIALES = (20, 50)
+
+
+def _media_simple(xs: list, n: int) -> list:
+    """Promedio de las últimas ``n`` sesiones; vacío hasta tener ``n`` (o si falta un precio en la ventana)."""
+    salida, suma, nulos = [], 0.0, 0
+    for i, x in enumerate(xs):
+        suma += x or 0.0
+        nulos += x is None
+        if i >= n:
+            suma -= xs[i - n] or 0.0
+            nulos -= xs[i - n] is None
+        salida.append(suma / n if i >= n - 1 and nulos == 0 else None)
+    return salida
+
+
+def _media_exponencial(xs: list, n: int) -> list:
+    """Media exponencial con alfa = 2 / (n + 1), sembrada con la media simple de las primeras ``n``."""
+    alfa, salida, e, vistos = 2 / (n + 1), [], None, []
+    for x in xs:
+        if x is None:
+            salida.append(e if len(vistos) >= n else None)
+            continue
+        if len(vistos) < n:
+            vistos.append(x)
+            e = sum(vistos) / n if len(vistos) == n else None
+        else:
+            e = alfa * x + (1 - alfa) * e
+        salida.append(e)
+    return salida
 
 
 # =========================================================================== Valoración (bandas)
