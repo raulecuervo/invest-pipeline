@@ -1333,7 +1333,7 @@ const NOMBRE_CONCEPTO = (c) => estado.variables[c]?.nombre || c.replaceAll("_", 
 const TEXTO_DECISION = { a: "A es la correcta", b: "B es la correcta", corregido: "Otra cifra", rechazado: "Ninguna vale" };
 paginas.revision = async (v) => {
   v.append(el("div", {}, el("h1", {}, "Revisión de estados financieros"),
-    el("div", { class: "sub" }, "Cifras en que los dos lectores y el árbitro no se pusieron de acuerdo. Mire la página, elija la correcta y luego «Incorporar lo decidido».")));
+    el("div", { class: "sub" }, "Cifras en que los dos lectores y el árbitro no se pusieron de acuerdo, y documentos que no se pudieron leer. Lo que decida aquí se guarda al instante.")));
   const contenido = el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } });
   v.append(contenido);
   let aviso = "";  // se conserva entre repintadas: confirma lo último que se guardó
@@ -1343,18 +1343,23 @@ paginas.revision = async (v) => {
     const estadoTxt = el("span", { class: "nota", role: "status" }, aviso);
     const incorporar = el("button", { type: "button", class: "boton" + (decididas.length ? " primario" : ""), disabled: !decididas.length,
       title: "Corre la lectura de estados sin documentos nuevos ni API: solo incorpora lo decidido. Luego «Actualizar el modelo» en Salud de datos." }, "Incorporar lo decidido");
-    incorporar.onclick = async () => {
-      incorporar.disabled = true; estadoTxt.textContent = "Incorporando…";
-      const r = await postear("/api/acciones/incorporar_revision");
-      if (!r.ok) { estadoTxt.textContent = r.problemas.join("; "); incorporar.disabled = false; return; }
+    // Corre una acción del servidor y vuelve a pintar al terminar
+    const correrAccion = async (accion, boton, enCurso, listo) => {
+      boton.disabled = true; estadoTxt.textContent = enCurso;
+      const r = await postear("/api/acciones/" + accion);
+      if (!r.ok) { estadoTxt.textContent = r.problemas.join("; "); boton.disabled = false; return; }
       const sondeo = setInterval(async () => {
         const t = await api("/api/acciones/" + r.trabajo);
         if (!t.fin) return;
         clearInterval(sondeo);
-        aviso = t.codigo === 0 ? "Incorporado. Para verlo en las fichas: «Actualizar el modelo» en Salud de datos." : "No se pudo: " + ([...t.salida].pop() || "").slice(0, 160);
+        const nota = [...t.salida].find((x) => /falta ANTHROPIC_API_KEY/.test(x));
+        aviso = nota ? "No se leyó: falta la clave ANTHROPIC_API_KEY en esta ventana (cierre el aplicativo y ábralo de nuevo después de configurarla)."
+          : t.codigo === 0 ? listo : "No se pudo: " + ([...t.salida].pop() || "").slice(0, 160);
         await pintar();
-      }, 1500);
+      }, 2000);
     };
+    incorporar.onclick = () => correrAccion("incorporar_revision", incorporar, "Incorporando…",
+      "Incorporado. Para verlo en las fichas: «Actualizar el modelo» en Salud de datos.");
     const guardar = async (f, revision, valor) => {
       const r = await postear("/api/revision_estados", { documento_id: f.documento_id, concepto: f.concepto, revision, valor_revisado: valor || "" });
       const quien = `${f.nombre || f.emisor_id} · ${NOMBRE_CONCEPTO(f.concepto)}`;
@@ -1363,16 +1368,85 @@ paginas.revision = async (v) => {
       const y = window.scrollY; await pintar(); window.scrollTo(0, y);
     };
     const tarjetas = [...pendientes, ...decididas].map((f) => tarjetaRevision(f, guardar));
+    // Documentos que no se pudieron leer
+    const sinLeer = await api("/api/revision_estados/sin_leer");
+    const porLeer = sinLeer.filter((d) => d.decision === "paginas" && !mismasPaginas(d.paginas, d.paginas_leidas));
+    const sinDecidir = sinLeer.filter((d) => !d.decision);
+    const leer = el("button", { type: "button", class: "boton" + (porLeer.length ? " primario" : ""), disabled: !porLeer.length,
+      title: "Envía a los dos lectores solo las páginas indicadas de esos documentos (llama a la API: unos USD 0,10 a 0,30 por documento)." },
+      `Leer las páginas indicadas${porLeer.length ? " (" + porLeer.length + ")" : ""}`);
+    leer.onclick = () => correrAccion("leer_paginas_indicadas", leer, "Leyendo las páginas indicadas… (unos segundos por documento)",
+      "Leídos. Lo que quedó en disputa aparece arriba; para verlo en las fichas: «Incorporar lo decidido» y «Actualizar el modelo».");
+    const guardarSinLeer = async (d, decision, paginas) => {
+      const r = await postear("/api/revision_estados/sin_leer", { documento_id: d.documento_id, decision, paginas: paginas || "" });
+      const quien = `${d.nombre || d.emisor_id} · ${fecha(d.fecha_corte)}`;
+      aviso = decision === "paginas" ? `Guardado: ${quien} → páginas ${r.fila.paginas}. Cuando termine, «Leer las páginas indicadas».`
+        : decision === "sin_estados" ? `Guardado: ${quien} no trae estados; no se vuelve a intentar.`
+        : `Deshecho: ${quien} vuelve a estar por decidir.`;
+      const y = window.scrollY; await pintar(); window.scrollTo(0, y);
+    };
+    const tarjetasSinLeer = [...sinDecidir, ...sinLeer.filter((d) => d.decision)].map((d) => tarjetaSinLeer(d, guardarSinLeer));
     contenido.replaceChildren(
       el("section", { class: "panel" }, el("div", { class: "encabezado" },
         el("h2", {}, `${pendientes.length} por decidir · ${decididas.length} decidida${decididas.length === 1 ? "" : "s"}`),
         el("span", { style: { display: "inline-flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, incorporar, estadoTxt)),
         leyenda([[COLOR_A, "Lector A"], [COLOR_B, "Lector B"], [COLOR_ARB, "Árbitro"]]),
         el("p", { class: "desc" }, "Las cifras se resaltan en la página donde aparecen impresas. Si una no aparece resaltada, no está escrita así en el documento (pudo ser calculada). Lo decidido se guarda al instante; «Incorporar lo decidido» lo pasa a los estados.")),
-      ...(filas.length ? tarjetas : [el("div", { class: "vacio" }, "No hay cifras en disputa.")]));
+      ...(filas.length ? tarjetas : [el("div", { class: "vacio" }, "No hay cifras en disputa.")]),
+      el("section", { class: "panel" }, el("div", { class: "encabezado" },
+        el("h2", {}, `Documentos que no se pudieron leer · ${sinDecidir.length} por decidir`),
+        el("span", { style: { display: "inline-flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, leer)),
+        el("p", { class: "desc" }, "No se encontraron las páginas del balance y de los resultados (o el PDF es escaneado y no tiene texto), así que no se envió a los lectores. Ábralo y elija: si los estados están, escriba las páginas (como las numera el visor del navegador, p. ej. 12-15) y luego «Leer las páginas indicadas»; si no los trae, «No trae estados» y no se vuelve a intentar. Los escaneados también se pueden leer así: los lectores ven la imagen de la página.")),
+      ...(sinLeer.length ? tarjetasSinLeer : [el("div", { class: "vacio" }, "Todos los documentos se pudieron leer. (La lista se arma en cada lectura de estados: si acaba de actualizar, «Incorporar lo decidido» la crea.)")]));
   };
   await pintar();
 };
+// «4-6» frente a «4,5,6»: ¿ya se leyó con esas páginas?
+function expandirPaginas(t) {
+  const salida = new Set();
+  for (const parte of String(t || "").split(/[,;\s]+/).filter(Boolean)) {
+    const [a, b] = parte.split("-").map(Number);
+    for (let i = a; i <= (b || a); i++) salida.add(i);
+  }
+  return [...salida].sort((x, y) => x - y).join(",");
+}
+const mismasPaginas = (indicadas, leidas) => expandirPaginas(indicadas) === expandirPaginas(leidas);
+const MOTIVO_SIN_LEER = { sin_paginas: "No se encontraron las páginas de los estados", sin_texto: "Escaneado: el PDF no tiene texto" };
+function tarjetaSinLeer(d, guardar) {
+  const caja = el("section", { class: "panel tarjeta-revision" + (d.decision ? " decidida" : "") });
+  const leido = d.decision === "paginas" && mismasPaginas(d.paginas, d.paginas_leidas);
+  const chip = d.decision === "sin_estados" ? el("span", { class: "chip" }, "✓ No trae estados")
+    : d.decision === "paginas" ? el("span", { class: "chip" }, leido ? `✓ Leído con las páginas ${d.paginas} · ${LECTURA_DOC[d.estado]?.[0] || d.estado}` : `✓ Páginas ${d.paginas} · por leer`)
+    : el("span", { class: "chip gris" }, MOTIVO_SIN_LEER[d.estado] || d.estado);
+  const archivos = String(d.archivo || "").split(";").filter(Boolean);
+  const enlaces = el("div", { style: { display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" } },
+    archivos.map((a, i) => el("a", { href: `/api/documentos/archivo?ruta=${encodeURIComponent(a)}`, target: "_blank", rel: "noopener", class: "boton" },
+      archivos.length > 1 ? `Abrir el PDF ${i + 1} de ${archivos.length}` : "Abrir el PDF")),
+    el("span", { class: "nota" }, [archivos.map((a) => a.split("/").pop().replace(/^[0-9a-f]{16}_/, "")).join(" + "),
+      d.paginas_total ? Math.round(Number(d.paginas_total)) + " páginas" + (archivos.length > 1 ? " en total, contadas seguidas del primer PDF al último" : "") : ""]
+      .filter(Boolean).join(" · ")));
+  const estadoTxt = el("span", { class: "nota", role: "status" });
+  const enviar = async (boton, decision, paginas) => {
+    if (decision === "paginas" && !String(paginas || "").trim()) { estadoTxt.textContent = "Escriba las páginas primero, p. ej. 12-15."; return; }
+    caja.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    const texto = boton.textContent; boton.textContent = "Guardando…";
+    try { await guardar(d, decision, paginas); }
+    catch (e) {
+      estadoTxt.textContent = "No se guardó: " + String(e.message || e).replace(/^\d+ · /, "");
+      boton.textContent = texto; caja.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    }
+  };
+  const boton = (texto, accion, primario) => { const b = el("button", { type: "button", class: "boton" + (primario ? " primario" : "") }, texto); b.onclick = () => accion(b); return b; };
+  const paginas = el("input", { type: "text", placeholder: "páginas, p. ej. 12-15", "aria-label": "Páginas de los estados", value: d.decision === "paginas" ? d.paginas : "", style: { width: "170px", height: "36px" } });
+  const controles = el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
+    d.decision ? null : paginas,
+    d.decision ? null : boton("Leer estas páginas", (b) => enviar(b, "paginas", paginas.value)),
+    d.decision ? null : boton("No trae estados", (b) => enviar(b, "sin_estados")),
+    d.decision ? boton("Deshacer", (b) => enviar(b, "")) : null,
+    estadoTxt);
+  caja.append(el("div", { class: "encabezado" }, el("h2", {}, `${d.nombre || d.emisor_id} · ${fecha(d.fecha_corte)}`), chip), enlaces, controles);
+  return caja;
+}
 function tarjetaRevision(f, guardar) {
   const decidida = !!f.revision;
   const caja = el("section", { class: "panel tarjeta-revision" + (decidida ? " decidida" : "") });
@@ -1398,9 +1472,12 @@ function tarjetaRevision(f, guardar) {
   const enviar = async (boton, revision, valor) => {
     if (revision === "corregido" && !String(valor || "").trim()) { estadoTxt.textContent = "Escriba la cifra primero."; return; }
     caja.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-    boton.textContent = "Guardando…";
+    const texto = boton.textContent; boton.textContent = "Guardando…";
     try { await guardar(f, revision, valor); }
-    catch (e) { estadoTxt.textContent = "No se guardó: " + String(e.message || e); caja.querySelectorAll("button").forEach((b) => { b.disabled = false; }); }
+    catch (e) {
+      estadoTxt.textContent = "No se guardó: " + String(e.message || e).replace(/^\d+ · /, "");
+      boton.textContent = texto; caja.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    }
   };
   const boton = (texto, revision, valor) => {
     const elegido = decidida && f.revision === revision && (revision !== "corregido" || String(valor ?? f.valor_revisado) === String(f.valor_revisado));

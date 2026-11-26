@@ -665,3 +665,73 @@ def test_revision_descarta_documentos_que_ya_no_estan_en_disputa(carpeta_datos):
     ec.exportar_revision([], {"sigue"})  # ya no queda ninguna: el archivo queda vacío, no con la fila vieja
     with open(ec.ruta_revision(), encoding="utf-8-sig") as f:
         assert list(csv.DictReader(f, delimiter=";")) == []
+
+
+def documento_sin_titulos() -> bytes:
+    """Los estados con títulos que no se reconocen (como los informes periódicos de Nutresa)."""
+    cambiar = {"Estado de situacion financiera consolidado": "Cuadro 1", "Estado de resultados consolidado": "Cuadro 2"}
+    paginas = [[cambiar.get(linea, linea) for linea in p] for p in paginas_estados(NUTRESA)]
+    return pdf_paginas([["Informe periodico", "Grupo Nutresa"], ["Contenido"], ["Carta del presidente"], *paginas])
+
+
+def test_documento_sin_leer_con_paginas_indicadas(cfg, carpeta_datos, monkeypatch):
+    carpeta = carpeta_datos / "fuentes_compania" / "CO-COD38"
+    carpeta.mkdir(parents=True)
+    (carpeta / "Reporte-4T25.pdf").write_bytes(documento_sin_titulos())
+    res = correr(Web({}), ClienteFalso({MA: [], MB: []}), monkeypatch)
+    assert "1 documentos que no se pudieron leer" in res.detalle
+    filas = ec.leer_sin_leer()
+    assert [(f["emisor_id"], f["estado"], f["paginas_total"], f["decision"]) for f in filas] == [("CO-COD38", "sin_paginas", "6", "")]
+    # Esteban mira el PDF e indica las páginas: la siguiente corrida envía esas, sin buscarlas
+    filas[0].update(decision="paginas", paginas="4-6")
+    ec.guardar_sin_leer(filas)
+    cliente = ClienteFalso({MA: [registro()], MB: [registro()]})
+    res = correr(Web({}), cliente, monkeypatch)
+    assert res.estado == "ok", res.detalle
+    assert [n for _, _, n in cliente.llamadas] == [3, 3] and "Páginas enviadas (del documento original): 4, 5, 6" in cliente.llamadas[0][1]
+    silver = storage.leer_tabla("silver", ec.TABLA)
+    assert silver.filter(pl.col("concepto") == "activos").row(0, named=True)["pagina"] == 4
+    # Queda en la lista con su decisión (para verla o deshacerla) y no se vuelve a leer
+    fila = ec.leer_sin_leer()[0]
+    assert (fila["estado"], fila["decision"], fila["paginas_leidas"]) == ("consenso", "paginas", "4,5,6")
+    otra = ClienteFalso({MA: [], MB: []})
+    correr(Web({}), otra, monkeypatch)
+    assert not otra.llamadas
+
+
+def test_documento_sin_estados_confirmado_no_se_reintenta(cfg, carpeta_datos, monkeypatch):
+    carpeta = carpeta_datos / "fuentes_compania" / "CO-COD38"
+    carpeta.mkdir(parents=True)
+    (carpeta / "Reporte-4T25.pdf").write_bytes(pdf_paginas([["Informe de sostenibilidad", *_relleno(14)]]))
+    correr(Web({}), ClienteFalso({MA: [], MB: []}), monkeypatch)
+    filas = ec.leer_sin_leer()
+    filas[0]["decision"] = "sin_estados"
+    ec.guardar_sin_leer(filas)
+    intentos = []
+    original = ec.extraer_documento
+    monkeypatch.setattr(ec, "extraer_documento", lambda *a, **k: intentos.append(1) or original(*a, **k))
+    res = correr(Web({}), ClienteFalso({MA: [], MB: []}), monkeypatch)
+    assert not intentos and "no se pudieron leer" not in res.detalle
+    assert ec.leer_sin_leer()[0]["decision"] == "sin_estados"
+
+
+def test_los_que_no_llegan_a_la_api_no_cuentan_para_el_tope(cfg, carpeta_datos, monkeypatch):
+    cfg["limites"]["max_documentos_por_corrida"] = 1
+    carpeta = carpeta_datos / "fuentes_compania" / "CO-COD38"
+    carpeta.mkdir(parents=True)
+    (carpeta / "Reporte-1T26.pdf").write_bytes(documento_sin_titulos())  # más reciente, sin páginas reconocibles
+    (carpeta / "Reporte-4T25.pdf").write_bytes(documento())
+    cliente = ClienteFalso({MA: [registro()], MB: [registro()]})
+    res = correr(Web({}), cliente, monkeypatch)
+    assert len(cliente.llamadas) == 2 and "quedan para la próxima corrida" not in res.detalle
+
+
+@pytest.mark.parametrize(("texto", "indices"), [("4-6", [3, 4, 5]), ("5, 7", [4, 6]), ("3 a 4; 9", [2, 3, 8])])
+def test_paginas_de_texto(texto, indices):
+    assert ec.paginas_de_texto(texto) == indices
+
+
+@pytest.mark.parametrize("texto", ["", "abc", "0", "9-3", "1-80"])
+def test_paginas_de_texto_no_validas(texto):
+    with pytest.raises(ValueError):
+        ec.paginas_de_texto(texto)

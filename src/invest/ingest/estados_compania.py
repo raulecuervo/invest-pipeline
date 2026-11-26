@@ -618,10 +618,19 @@ class ResultadoEE:
     alertas: list[str]
 
 
-def extraer_documento(pdf: bytes, contexto: str, agente_a, agente_b, cfg: dict) -> ResultadoEE:
-    """Ubica las páginas, envía solo esas a los dos agentes y juzga el consenso."""
+def extraer_documento(pdf: bytes, contexto: str, agente_a, agente_b, cfg: dict,
+                      paginas_indicadas: list[int] | None = None) -> ResultadoEE:
+    """Ubica las páginas, envía solo esas a los dos agentes y juzga el consenso. Con paginas_indicadas
+    (índices desde 0, puestos a mano en la revisión) se envían esas sin buscarlas; sirve también para
+    los escaneados: los agentes leen la imagen de la página y, sin texto, no hay cifras que verificar."""
     textos = textos_paginas(pdf)
-    paginas = localizar_paginas(textos, cfg) if textos else []
+    if paginas_indicadas:
+        total = len(textos) or numero_paginas(pdf)
+        paginas = sorted({i for i in paginas_indicadas if 0 <= i < total})
+        if not textos:
+            textos = [""] * total
+    else:
+        paginas = localizar_paginas(textos, cfg) if textos else []
     if not paginas:
         sin_texto = len(dividendos._compacto("".join(textos))) < 200
         n = int(cfg.get("limites", {}).get("paginas_si_no_hay_texto", 0))
@@ -819,6 +828,80 @@ def _lado_que_coincide(r: dict, a: dict | None, b: dict | None, c: str) -> str |
 
 def ruta_revision() -> Path:
     return data_dir() / "revision" / ARCHIVO_REVISION
+
+
+# Documentos que no se pudieron leer (no se encontraron las páginas de los estados, o es un escaneado):
+# en revision/documentos_sin_leer.csv se confirma que no traen estados (no se vuelven a intentar) o se
+# indican las páginas donde están (la siguiente lectura envía esas a los dos agentes)
+ARCHIVO_SIN_LEER = "documentos_sin_leer.csv"
+COLUMNAS_SIN_LEER = ["documento_id", "emisor_id", "nombre", "fecha_corte", "estado", "archivo", "paginas_total",
+                     "paginas_leidas", "huella_pdf", "decision", "paginas", "notas"]
+DECISIONES_SIN_LEER = ("sin_estados", "paginas")
+
+
+def ruta_sin_leer() -> Path:
+    return data_dir() / "revision" / ARCHIVO_SIN_LEER
+
+
+def paginas_de_texto(texto: str) -> list[int]:
+    """«5-7, 12» → [4, 5, 6, 11] (índices desde 0). ValueError si no se entiende o es absurdo."""
+    salida: set[int] = set()
+    limpio = re.sub(r"\s*(?:-|–|\ba\b)\s*", "-", (texto or "").strip().lower())  # «3 a 5», «3 – 5»
+    for parte in re.split(r"[,;\s]+", limpio):
+        if not parte:
+            continue
+        m = re.fullmatch(r"(\d{1,4})(?:-(\d{1,4}))?", parte)
+        if not m:
+            raise ValueError(f"No se entiende «{parte}»: escriba páginas como 5-7, 12")
+        i, j = int(m.group(1)), int(m.group(2) or m.group(1))
+        if i < 1 or j < i or j - i > 40:
+            raise ValueError(f"Rango no válido: «{parte}»")
+        salida.update(range(i - 1, j))
+    if not salida:
+        raise ValueError("Faltan las páginas")
+    return sorted(salida)
+
+
+def leer_sin_leer() -> list[dict]:
+    ruta = ruta_sin_leer()
+    if not ruta.exists():
+        return []
+    with open(ruta, encoding="utf-8-sig", errors="replace", newline="") as f:
+        return list(csv.DictReader(f, delimiter=";"))
+
+
+def guardar_sin_leer(filas: list[dict]) -> Path:
+    ruta = ruta_sin_leer()
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    with open(ruta, "w", encoding="utf-8-sig", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=COLUMNAS_SIN_LEER, delimiter=";", extrasaction="ignore")
+        escritor.writeheader()
+        escritor.writerows(sorted(filas, key=lambda r: (r.get("emisor_id") or "", r.get("fecha_corte") or "")))
+    return ruta
+
+
+def decisiones_sin_leer() -> dict[str, dict]:
+    """{documento_id: fila} de las decisiones vigentes (válidas para ese mismo PDF)."""
+    salida = {}
+    for r in leer_sin_leer():
+        decision = (r.get("decision") or "").strip().lower()
+        if decision == "sin_estados" or (decision == "paginas" and (r.get("paginas") or "").strip()):
+            salida[r["documento_id"]] = {**r, "decision": decision}
+    return salida
+
+
+def exportar_sin_leer(actuales: list[dict]) -> Path | None:
+    """Reescribe la lista con los documentos que hoy no se pudieron leer y los que tienen una decisión
+    (estado = cómo quedó la última lectura; paginas_leidas = las que se enviaron, desde 1)."""
+    previas = {r["documento_id"]: r for r in leer_sin_leer()}
+    filas = []
+    for r in actuales:
+        p = previas.get(r["documento_id"]) or {}
+        mismo = p.get("huella_pdf") == r["huella_pdf"]
+        filas.append({**r, **({k: p.get(k, "") for k in ("decision", "paginas", "notas")} if mismo else {})})
+    if not filas and not ruta_sin_leer().exists():
+        return None
+    return guardar_sin_leer(filas)
 
 
 def leer_revision() -> dict[tuple[str, str], dict]:
@@ -1257,12 +1340,14 @@ class ConectorEstadosCompania(Conector):
         return (AgenteEE("a", ag["a"]["nombre"], ag["a"]["modelo"], cliente),
                 AgenteEE("b", ag["b"]["nombre"], ag["b"]["modelo"], cliente))
 
-    def _leer(self, pendientes: list[dict]) -> list[dict]:
-        """Lee con los dos agentes hasta ``max_documentos_por_corrida`` documentos pendientes."""
+    def _leer(self, pendientes: list[dict], indicadas: dict[str, list[int]] | None = None) -> list[dict]:
+        """Lee con los dos agentes hasta ``max_documentos_por_corrida`` documentos pendientes. Los que no
+        llegan a la API (sin páginas reconocibles, escaneados) no cuentan para el tope."""
+        indicadas = indicadas or {}
         lim = self.cfg.get("limites", {})
         # INVEST_EE_MAX_DOCUMENTOS: tope de una corrida puntual (scripts/windows/recuperar.ps1 -Documentos N)
         maximo = int(os.environ.get("INVEST_EE_MAX_DOCUMENTOS") or lim.get("max_documentos_por_corrida", 6))
-        if not pendientes:
+        if not pendientes or maximo <= 0:
             return []
         cliente = self.cliente
         if cliente is None and not os.environ.get("ANTHROPIC_API_KEY"):
@@ -1272,8 +1357,11 @@ class ConectorEstadosCompania(Conector):
             cliente = dividendos.ClienteLLM(int(self.cfg.get("max_tokens", 16000)), herramienta=HERRAMIENTA)
         agente_a, agente_b = self._agentes(cliente)
         emisores = emisores_config(self.cfg)
-        filas = []
-        for doc in pendientes[:maximo]:
+        filas, enviados, vistos = [], 0, 0
+        for doc in pendientes:
+            if enviados >= maximo:
+                break
+            vistos += 1
             em = emisores[doc["emisor_id"]]
             base = {"documento_id": doc["documento_id"], "emisor_id": doc["emisor_id"],
                     "fecha_referencia": doc["corte"] or doc["fecha_descubierto"], "archivos": doc["archivo"],
@@ -1283,7 +1371,9 @@ class ConectorEstadosCompania(Conector):
                 pdf = unir_pdf([(data_dir() / a).read_bytes() for a in doc["archivos"]])
                 contexto = (f"Emisor: {em['nombre']}\nMoneda en que reporta: {em.get('moneda', 'COP')}\n"
                             f"Corte probable según el nombre del archivo: {doc['corte'] or 'desconocido'}")
-                r = extraer_documento(pdf, contexto, agente_a, agente_b, self.cfg)
+                r = extraer_documento(pdf, contexto, agente_a, agente_b, self.cfg, indicadas.get(doc["documento_id"]))
+                if r.estado not in ("sin_paginas", "sin_texto"):
+                    enviados += 1
                 for j in (r.a, r.b, r.final):
                     if isinstance(j, dict):
                         j["version_lectura"] = VERSION_LECTURA
@@ -1296,12 +1386,13 @@ class ConectorEstadosCompania(Conector):
                 self.conteo[r.estado] = self.conteo.get(r.estado, 0) + 1
                 self.conteo["paginas_enviadas"] += len(r.paginas)
             except Exception as e:  # el documento queda en error y se reintenta en la próxima corrida
+                enviados += 1
                 filas.append({**base, "estado": "error", "rondas": 0, "paginas": "", "paginas_total": None,
                               "diferencias": f"{type(e).__name__}: {e}", "alertas": "", "json_a": None,
                               "json_b": None, "json_final": None})
                 self.conteo["error"] = self.conteo.get("error", 0) + 1
-        if len(pendientes) > maximo:
-            self.notas.append(f"{len(pendientes) - maximo} documentos quedan para la próxima corrida")
+        if len(pendientes) > vistos:
+            self.notas.append(f"{len(pendientes) - vistos} documentos quedan para la próxima corrida")
         return filas
 
     def _paginas_cambiaron(self, d: dict, leidos: dict) -> bool:
@@ -1390,16 +1481,43 @@ class ConectorEstadosCompania(Conector):
         log = storage.leer_tabla("silver", TABLA_EXTRACCION)
         leidos = {} if log is None else {(r["documento_id"], r["huella_pdf"]): r for r in log.iter_rows(named=True)}
         # Se repiten los errores y lo que no llegó a la API (sin páginas reconocibles: no cuesta)
-        pendientes = [d for d in docs if (d["documento_id"], d["huella_pdf"]) not in leidos
-                      or leidos[(d["documento_id"], d["huella_pdf"])]["estado"] in REINTENTAR]
+        decididos = decisiones_sin_leer()
+        confirmados = {k for k, v in decididos.items() if v["decision"] == "sin_estados"}
+        indicadas: dict[str, list[int]] = {}
+        for k, v in decididos.items():
+            if v["decision"] == "paginas":
+                try:
+                    indicadas[k] = paginas_de_texto(v["paginas"])
+                except ValueError:
+                    self.notas.append(f"páginas no válidas para {k} en revision/{ARCHIVO_SIN_LEER}: {v['paginas']}")
+        huellas = {k: v.get("huella_pdf") for k, v in decididos.items()}
+
+        def leido_con(d: dict) -> list[int]:
+            reg = leidos.get((d["documento_id"], d["huella_pdf"])) or {}
+            return sorted(int(p) for p in (reg.get("paginas") or "").split(",") if p)
+
+        # Páginas indicadas a mano que aún no se han leído: primero, antes que todo lo demás
+        indicadas = {d["documento_id"]: indicadas[d["documento_id"]] for d in docs
+                     if d["documento_id"] in indicadas and huellas[d["documento_id"]] == d["huella_pdf"]}
+        a_mano = [d for d in docs if d["documento_id"] in indicadas and leido_con(d) != indicadas[d["documento_id"]]]
+        # Confirmados sin estados (mismo PDF): no se reintentan
+        omitir = {d["documento_id"] for d in docs if d["documento_id"] in confirmados
+                  and huellas[d["documento_id"]] == d["huella_pdf"]}
+        pendientes = a_mano + [d for d in docs if d not in a_mano and d["documento_id"] not in omitir and (
+            (d["documento_id"], d["huella_pdf"]) not in leidos
+            or leidos[(d["documento_id"], d["huella_pdf"])]["estado"] in REINTENTAR)]
+        if os.environ.get("INVEST_EE_SOLO_INDICADAS"):  # botón «Leer las páginas indicadas» del aplicativo
+            pendientes = list(a_mano)
         # Leídos con una versión anterior de la lectura (menos conceptos): después de los nuevos
-        pendientes += [d for d in docs if (d["documento_id"], d["huella_pdf"]) in leidos
-                       and leidos[(d["documento_id"], d["huella_pdf"])]["estado"] not in REINTENTAR
-                       and version_de(leidos[(d["documento_id"], d["huella_pdf"])]) < VERSION_LECTURA]
-        # Disputas leídas con otras páginas de las que se eligen hoy (Paz del Río jun-2026: antes solo se
-        # reconocía una página de notas): se leen de nuevo con las páginas correctas antes del árbitro
-        pendientes += [d for d in docs if d not in pendientes and self._paginas_cambiaron(d, leidos)]
-        nuevas = self._leer(pendientes)
+        if not os.environ.get("INVEST_EE_SOLO_INDICADAS"):
+            pendientes += [d for d in docs if d not in pendientes and (d["documento_id"], d["huella_pdf"]) in leidos
+                           and leidos[(d["documento_id"], d["huella_pdf"])]["estado"] not in REINTENTAR
+                           and version_de(leidos[(d["documento_id"], d["huella_pdf"])]) < VERSION_LECTURA]
+            # Disputas leídas con otras páginas de las que se eligen hoy (Paz del Río jun-2026: antes solo se
+            # reconocía una página de notas): se leen de nuevo con las páginas correctas antes del árbitro
+            pendientes += [d for d in docs if d not in pendientes and d["documento_id"] not in indicadas
+                           and self._paginas_cambiaron(d, leidos)]
+        nuevas = self._leer(pendientes, indicadas)
         if nuevas:
             storage.upsert_por_anio("silver", TABLA_EXTRACCION, pl.DataFrame(nuevas, schema=ESQUEMA_EXTRACCION),
                                     ("documento_id",), "fecha_referencia")
@@ -1430,6 +1548,21 @@ class ConectorEstadosCompania(Conector):
                 continue
             registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg, revision, arb)
             incorporados[d["documento_id"]] = marca
+        # Los que no se pudieron leer y los que ya tienen una decisión (para verla o deshacerla)
+        no_leidos = []
+        for d in docs:
+            reg = leidos.get((d["documento_id"], d["huella_pdf"]))
+            con_decision = huellas.get(d["documento_id"]) == d["huella_pdf"]
+            if reg is not None and (reg["estado"] in ("sin_paginas", "sin_texto") or con_decision):
+                no_leidos.append({"documento_id": d["documento_id"], "emisor_id": d["emisor_id"],
+                                  "nombre": emisores[d["emisor_id"]]["nombre"],
+                                  "fecha_corte": str(d.get("corte") or d.get("fecha_descubierto") or ""),
+                                  "estado": reg["estado"], "archivo": d["archivo"],
+                                  "paginas_total": reg.get("paginas_total") or "", "huella_pdf": d["huella_pdf"],
+                                  "paginas_leidas": ",".join(str(i + 1) for i in leido_con(d))})
+        sin_resolver = [r for r in no_leidos if r["documento_id"] not in decididos]
+        if exportar_sin_leer(no_leidos) and sin_resolver:
+            self.notas.append(f"{len(sin_resolver)} documentos que no se pudieron leer en revision/{ARCHIVO_SIN_LEER}")
         sin_decidir = [f for f in por_revisar if (f["documento_id"], f["concepto"]) not in revision]
         if exportar_revision(por_revisar, revisados) and sin_decidir:
             self.notas.append(f"{len(sin_decidir)} cifras en disputa por decidir en revision/{ARCHIVO_REVISION}")

@@ -61,6 +61,10 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; }
 .boton.primario { border: 0; background: var(--acento); color: var(--fondo); font-weight: 700; }
 .boton.primario:hover { background: var(--acento-suave); }
 .boton:disabled { opacity: .5; cursor: default; }
+a.boton { display: inline-flex; align-items: center; text-decoration: none; }
+.panel input[type=text], .panel input[type=search], .panel select { height: 36px; padding: 0 10px;
+  border: 1px solid var(--borde-boton); border-radius: 8px; background: var(--fondo); }
+.panel input:focus-visible, .panel select:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
 .grupo { display: flex; gap: 2px; flex-wrap: wrap; }
 .grupo button { height: 32px; min-width: 40px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent;
   color: var(--tenue); font-size: 12px; font-weight: 600; cursor: pointer; }

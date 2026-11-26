@@ -206,3 +206,21 @@ def test_documentos_por_categoria_activo_y_anio(cliente, carpeta_datos):
     # Nada fuera de anexos/ ni fuentes_compania/
     for ruta in ("../../etc/passwd", "modelo.duckdb", "usuario/carteras.csv", "anexos/../modelo.duckdb"):
         assert cliente.get("/api/documentos/archivo", params={"ruta": ruta}).status_code == 400
+
+
+def test_documentos_sin_leer_se_deciden_desde_el_aplicativo(cliente, carpeta_datos):
+    from invest.ingest import estados_compania as ec
+    fila = {c: "" for c in ec.COLUMNAS_SIN_LEER}
+    ec.guardar_sin_leer([{**fila, "documento_id": "d1", "emisor_id": "CO-COT04", "nombre": "Grupo Nutresa",
+                          "fecha_corte": "2025-03-31", "estado": "sin_paginas", "paginas_total": "40", "huella_pdf": "h"}])
+    assert cliente.get("/api/revision_estados/sin_leer").json()[0]["estado"] == "sin_paginas"
+    post = lambda **c: cliente.post("/api/revision_estados/sin_leer", json={"documento_id": "d1", **c}, headers={"X-Invest": "1"})
+    assert post(decision="paginas", paginas="12 a 14, 15").json()["fila"]["paginas"] == "12-15"
+    assert ec.decisiones_sin_leer()["d1"]["paginas"] == "12-15"
+    assert post(decision="paginas", paginas="39-41").status_code == 400  # el documento tiene 40
+    assert post(decision="paginas", paginas="doce").status_code == 400
+    assert post(decision="borrar").status_code == 400
+    assert post(decision="sin_estados").status_code == 200 and ec.decisiones_sin_leer()["d1"]["decision"] == "sin_estados"
+    assert post(decision="").status_code == 200 and ec.decisiones_sin_leer() == {}
+    assert cliente.post("/api/revision_estados/sin_leer", json={"documento_id": "otro", "decision": ""},
+                        headers={"X-Invest": "1"}).status_code == 404

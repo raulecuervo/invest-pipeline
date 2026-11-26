@@ -634,6 +634,55 @@ def revision_estados():
     return responder(_filas_revision_estados())
 
 
+@app.get("/api/revision_estados/sin_leer")
+def revision_sin_leer():
+    """Documentos que no se pudieron leer (y los que ya tienen decisión), de revision/documentos_sin_leer.csv."""
+    from invest.ingest import estados_compania as ec
+    return responder(ec.leer_sin_leer())
+
+
+@app.post("/api/revision_estados/sin_leer")
+def revision_sin_leer_guardar(cuerpo: dict = Body(...)):
+    """decision: sin_estados (no trae estados: no se reintenta), paginas (con «paginas», p. ej. 5-8: la
+    siguiente lectura envía esas) o vacío para deshacer."""
+    from invest.ingest import estados_compania as ec
+    decision = str(cuerpo.get("decision") or "").strip().lower()
+    if decision and decision not in ec.DECISIONES_SIN_LEER:
+        raise HTTPException(400, "Decisión no permitida")
+    paginas = str(cuerpo.get("paginas") or "").strip()
+    filas = ec.leer_sin_leer()
+    fila = next((f for f in filas if f.get("documento_id") == cuerpo.get("documento_id")), None)
+    if fila is None:
+        raise HTTPException(404, "Documento desconocido")
+    if decision == "paginas":
+        try:
+            indices = ec.paginas_de_texto(paginas)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        total = int(float(fila.get("paginas_total") or 0))
+        if total and indices[-1] >= total:
+            raise HTTPException(400, f"El documento tiene {total} páginas")
+        paginas = ", ".join(_rangos([i + 1 for i in indices]))
+    fila["decision"], fila["paginas"] = decision, paginas if decision == "paginas" else ""
+    try:
+        ec.guardar_sin_leer(filas)
+    except PermissionError:
+        raise HTTPException(409, "El archivo revision/documentos_sin_leer.csv está abierto en otro programa "
+                                 "(¿Excel?). Ciérrelo y vuelva a intentar.") from None
+    return responder({"ok": True, "fila": fila})
+
+
+def _rangos(numeros: list[int]) -> list[str]:
+    """[4, 5, 6, 9] → ["4-6", "9"]."""
+    salida: list[str] = []
+    for n in sorted(set(numeros)):
+        if salida and int(salida[-1].split("-")[-1]) == n - 1:
+            salida[-1] = f"{salida[-1].split('-')[0]}-{n}"
+        else:
+            salida.append(str(n))
+    return salida
+
+
 def _pdf_de_revision(archivo: str) -> bytes:
     """El PDF (o los PDF unidos) de una fila de revisión; solo archivos dentro de la carpeta de datos."""
     from invest.config import data_dir
@@ -1012,7 +1061,10 @@ ACCIONES = {
     "rehacer_base": ["modelo", "--sin-calcular"],
     # Incorpora lo decidido en la revisión de estados sin leer documentos nuevos ni llamar a la API
     "incorporar_revision": ["ingest", "estados_compania"],
+    "leer_paginas_indicadas": ["ingest", "estados_compania"],  # solo los documentos con páginas puestas a mano
 }
+# Acciones que corren la lectura de estados: no dos a la vez
+_ACCIONES_ESTADOS = {"incorporar_revision", "leer_paginas_indicadas"}
 _trabajos: dict[str, dict] = {}
 
 
@@ -1025,6 +1077,8 @@ def _correr(trabajo_id: str, argumentos: list[str]) -> None:
         if t["accion"] == "incorporar_revision":
             entorno["INVEST_EE_MAX_DOCUMENTOS"] = "0"
             entorno["INVEST_EE_MAX_ARBITRAJES"] = "0"
+        if t["accion"] == "leer_paginas_indicadas":  # llama a la API: dos agentes por documento
+            entorno["INVEST_EE_SOLO_INDICADAS"] = "1"
         proceso = subprocess.Popen([sys.executable, "-m", "invest", *argumentos], stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                                    stdin=subprocess.DEVNULL, env=entorno)
@@ -1043,6 +1097,8 @@ def lanzar(accion: str):
         raise HTTPException(404, "Acción desconocida")
     if any(t["accion"] == accion and t["fin"] is None for t in _trabajos.values()):
         return responder({"ok": False, "problemas": ["ya hay una corriendo"]})
+    if accion in _ACCIONES_ESTADOS and any(t["accion"] in _ACCIONES_ESTADOS and t["fin"] is None for t in _trabajos.values()):
+        return responder({"ok": False, "problemas": ["ya hay una lectura de estados corriendo; espere a que termine"]})
     trabajo_id = uuid.uuid4().hex[:8]
     _trabajos[trabajo_id] = {"accion": accion, "inicio": datetime.now().isoformat(timespec="seconds"), "fin": None,
                              "codigo": None, "salida": deque(maxlen=200)}
