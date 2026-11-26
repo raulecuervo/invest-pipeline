@@ -83,7 +83,7 @@ Opcional: un *app token* gratuito de datos.gov.co en la variable `SOCRATA_APP_TO
 | `invest dividendos --revision` | Solo vuelve a leer `revision/dividendos.csv` (después de revisarlo) y reconstruye `fact_dividendo` |
 | `invest inspeccionar [especie]` | Descarga índice, ficha y serie de una especie de la SFC y muestra lo que entiende, sin guardar |
 | `invest factores` | Factores mensuales y su validación estadística |
-| `invest modelo [--sin-calcular]` | Tablas del aplicativo, base `invest-data/modelo.duckdb` y verificación del contrato (código 1 si hay problemas). Solo recalcula los pasos con insumos nuevos y dice cuáles saltó |
+| `invest modelo [--sin-calcular]` | Tablas del aplicativo, base `invest-data/modelo.duckdb` y verificación del contrato (código 1 si hay problemas). Solo recalcula los pasos con insumos nuevos y dice cuáles saltó. No reconstruye las tablas de `invest dims` (`fact_fundamental`, precios, retornos, liquidez, macro, dividendos web): si el código de una de ellas es más nuevo que la tabla, avisa que falta correr `invest dims` antes |
 | `invest modelo --todo` | Lo mismo, recalculando todos los pasos aunque sus insumos no hayan cambiado |
 | `invest app [--puerto 8790] [--no-abrir]` | Aplicativo local en el navegador (doble clic: `scripts\abrir_app.cmd`) |
 | `invest usuario --plantillas` / `--importar TABLA ARCHIVO.csv` | Tablas vacías y CSV de ejemplo para perfiles, carteras y transacciones; carga validada desde Excel |

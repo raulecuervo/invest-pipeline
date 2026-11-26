@@ -160,6 +160,26 @@ PASOS: dict[str, dict] = {
     },
 }
 
+# Tablas que arma ``invest dims`` (no ``invest modelo``) y el módulo que las calcula: si el código es más
+# nuevo que la tabla, ``invest modelo`` avisa que falta correr ``invest dims`` (25-nov-2026: se corrigió
+# fundamentales.py, se corrió solo invest modelo y fact_fundamental quedó con el código anterior).
+TABLAS_DE_DIMS = {"fundamentales": "fact_fundamental", "retornos": "fact_retorno_diario",
+                  "liquidez": "fact_liquidez_diaria", "mercado": "fact_precio_diario", "macro": "fact_macro",
+                  "dividendos_web": "fact_dividendo_web"}
+
+
+def tablas_de_dims_atrasadas() -> list[str]:
+    """Tablas de ``invest dims`` cuyo módulo cambió después de la última vez que se escribieron."""
+    carpeta = Path(__file__).parent
+    atrasadas = []
+    for modulo, tabla in TABLAS_DE_DIMS.items():
+        archivos = _archivos_tabla("gold", tabla)
+        codigo = carpeta / f"{modulo}.py"
+        if archivos and codigo.exists() and codigo.stat().st_mtime > max(a.stat().st_mtime for a in archivos):
+            atrasadas.append(tabla)
+    return atrasadas
+
+
 CARPETA_HUELLAS = ".modelo"  # junto a modelo.duckdb; se ignora sola en Git (no va a meta/, que se versiona)
 VERSION_HUELLAS = 1
 

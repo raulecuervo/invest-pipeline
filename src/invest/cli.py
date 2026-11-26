@@ -255,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"{nombre}: " + (", ".join(f"{k} {v}" for k, v in res.items()) or "sin datos"), flush=True)
 
+        atrasadas = modelo.tablas_de_dims_atrasadas()
+        if atrasadas:
+            print("Aviso: el código cambió después de construir " + ", ".join(atrasadas)
+                  + ". Corra primero uv run invest dims (invest modelo no las reconstruye).", flush=True)
         r = modelo.construir(recalcular=not a.sin_calcular, todo=a.todo, informar=informar)
         if r["calculo"]:
             hechos = len(r["calculo"]) - len(r["saltados"])

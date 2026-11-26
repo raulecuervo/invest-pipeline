@@ -118,3 +118,13 @@ def test_pasos_declaran_lo_que_su_codigo_lee_y_escribe():
     for i, nombre in enumerate(orden):
         posteriores = {s for otro in orden[i + 1:] for s in modelo.PASOS[otro]["salidas"]}
         assert not set(modelo.PASOS[nombre]["entradas"]) & posteriores, nombre
+
+
+def test_avisa_si_una_tabla_de_dims_es_anterior_a_su_codigo(datos):
+    import os
+
+    archivos = modelo._archivos_tabla("gold", "fact_precio_diario")
+    assert archivos and "fact_precio_diario" not in modelo.tablas_de_dims_atrasadas()
+    for a in archivos:
+        os.utime(a, (1, 1))  # 1970: más vieja que mercado.py
+    assert "fact_precio_diario" in modelo.tablas_de_dims_atrasadas()
