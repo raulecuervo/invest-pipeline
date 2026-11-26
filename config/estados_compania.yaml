@@ -329,6 +329,7 @@ emisores:
     nombre: Protección
     descarga: pendiente     # sus anexos del SIMEV llegan hasta 2021
     estados_desde_sfc: true
+    acepta_separados: true  # sus informes traen un solo juego de estados, sin decir consolidado ni separado (26-nov-2026)
     moneda: COP
     unidades_esperadas: [millones, miles]
     paginas_indice: []

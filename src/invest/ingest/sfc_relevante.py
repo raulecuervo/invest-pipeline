@@ -46,7 +46,7 @@ DIAS_ANEXOS = 400          # solo anexos recientes; el histórico completo pesar
 MAX_ANEXOS_POR_CORRIDA = 100
 DIAS_ANEXOS_ESTADOS = 800   # estados financieros: dos cierres anuales y los trimestres entre ellos
 _ES_ESTADOS = re.compile(r"ESTADOS? FINANCIER|INFORME PERIODICO|FIN DE EJERCICIO|INFORME FINANCIERO|EEFF")
-_NO_ESTADOS = re.compile(r"PROYECTO|CONVOCATORIA|ASUNTOS SOCIALES|ENCUESTA|CODIGO PAIS|CALIFICACION")
+_NO_ESTADOS = re.compile(r"PROYECTO|CONVOCATORIA|ASUNTOS SOCIALES|ENCUESTA|CODIGO PAIS|CALIFICACION|SOSTENIBILIDAD")
 _TEMA_ESTADOS = re.compile(r"INFORMES DE FIN DE EJERCICIO|NOTAS A ESTADOS|CORRECCIONES INFORMACION FINANCIERA")
 _SI_ESTADOS = re.compile(r"ESTADOS? FINANCIER|INFORME PERIODICO")   # pesa más que _NO_ESTADOS
 MAX_MB_ANEXO = 60   # un anexo más grande no se guarda (el repositorio de datos tiene tope de 100 MB por archivo)
@@ -264,10 +264,11 @@ def corte_de_resumen(resumen: str | None, publicado: date | None) -> date | None
             d = None
         if d and (d.month, d.day) in {(3, 31), (6, 30), (9, 30), (12, 31)}:
             return d
-    m = re.search(r"(PRIMER|SEGUNDO|TERCER|CUARTO) TRIMESTRE (?:DE |DEL )?(?:(?:EL )?ANO )?(\d{4})", t)
+    m = re.search(r"(PRIMER|SEGUNDO|TERCER|CUARTO) TRIMESTRE (?:DE |DEL )?(?:(?:EL )?ANO )?((?:19|20)\d{2})\b", t)
     if m:
         return _fin_trimestre(int(m.group(2)), _TRIMESTRES[m.group(1)])
-    m = re.search(r"EJERCIC\w*\D{0,40}?(\d{4})", t)
+    # Año de cuatro cifras que empieza por 19 o 20 (no un número de radicado: "Radicado No. 975254")
+    m = re.search(r"EJERCIC\w*\D{0,40}?\b((?:19|20)\d{2})\b", t)
     if m:
         return date(int(m.group(1)), 12, 31)
     if publicado is None:

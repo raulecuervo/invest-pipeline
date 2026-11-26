@@ -1167,6 +1167,12 @@ class ConectorEstadosCompania(Conector):
         """Estados financieros que el emisor transmitió como información relevante a la SFC (los baja
         ``sfc_informacion_relevante``). Si el anexo es un ZIP se guarda aparte el PDF de los estados."""
         docs = self.estado_nuevo.setdefault("documentos", {})
+        # Lo que ya no cuenta como estados financieros (p. ej. el informe de sostenibilidad de Paz del Río,
+        # 26-nov-2026) sale de la lista
+        vigentes = {f"sfc:{ev['evento_id']}" for ev in self._eventos_sfc() if ev["emisor_id"] == emisor["emisor_id"]}
+        for clave in [k for k, d in docs.items() if k.startswith("sfc:") and d["emisor_id"] == emisor["emisor_id"]
+                      and k not in vigentes]:
+            del docs[clave]
         for ev in self._eventos_sfc():
             if ev["emisor_id"] != emisor["emisor_id"]:
                 continue
@@ -1397,7 +1403,9 @@ class ConectorEstadosCompania(Conector):
             arb = arb if arb and arb.get("huella") == d["huella_pdf"] else None
             if reg is not None and reg["estado"] == "en_disputa":
                 por_revisar += filas_revision(d, reg, emisores[d["emisor_id"]], self.cfg, arb)
-            marca = f"{d['huella_pdf']}:v{version_de(reg)}" if reg is not None else None
+            # La marca cambia si cambia cómo se juzga el emisor (acepta_separados): se reincorpora sin API
+            sep = int(bool(emisores[d["emisor_id"]].get("acepta_separados")))
+            marca = f"{d['huella_pdf']}:v{version_de(reg)}:s{sep}" if reg is not None else None
             if marca and reg["estado"] == "en_disputa":
                 # Una disputa se vuelve a incorporar si cambia la regla de resolución o una decisión a mano
                 marca += f":r{RESOLUCION_VERSION}:{huella_revision(d['documento_id'], revision)}:{(arb or {}).get('modelo') or '-'}"

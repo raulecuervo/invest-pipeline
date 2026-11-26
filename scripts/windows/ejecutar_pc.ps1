@@ -49,6 +49,17 @@ function Notificar([string]$Titulo, [string]$Texto) {
 }
 
 New-Item -ItemType Directory -Force -Path (Split-Path $Log) | Out-Null
+# Una sola corrida a la vez (26-nov-2026: dos corridas juntas se pisaron la bitácora y el git pull).
+# El candado guarda el número del proceso; si ese proceso ya no existe, el candado se ignora.
+$Candado = Join-Path $env:TEMP "invest_ejecutar_pc.lock"
+if (Test-Path $Candado) {
+    $previo = Get-Content $Candado -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($previo -and (Get-Process -Id ([int]$previo) -ErrorAction SilentlyContinue)) {
+        Registrar "Otra corrida sigue en curso (proceso $previo): esta no se ejecuta"
+        exit 0
+    }
+}
+Set-Content -Path $Candado -Value $PID
 Registrar "Inicio"
 
 function GuardarCambios($mensaje) {
@@ -72,29 +83,35 @@ if (Test-Path (Join-Path $Datos ".git")) {
 
 Push-Location $Pipeline
 try {
-    $salida = uv run invest ingest --todas-pc 2>&1 | ForEach-Object { Registrar $_; $_ }
+    # Dependencias una vez al comienzo; después `uv run --no-sync`. Si el aplicativo está abierto,
+    # Windows no deja reemplazar invest.exe y cada `uv run` fallaba (26-nov-2026): ahora solo se avisa
+    # y se corre con el entorno que hay (el código del proyecto se usa directo, sin reinstalar)
+    uv sync --inexact --extra pc --extra app 2>&1 | Where-Object { "$_" -match "error" } | ForEach-Object { Registrar "uv sync: $_ (¿el aplicativo está abierto?)" }
+    $salida = uv run --no-sync invest ingest --todas-pc 2>&1 | ForEach-Object { Registrar $_; $_ }
     # Solo se reconstruye si llegó algo nuevo (aquí o en lo que trajo GitHub Actions con el git pull).
     # dims rehace las tablas derivadas (retornos, liquidez, fundamentales) y escribe solo los años que
     # cambian; factores rehace la validación mensual. Toman unos pocos minutos.
     $nuevo = ($salida | Where-Object { "$_" -match '^\[ok\]' -and "$_" -notmatch ' 0 filas v' }) -or $script:HuboPull
     if ($nuevo) {
-        uv run invest dims 2>&1 | Out-Null
-        uv run invest factores 2>&1 | Out-Null
+        uv run --no-sync invest dims 2>&1 | Out-Null
+        uv run --no-sync invest factores 2>&1 | Out-Null
         # Puntaje de los factores validados y tablero local (invest-data\tableros\matriz_factores.html)
-        uv run invest ficha 2>&1 | Out-Null
+        uv run --no-sync invest ficha 2>&1 | Out-Null
         # Tablas del aplicativo (técnico, riesgo, valoración, puntajes, calendario, carteras), base
         # modelo.duckdb y verificación del contrato; los problemas quedan en la bitácora
-        uv run invest modelo 2>&1 | Where-Object { "$_" -match '^\[contrato\]|^Contrato' } | ForEach-Object { Registrar $_ }
+        uv run --no-sync invest modelo 2>&1 | Where-Object { "$_" -match '^\[contrato\]|^Contrato' } | ForEach-Object { Registrar $_ }
         Registrar "Tablas derivadas reconstruidas"
     } else {
         Registrar "Sin datos nuevos: no se reconstruye"
     }
-    uv run invest salud 2>&1 | ForEach-Object { Registrar $_ }
+    uv run --no-sync invest salud 2>&1 | ForEach-Object { Registrar $_ }
     # Alertas nuevas (las que no se habían mostrado): bitácora y notificación de Windows
     try {
         # UTF-8 de ida y vuelta (arriba): si no, las tildes de los títulos llegan cambiadas a la notificación
-        $json = uv run invest alertas --nuevas --json 2>$null | Out-String
-        $nuevas = @($json | ConvertFrom-Json)
+        $json = uv run --no-sync invest alertas --nuevas --json 2>$null | Out-String
+        # En Windows PowerShell 5.1 "[]" llega como un elemento (un arreglo vacío): se desenvuelve y se
+        # quedan solo las alertas con título (antes salía "Alerta: " vacía y una notificación sin texto)
+        $nuevas = @($json | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.titulo })
         if ($nuevas.Count -gt 0) {
             $nuevas | ForEach-Object { Registrar ("Alerta: " + $_.titulo) }
             $atender = @($nuevas | Where-Object { $_.severidad -eq "atencion" }).Count
@@ -119,4 +136,5 @@ if (Test-Path (Join-Path $Datos ".git")) {
         git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
     }
 }
+Remove-Item $Candado -ErrorAction SilentlyContinue
 Registrar "Fin"

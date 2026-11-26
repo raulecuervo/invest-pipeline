@@ -22,6 +22,15 @@ $env:PYTHONIOENCODING = "utf-8"
 
 function Paso($texto) { Write-Host ""; Write-Host "== $texto" -ForegroundColor Cyan }
 
+$Candado = Join-Path $env:TEMP "invest_ejecutar_pc.lock"
+if (Test-Path $Candado) {
+    $previo = Get-Content $Candado -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($previo -and (Get-Process -Id ([int]$previo) -ErrorAction SilentlyContinue)) {
+        Write-Host "Hay una corrida del PC en curso (proceso $previo). Espere a que termine y vuelva a intentarlo." -ForegroundColor Yellow
+        exit 1
+    }
+}
+
 Paso "1. Código y datos al día (git pull)"
 git -C $Pipeline pull --ff-only
 git -C $Datos add -A
@@ -31,11 +40,13 @@ git -C $Datos pull --rebase --autostash --quiet
 
 Push-Location $Pipeline
 try {
+    uv sync --inexact --extra pc --extra app
+    if ($LASTEXITCODE -ne 0) { Write-Host "No se pudieron actualizar las dependencias: cierre el aplicativo (invest app) y vuelva a correr esto." -ForegroundColor Yellow; exit 1 }
     Paso "2. Bolsa de Colombia: días que faltan de las últimas 10 sesiones (se abre una ventana)"
-    uv run invest ingest bvc_web bvc_indices
+    uv run --no-sync invest ingest bvc_web bvc_indices
 
     Paso "3. Información relevante de la SFC: estados financieros que faltan (sin esperar a GitHub Actions)"
-    uv run invest ingest sfc_informacion_relevante
+    uv run --no-sync invest ingest sfc_informacion_relevante
     # Se sube de inmediato: es una fuente de GitHub Actions y así su próxima corrida parte de esto
     git -C $Datos add -A
     git -C $Datos diff --cached --quiet
