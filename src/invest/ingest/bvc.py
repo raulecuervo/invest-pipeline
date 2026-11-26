@@ -17,8 +17,10 @@ cantidad (el promedio sale "-"). En la misma ventana, después de la tabla de ho
 hábiles de las últimas ``DIAS_RECUPERAR`` sesiones que no estén en silver/fact_precio_bvc, del más
 reciente al más viejo, con una pausa entre uno y otro. Un día se guarda solo si la tabla cambió después
 de filtrar (la página sigue diciendo "HOY" con la fecha de hoy, así que el cambio es la única prueba).
-Si la Bolsa no entrega un día (responde 417 a algunos pedidos seguidos y la tabla no cambia), se
-detiene ahí y no se reintenta: la próxima lectura manual lo vuelve a intentar.
+Hay días que el servicio de la Bolsa no entrega nunca (responde 417: el 30-oct y el 19-nov de 2026,
+probado varias veces, mientras el 4, 20 y 24-nov cargan): ese día se anota y se sigue con los demás.
+Ante un 403 o 429 (rechazo) se detiene y no se reintenta. Hay dos diseños de la página: en escritorio un
+selector de fecha (desde 2010) y en pantallas angostas el botón "Filtros"; se manejan los dos.
 
 Precio en curso (``ConectorBVCEnCurso``, fuente ``bvc_en_curso``): la misma tabla leída durante la
 sesión, con 15 minutos de retraso. Se guarda aparte (silver/fact_precio_bvc_en_curso, una fila por
@@ -80,45 +82,61 @@ JS_TABLA = """() => {
 
 
 DIAS_RECUPERAR = 10          # sesiones hacia atrás que se revisan en cada lectura manual
-PAUSA_ENTRE_DIAS_S = 8       # entre un día pedido y el siguiente: la Bolsa rechaza pedidos muy seguidos
+PAUSA_ENTRE_DIAS_S = 4       # entre un día pedido y el siguiente, para no pedir de corrido
 
 # Elige un día en el calendario del filtro y espera a que la tabla cambie. Solo clics, como una persona.
-JS_ELEGIR_FECHA = """async ([anio, mes, dia]) => {
+JS_ELEGIR_FECHA = r"""async ([anio, mes, dia]) => {
+  // Dos diseños de la misma página: en escritorio un selector de fecha (react-date-picker, desde 2010) con
+  // botón de calendario que filtra al elegir el día; en pantallas angostas el botón "Filtros" abre el
+  // calendario y luego "Filtrar". En los dos se elige el día con clics, como una persona.
   const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const esperar = ms => new Promise(r => setTimeout(r, ms));
   const visible = e => !!(e && e.offsetParent);
   const firma = () => [...document.querySelectorAll('table tbody tr')].slice(0, 40).map(tr => tr.textContent).join('|');
+  const calendario = () => [...document.querySelectorAll('.react-calendar')].find(visible);
+  const iso = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+  // Estado HTTP de la consulta de la tabla de ese día (la hace la propia página)
+  const estadoConsulta = () => {
+    const e = performance.getEntriesByType('resource').filter(x => x.name.includes('tradeDate]=' + iso)).pop();
+    return e ? (e.responseStatus || 0) : null;
+  };
   const antes = firma();
-  if (!visible(document.querySelector('.react-calendar'))) {
-    const f = [...document.querySelectorAll('p')].find(e => e.textContent.trim() === 'Filtros' && visible(e));
-    if (!f) return {ok: false, error: 'la página no tiene el botón Filtros'};
-    f.click();
-    for (let i = 0; i < 40 && !visible(document.querySelector('.react-calendar')); i++) await esperar(250);
+  if (!calendario()) {
+    const abrir = [...document.querySelectorAll('.react-date-picker__calendar-button')].find(visible)
+      || [...document.querySelectorAll('p, span, button')].find(e => e.textContent.trim() === 'Filtros' && visible(e));
+    if (!abrir) return {ok: false, error: 'la página no tiene el selector de fecha'};
+    abrir.click();
+    for (let i = 0; i < 40 && !calendario(); i++) await esperar(250);
   }
-  const cal = document.querySelector('.react-calendar');
-  if (!visible(cal)) return {ok: false, error: 'el calendario del filtro no se abrió'};
+  const cal = calendario();
+  if (!cal) return {ok: false, error: 'el calendario no se abrió'};
   const objetivo = `${MESES[mes - 1]} - ${anio}`;
-  for (let i = 0; i < 70; i++) {
-    const etiqueta = cal.querySelector('.react-calendar__navigation__label').textContent.trim();
+  const etiquetaDe = () => cal.querySelector('.react-calendar__navigation__label').textContent.trim().toLowerCase().replace(/\s+de\s+/, ' - ');
+  for (let i = 0; i < 200; i++) {
+    const etiqueta = etiquetaDe();
     if (etiqueta === objetivo) break;
-    const [m, a] = etiqueta.split(' - ');
-    const actual = Number(a) * 12 + MESES.indexOf(m);
-    const meta = anio * 12 + mes - 1;
-    const boton = cal.querySelector(meta < actual ? '.react-calendar__navigation__prev-button' : '.react-calendar__navigation__next-button');
+    const m = MESES.findIndex(x => etiqueta.startsWith(x));
+    const a = Number((etiqueta.match(/\d{4}/) || [0])[0]);
+    if (m < 0 || !a) return {ok: false, error: `no se entiende el mes del calendario (${etiqueta})`};
+    const boton = cal.querySelector(anio * 12 + mes - 1 < a * 12 + m ? '.react-calendar__navigation__prev-button' : '.react-calendar__navigation__next-button');
     if (!boton || boton.disabled) return {ok: false, error: `el calendario no llega a ${objetivo}`};
     boton.click(); await esperar(150);
   }
   const abbr = cal.querySelector(`abbr[aria-label="${dia} de ${MESES[mes - 1]} de ${anio}"]`);
   if (!abbr) return {ok: false, error: 'el día no está en el calendario'};
   const celda = abbr.closest('button');
-  if (celda.disabled) return {ok: false, error: 'el calendario no deja elegir ese día'};
-  celda.click(); await esperar(200);
-  if (!celda.className.includes('--active')) return {ok: false, error: 'el día no quedó elegido'};
+  if (celda.disabled) return {ok: false, saltar: true, error: 'el calendario no deja elegir ese día'};
+  celda.click(); await esperar(300);
   const filtrar = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Filtrar' && visible(b));
-  if (!filtrar) return {ok: false, error: 'la página no tiene el botón Filtrar'};
-  filtrar.click();
+  if (filtrar) filtrar.click();
+  // En escritorio el selector guarda la fecha elegida: si no es la pedida, no se lee nada
+  const selector = [...document.querySelectorAll('.react-date-picker')].find(visible);
+  const elegida = selector && selector.querySelector('input[name=date]');
+  if (elegida && elegida.value && elegida.value !== iso) return {ok: false, error: `el selector quedó en ${elegida.value}`};
   for (let i = 0; i < 120; i++) {
     await esperar(250);
+    const st = estadoConsulta();
+    if (st && st >= 400) return {ok: false, saltar: st !== 403 && st !== 429, error: `la Bolsa no entregó ese día (HTTP ${st})`};
     const f = firma();
     if (f && f !== antes) { await esperar(1500); return {ok: true, cambio: true}; }
   }
@@ -212,6 +230,8 @@ def leer_pagina(url: str = URL, timeout_s: int = 90, visible: bool | None = None
                 r = pagina.evaluate(JS_ELEGIR_FECHA, [f.year, f.month, f.day])
                 if not r.get("ok") or not r.get("cambio"):
                     previos[f.isoformat()] = {"error": r.get("error") or "la tabla no cambió: la Bolsa no entregó ese día"}
+                    if r.get("saltar"):
+                        continue  # ese día no existe en su servicio (417 siempre): se sigue con los demás
                     break
                 previos[f.isoformat()] = pagina.evaluate(JS_TABLA)
             if fechas:

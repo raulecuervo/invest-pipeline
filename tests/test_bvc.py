@@ -177,3 +177,10 @@ def test_precio_en_curso_se_guarda_aparte(carpeta_datos, monkeypatch):
     # Antes de que abra el mercado la página sigue con el día anterior: no se guarda
     res = bvc.ConectorBVCEnCurso(ahora=datetime(2026, 11, 25, 8, 0, tzinfo=BOG)).ejecutar()
     assert res.estado == "sin_novedades" and "no ha abierto" in res.detalle
+
+
+def test_dia_que_la_bolsa_no_entrega_se_salta(carpeta_datos, monkeypatch):
+    # La lógica del bucle de leer_pagina: un día con 417 se anota y se sigue; un 403 detiene
+    js = bvc.JS_ELEGIR_FECHA
+    assert "react-date-picker__calendar-button" in js and "Filtros" in js  # escritorio y pantalla angosta
+    assert "saltar: st !== 403 && st !== 429" in js
