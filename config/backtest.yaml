@@ -1,0 +1,86 @@
+# Activos del Laboratorio de carteras (src/invest/backtest.py, página «Laboratorio»).
+#
+# Además de estos, cada acción con retorno total (gold/fact_tecnico_diario) es un activo «accion:<especie>».
+# tipo:
+#   tasa    el valor crece cada día con la tasa anual efectiva de la serie (la primera que tenga dato)
+#   bono    bono a la par al plazo indicado, comprado cada mes a la tasa de la serie y vendido al mes
+#           siguiente a la tasa nueva (cupón del mes + cambio de precio): una aproximación del índice de
+#           un bono de plazo constante, marcada como aproximada
+#   indice  un índice propio de gold/fact_indice_mercado (retorno total)
+# costo: fracción del monto comprado o vendido que se pierde en cada operación (comisión + diferencial
+# de compra y venta). Es un supuesto; la tabla de costos del intermediario la reemplaza cuando exista.
+activos:
+  efectivo_cop:
+    nombre: "Efectivo en pesos (IBR overnight)"
+    clase: EFECTIVO
+    moneda: COP
+    tipo: tasa
+    series: [banrep_15324, banrep_59]   # IBR overnight efectiva desde 2008; antes, la tasa del Banco de la República
+    costo: 0.0
+    nota: "Hasta 2008 se usa la tasa de política del Banco de la República como aproximación."
+  efectivo_usd:
+    nombre: "Efectivo en dólares (letra del Tesoro a 3 meses)"
+    clase: DIVISA
+    moneda: USD
+    tipo: tasa
+    series: [fred_dgs3mo]
+    costo: 0.003
+    nota: "Incluye la variación de la TRM cuando la cartera está en pesos."
+  tes_10a:
+    nombre: "TES a 10 años (aproximado)"
+    clase: TES_TF
+    moneda: COP
+    tipo: bono
+    series: [fred_colirltlt01stm]
+    plazo_anios: 10
+    costo: 0.002
+    aproximado: true
+    nota: "Bono a la par a 10 años con la tasa larga de Colombia de la OCDE (promedio mensual). Mientras no esté la curva de TES del Banco de la República."
+  tesoro_10a:
+    nombre: "Tesoro de EE. UU. a 10 años (aproximado)"
+    clase: BONO_EXT
+    moneda: USD
+    tipo: bono
+    series: [fred_dgs10]
+    plazo_anios: 10
+    costo: 0.003
+    aproximado: true
+    nota: "Bono a la par a 10 años con la tasa del Tesoro de fin de mes."
+  acciones_co_igual:
+    nombre: "Acciones colombianas líquidas, pesos iguales (índice propio)"
+    clase: ACCION
+    moneda: COP
+    tipo: indice
+    indice_id: universo_igual
+    costo: 0.005
+    nota: "Universo líquido de cada mes, con dividendos; sin costos de rebalanceo internos."
+  acciones_co_cap:
+    nombre: "Acciones colombianas líquidas, por capitalización (índice propio)"
+    clase: ACCION
+    moneda: COP
+    tipo: indice
+    indice_id: universo_cap
+    costo: 0.005
+    nota: "Desde 2017 (acciones en circulación conocidas)."
+
+costo_accion: 0.005          # acciones individuales (comisión + diferencial)
+meses_sin_negocio_aviso: 3   # una acción sin negocios en tantos meses seguidos se marca: su valor es el último precio
+
+# Carteras de ejemplo para comparar en el Laboratorio. No son recomendaciones: sirven para ver cómo se
+# comportan mezclas típicas con los datos colombianos.
+ejemplos:
+  - id: "efectivo"
+    nombre: "Todo en efectivo en pesos"
+    pesos: {efectivo_cop: 1.0}
+  - id: "acciones"
+    nombre: "Todo en acciones colombianas (pesos iguales)"
+    pesos: {acciones_co_igual: 1.0}
+  - id: "60_40"
+    nombre: "60 % acciones colombianas / 40 % TES"
+    pesos: {acciones_co_igual: 0.6, tes_10a: 0.4}
+  - id: "tres_tercios"
+    nombre: "Tercios: acciones, TES y dólares"
+    pesos: {acciones_co_igual: 0.3334, tes_10a: 0.3333, efectivo_usd: 0.3333}
+  - id: "conservadora"
+    nombre: "20 % acciones / 50 % TES / 30 % efectivo"
+    pesos: {acciones_co_igual: 0.2, tes_10a: 0.5, efectivo_cop: 0.3}

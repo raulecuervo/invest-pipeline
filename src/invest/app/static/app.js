@@ -1510,6 +1510,188 @@ function tarjetaRevision(f, guardar) {
   return caja;
 }
 
+// ===== Laboratorio de carteras =====
+// Prueba una cartera por reglas con la historia (src/invest/backtest.py): pesos por activo, rebalanceo,
+// costos y aportes; métricas frente a un benchmark y retornos de todas las ventanas de 3, 5 y 10 años.
+const REBALANCEO_TXT = { mensual: "Cada mes", trimestral: "Cada trimestre", anual: "Cada año (diciembre)", bandas: "Cuando un peso se sale de la banda", nunca: "Nunca (comprar y mantener)" };
+const COLOR_CARTERA = "#6E9BFF", COLOR_BENCH = "#9AA4B8";
+let estadoLab = null;  // lo último que se probó: la página se repinta al cambiar el tamaño de la ventana
+paginas.laboratorio = async (v) => {
+  v.append(el("div", {}, el("h1", {}, "Laboratorio de carteras"),
+    el("div", { class: "sub" }, "Pruebe una mezcla de activos con la historia: cómo le habría ido, cuánto habría caído y qué tan distinto sale según cuándo empieza. Es una prueba con el pasado, no una predicción ni una recomendación.")));
+  const [cat, guardados0] = await Promise.all([api("/api/backtest/activos"), api("/api/backtest/escenarios")]);
+  let guardados = guardados0;
+  const porId = new Map(cat.activos.map((a) => [a.id, a]));
+  const etiqueta = (a) => a.id.startsWith("accion:") ? `${a.nombre} (desde ${a.desde?.slice(0, 4)})` : a.nombre;
+  const lista = el("datalist", { id: "lab-activos" }, cat.activos.map((a) => el("option", { value: etiqueta(a) })));
+  const porEtiqueta = new Map(cat.activos.map((a) => [etiqueta(a), a.id]));
+  const filas = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
+  const sumaTxt = el("span", { class: "nota", role: "status" });
+  const pesosDe = () => {
+    const pesos = {};
+    for (const f of filas.children) {
+      const id = porEtiqueta.get(f.querySelector("input[list]").value.trim()) || f.querySelector("input[list]").value.trim();
+      const w = Number(String(f.querySelector("input[type=number]").value).replace(",", "."));
+      if (id && w > 0) pesos[id] = (pesos[id] || 0) + w;
+    }
+    return pesos;
+  };
+  const actualizarSuma = () => {
+    const total = Object.values(pesosDe()).reduce((a, b) => a + b, 0);
+    sumaTxt.textContent = `Suma: ${num(total, 1)} %` + (Math.abs(total - 100) > 0.5 ? " · debe ser 100 %" : "");
+    sumaTxt.style.color = Math.abs(total - 100) > 0.5 ? "var(--debil-texto)" : "";
+  };
+  const agregarFila = (id = "", peso = "") => {
+    const a = porId.get(id);
+    const activo = el("input", { type: "text", list: "lab-activos", placeholder: "Busque un activo o una acción", "aria-label": "Activo", value: a ? etiqueta(a) : id, style: { flex: "1 1 340px" } });
+    const w = el("input", { type: "number", min: "0", max: "100", step: "1", "aria-label": "Peso en %", value: peso, style: { width: "90px" } });
+    const quitar = el("button", { type: "button", class: "boton", "aria-label": "Quitar" }, "×");
+    const f = el("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, activo, w, el("span", { class: "nota" }, "%"), quitar);
+    quitar.onclick = () => { f.remove(); actualizarSuma(); };
+    activo.addEventListener("change", actualizarSuma); w.addEventListener("input", actualizarSuma);
+    filas.append(f);
+  };
+  const cargarPesos = (pesos) => {
+    filas.replaceChildren();
+    const fraccion = Object.values(pesos).reduce((a, b) => a + b, 0) <= 1.5;  // los ejemplos vienen en fracción
+    for (const [id, w] of Object.entries(pesos)) agregarFila(id, String(Math.round((fraccion ? w * 100 : w) * 10) / 10));
+    actualizarSuma();
+  };
+  // Opciones
+  const sel = (aria, opciones, valor) => { const x = el("select", { "aria-label": aria }, opciones.map(([k, t]) => el("option", { value: k }, t))); x.value = valor; return x; };
+  const moneda = sel("Moneda", [["COP", "Pesos"], ["USD", "Dólares"]], "COP");
+  const rebal = sel("Rebalanceo", Object.entries(REBALANCEO_TXT), "anual");
+  const banda = el("input", { type: "number", min: "1", max: "50", step: "1", value: "5", "aria-label": "Banda en puntos", style: { width: "70px" } });
+  const cajaBanda = el("span", { class: "control", hidden: true }, banda, el("span", { class: "nota" }, "puntos"));
+  rebal.addEventListener("change", () => { cajaBanda.hidden = rebal.value !== "bandas"; });
+  const desde = el("input", { type: "month", "aria-label": "Desde", style: { width: "150px" } });
+  const hasta = el("input", { type: "month", "aria-label": "Hasta", style: { width: "150px" } });
+  const inicial = el("input", { type: "number", min: "1", step: "1000000", value: "100000000", "aria-label": "Valor inicial", style: { width: "150px" } });
+  const aporte = el("input", { type: "number", min: "0", step: "100000", value: "0", "aria-label": "Aporte mensual", style: { width: "130px" } });
+  const costos = el("input", { type: "checkbox", checked: true, "aria-label": "Incluir costos" });
+  const benchOpciones = [["", "Ninguno"], ["efectivo_cop", "Efectivo en pesos"], ["acciones_co_igual", "Acciones colombianas (pesos iguales)"],
+    ...cat.ejemplos.map((e) => ["ej:" + e.id, "Ejemplo: " + e.nombre])];
+  const bench = sel("Benchmark", benchOpciones, "efectivo_cop");
+  const benchPesos = () => !bench.value ? null : bench.value.startsWith("ej:") ? cat.ejemplos.find((e) => "ej:" + e.id === bench.value).pesos : { [bench.value]: 1 };
+  const parametros = () => ({ pesos: pesosDe(), rebalanceo: rebal.value, banda: Number(banda.value), moneda: moneda.value, desde: desde.value || null,
+    hasta: hasta.value || null, valor_inicial: Number(inicial.value), aporte_mensual: Number(aporte.value), con_costos: costos.checked,
+    benchmark: benchPesos(), benchmark_id: bench.value });
+  const aplicar = (pr) => {
+    cargarPesos(pr.pesos); rebal.value = pr.rebalanceo || "anual"; banda.value = pr.banda ?? 5; cajaBanda.hidden = rebal.value !== "bandas";
+    moneda.value = pr.moneda || "COP"; desde.value = pr.desde || ""; hasta.value = pr.hasta || ""; inicial.value = pr.valor_inicial ?? 100000000;
+    aporte.value = pr.aporte_mensual ?? 0; costos.checked = pr.con_costos !== false; bench.value = pr.benchmark_id ?? "efectivo_cop";
+  };
+  // Partir de un ejemplo o de un escenario guardado
+  const partir = el("select", { "aria-label": "Partir de" });
+  const pintarPartir = () => partir.replaceChildren(el("option", { value: "" }, "Partir de un ejemplo o de un escenario guardado…"),
+    el("optgroup", { label: "Ejemplos (para comparar, no son recomendaciones)" }, cat.ejemplos.map((e) => el("option", { value: "ej:" + e.id }, e.nombre))),
+    guardados.length ? el("optgroup", { label: "Escenarios guardados" }, guardados.map((e) => el("option", { value: "es:" + e.nombre }, e.nombre))) : null);
+  pintarPartir();
+  partir.addEventListener("change", () => {
+    if (partir.value.startsWith("ej:")) cargarPesos(cat.ejemplos.find((e) => "ej:" + e.id === partir.value).pesos);
+    else if (partir.value.startsWith("es:")) aplicar(guardados.find((e) => "es:" + e.nombre === partir.value).parametros);
+  });
+  const nombreEsc = el("input", { type: "text", placeholder: "Nombre del escenario", "aria-label": "Nombre del escenario", style: { width: "220px" } });
+  const estadoTxt = el("span", { class: "nota", role: "status" });
+  const probar = el("button", { type: "button", class: "boton primario" }, "Probar con la historia");
+  const guardar = el("button", { type: "button", class: "boton" }, "Guardar escenario");
+  const borrar = el("button", { type: "button", class: "boton" }, "Borrar escenario");
+  guardar.onclick = async () => {
+    if (!nombreEsc.value.trim()) { estadoTxt.textContent = "Escriba un nombre para el escenario."; return; }
+    try { guardados = (await postear("/api/backtest/escenarios", { nombre: nombreEsc.value.trim(), parametros: parametros() })).escenarios; pintarPartir(); estadoTxt.textContent = `Guardado «${nombreEsc.value.trim()}».`; }
+    catch (e) { estadoTxt.textContent = "No se guardó: " + String(e.message || e).replace(/^\d+ · /, ""); }
+  };
+  borrar.onclick = async () => {
+    const nombre = nombreEsc.value.trim() || (partir.value.startsWith("es:") ? partir.value.slice(3) : "");
+    if (!nombre) { estadoTxt.textContent = "Elija o escriba el nombre del escenario que quiere borrar."; return; }
+    try { guardados = (await api("/api/backtest/escenarios/" + encodeURIComponent(nombre), { method: "DELETE", headers: { "X-Invest": "1" } })).escenarios; pintarPartir(); estadoTxt.textContent = `Borrado «${nombre}».`; }
+    catch (e) { estadoTxt.textContent = "No se borró: " + String(e.message || e).replace(/^\d+ · /, ""); }
+  };
+  const agregar = el("button", { type: "button", class: "boton" }, "Agregar activo");
+  agregar.onclick = () => agregarFila();
+  const control = (rotulo, ...hijos) => el("span", { class: "control" }, el("span", { class: "rotulo-control" }, rotulo), ...hijos);
+  const resultados = el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } });
+  v.append(lista, el("section", { class: "panel" },
+    el("div", { class: "encabezado" }, el("h2", {}, "Cartera"), partir),
+    filas, el("div", { style: { display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" } }, agregar, sumaTxt),
+    el("div", { class: "controles-precio", style: { marginTop: "12px" } },
+      control("Moneda", moneda), control("Rebalancear", rebal, cajaBanda), control("Benchmark", bench),
+      control("Desde", desde), control("Hasta", hasta), control("Valor inicial", inicial), control("Aporte mensual", aporte),
+      control("Costos", el("label", { style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, costos, "incluir"))),
+    el("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginTop: "12px" } }, probar, nombreEsc, guardar, borrar, estadoTxt),
+    el("p", { class: "desc" }, "Sin fechas, usa todo el periodo en que todos los activos tienen datos, hasta el último mes cerrado. Los costos son supuestos por activo (comisión y diferencial: 0,5 % en acciones); los activos «aprox.» se reconstruyen desde su tasa mientras llegan sus series.")),
+    resultados);
+  probar.onclick = async () => {
+    probar.disabled = true; estadoTxt.textContent = "Calculando…";
+    try {
+      estadoLab = parametros();
+      const r = await postear("/api/backtest", estadoLab);
+      estadoTxt.textContent = "";
+      pintarResultado(resultados, r, bench.options[bench.selectedIndex].text);
+    } catch (e) { estadoTxt.textContent = "No se pudo: " + String(e.message || e).replace(/^\d+ · /, ""); }
+    probar.disabled = false;
+  };
+  if (estadoLab) aplicar(estadoLab);
+  else cargarPesos(cat.ejemplos.find((e) => e.id === "60_40")?.pesos || { efectivo_cop: 1 });
+  probar.onclick();
+};
+function pintarResultado(caja, r, nombreBench) {
+  const m = r.metricas, b = r.benchmark?.metricas;
+  const per = r.periodo;
+  const dinero = (x) => (r.moneda === "USD" ? "US$ " : "$ ") + num(x, 0);
+  const reales = m.retorno_real_anual != null;
+  const indicadores = el("section", { class: "indicadores", "aria-label": "Resultado" },
+    kpi("Retorno anual", pct(m.retorno_anual), reales ? "real " + pct(m.retorno_real_anual) + (m.real_desde ? " desde " + fechaCorta(m.real_desde) : "") : null),
+    kpi("Volatilidad anual", pct(m.volatilidad_anual)),
+    kpi("Caída máxima", pct(m.caida_maxima), m.caida_maxima < 0 ? `${fechaCorta(m.caida_desde)} a ${fechaCorta(m.caida_hasta)} · ${m.meses_recuperacion == null ? "aún no se recupera" : m.meses_recuperacion + " meses para recuperarse"}` : null, "baja"),
+    kpi("Sharpe", m.sharpe == null ? "—" : num(m.sharpe, 2), "frente al efectivo"),
+    kpi("Valor final", dinero(r.valor_final), r.aportes ? "con " + dinero(r.aportes) + " de aportes" : `desde ${fechaCorta(per.desde)}`));
+  const grafico = el("div", { class: "grafico" }), graficoCaidas = el("div", { class: "grafico" });
+  const serie = (k) => r.serie.map((p) => ({ x: p.fecha, y: p[k] }));
+  const series = [{ nombre: "Cartera", color: COLOR_CARTERA, puntos: serie("indice") }];
+  if (r.benchmark) series.push({ nombre: nombreBench, color: COLOR_BENCH, discontinua: true, puntos: serie("indice_benchmark") });
+  const seriesCaidas = [{ nombre: "Cartera", color: "#FF7A6B", puntos: r.serie.map((p) => ({ x: p.fecha, y: p.caida * 100 })) }];
+  if (r.benchmark) seriesCaidas.push({ nombre: nombreBench, color: COLOR_BENCH, discontinua: true, puntos: r.serie.map((p) => ({ x: p.fecha, y: p.caida_benchmark * 100 })) });
+  const fila = (t, k, f, varId) => ({ t, c: f(m[k]), b: b ? f(b[k]) : null, varId });
+  const fp = (x) => pct(x, 1), fn = (x) => x == null ? "—" : num(x, 2);
+  const metricasFilas = [
+    fila("Retorno anual", "retorno_anual", fp), fila("Retorno real anual", "retorno_real_anual", fp), fila("Volatilidad anual", "volatilidad_anual", fp),
+    fila("Caída máxima", "caida_maxima", fp), { t: "Meses para recuperarse", c: m.meses_recuperacion ?? "no se recupera", b: b ? (b.meses_recuperacion ?? "no se recupera") : null },
+    fila("Sharpe", "sharpe", fn), fila("Sortino", "sortino", fn), fila("Peor 5 % de los meses (CVaR)", "cvar_95_mensual", fp),
+    fila("Peor mes", "peor_mes", fp), fila("Meses positivos", "meses_positivos", (x) => pct(x, 0)),
+    { t: "Peor año", c: m.peor_anio ? `${m.peor_anio[0]}: ${pct(m.peor_anio[1])}` : "—", b: b ? (b.peor_anio ? `${b.peor_anio[0]}: ${pct(b.peor_anio[1])}` : "—") : null },
+    { t: "Mejor año", c: m.mejor_anio ? `${m.mejor_anio[0]}: ${pct(m.mejor_anio[1])}` : "—", b: b ? (b.mejor_anio ? `${b.mejor_anio[0]}: ${pct(b.mejor_anio[1])}` : "—") : null },
+    fila("Rotación por año", "rotacion_anual", (x) => pct(x, 0)), fila("Costos por año", "costos_anuales", (x) => pct(x, 2)),
+    { t: "Rebalanceos", c: m.rebalanceos, b: b ? b.rebalanceos : null }];
+  const cols = [{ k: "t", t: "Métrica", izq: true }, { k: "c", t: "Cartera" }, ...(b ? [{ k: "b", t: nombreBench }] : [])];
+  const ventanasFilas = r.ventanas.map((w) => ({ ...w, nombre: `${w.anios} años` }));
+  const benchV = new Map((r.benchmark?.ventanas || []).map((w) => [w.anios, w]));
+  const colsV = [{ k: "nombre", t: "Ventana", izq: true }, { k: "ventanas", t: "Ventanas" }, { k: "peor", t: "Peor", f: (w) => pct(w.peor) },
+    { k: "mediana", t: "Mediana", f: (w) => pct(w.mediana) }, { k: "mejor", t: "Mejor", f: (w) => pct(w.mejor) },
+    { k: "peor_real", t: "Peor real", f: (w) => pct(w.peor_real) }, { k: "reales_negativas", t: "Reales negativas", f: (w) => pct(w.reales_negativas, 0) },
+    ...(r.benchmark ? [{ k: "bm", t: "Mediana " + nombreBench.toLowerCase(), f: (w) => pct(benchV.get(w.anios)?.mediana) }] : [])];
+  const anualesB = new Map((r.benchmark?.anuales || []).map((x) => [x.anio, x.retorno]));
+  const anuales = el("div", { class: "anuales" }, r.anuales.map((x) => el("div", { class: "anio " + (x.retorno >= 0 ? "sube" : "baja"), title: anualesB.size ? `${nombreBench}: ${pct(anualesB.get(x.anio))}` : "" },
+    el("span", { class: "nota" }, String(x.anio)), el("strong", {}, pct(x.retorno, 1)))));
+  const activosCols = [{ k: "nombre", t: "Activo", izq: true, f: (a) => [a.nombre, a.aproximado ? el("span", { class: "chip gris", style: { marginLeft: "6px" } }, "aprox.") : null] },
+    { k: "peso", t: "Peso objetivo", f: (a) => pct(a.peso, 1) }, { k: "peso_final", t: "Peso al final", f: (a) => pct(a.peso_final, 1) },
+    { k: "retorno_anual", t: "Retorno anual del activo", f: (a) => pct(a.retorno_anual) }, { k: "costo", t: "Costo por operación", f: (a) => pct(a.costo, 2) }];
+  caja.replaceChildren(
+    el("div", { class: "sub" }, `${fecha(per.desde)} a ${fecha(per.hasta)} · ${per.meses} meses · en ${r.moneda === "USD" ? "dólares" : "pesos"}`),
+    indicadores,
+    ...(r.avisos.length ? [el("section", { class: "panel" }, el("h2", {}, "Tenga en cuenta"), el("ul", { class: "desc" }, r.avisos.map((a) => el("li", {}, a))))] : []),
+    el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Valor de 100 invertidos (sin aportes)"), leyenda(series.map((x) => [x.color, x.nombre]))), grafico),
+    el("section", { class: "panel" }, el("h2", {}, "Caída desde el máximo anterior"), graficoCaidas),
+    el("section", { class: "panel" }, el("h2", {}, "Métricas"), tabla(cols, metricasFilas)),
+    el("section", { class: "panel" }, el("h2", {}, "Según cuándo empieza"),
+      el("p", { class: "desc" }, "Retorno anual de todas las ventanas de 3, 5 y 10 años dentro del periodo, empezando cada mes. Muestra qué tanto depende el resultado del momento de entrada; «reales negativas» es la fracción de ventanas que perdieron contra la inflación."),
+      ventanasFilas.length ? tabla(colsV, ventanasFilas) : el("div", { class: "vacio" }, "El periodo es muy corto para ventanas de 3 años.")),
+    el("section", { class: "panel" }, el("h2", {}, "Retorno de cada año"), anuales),
+    el("section", { class: "panel" }, el("h2", {}, "Activos"), tabla(activosCols, r.activos)));
+  lineas(grafico, series, { alto: 280, titulo: "Valor de la cartera", fy: (x) => num(x, 0) });
+  lineas(graficoCaidas, seriesCaidas, { alto: 180, titulo: "Caídas", max: 0, fy: (x) => num(x, 0) + " %" });
+}
+
 // ===== Documentos =====
 // Los PDF y anexos descargados (Superfinanciera, sitios de las compañías, puestos a mano), por categoría,
 // activo y año; cada uno se abre en otra pestaña (de un ZIP, el PDF de los estados que trae adentro)

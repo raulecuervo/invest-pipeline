@@ -224,3 +224,19 @@ def test_documentos_sin_leer_se_deciden_desde_el_aplicativo(cliente, carpeta_dat
     assert post(decision="").status_code == 200 and ec.decisiones_sin_leer() == {}
     assert cliente.post("/api/revision_estados/sin_leer", json={"documento_id": "otro", "decision": ""},
                         headers={"X-Invest": "1"}).status_code == 404
+
+
+def test_laboratorio_api(cliente, carpeta_datos):
+    d = cliente.get("/api/backtest/activos").json()
+    assert {e["id"] for e in d["ejemplos"]} >= {"60_40", "efectivo"} and any(a["id"] == "efectivo_cop" for a in d["activos"])
+    h = {"X-Invest": "1"}
+    r = cliente.post("/api/backtest", json={"pesos": {"efectivo_cop": 50}}, headers=h)
+    assert r.status_code == 400 and "suman" in r.json()["detail"]
+    assert cliente.post("/api/backtest", json={"pesos": {"no_existe": 100}}, headers=h).status_code == 400
+    # Escenarios guardados
+    par = {"pesos": {"efectivo_cop": 100}, "rebalanceo": "anual"}
+    assert cliente.post("/api/backtest/escenarios", json={"nombre": "Uno", "parametros": par}, headers=h).status_code == 200
+    assert cliente.post("/api/backtest/escenarios", json={"nombre": "Uno", "parametros": par}, headers=h).json()["escenarios"][0]["nombre"] == "Uno"
+    assert len(cliente.get("/api/backtest/escenarios").json()) == 1
+    assert cliente.delete("/api/backtest/escenarios/Uno", headers=h).json()["escenarios"] == []
+    assert cliente.delete("/api/backtest/escenarios/Uno", headers=h).status_code == 404

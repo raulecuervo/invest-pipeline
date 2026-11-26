@@ -183,3 +183,11 @@ form.formulario .acciones { grid-column: 1 / -1; display: flex; gap: 8px; align-
 .lista-documentos .fecha-doc { min-width: 92px; }
 .lista-documentos .titulo-doc { flex: 1 1 360px; color: var(--texto); text-decoration: none; }
 .lista-documentos .titulo-doc:hover { color: var(--acento-suave); text-decoration: underline; }
+
+/* ===== Laboratorio ===== */
+.anuales { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.anuales .anio { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--borde); }
+.anuales .anio.sube strong { color: var(--fuerte-texto); }
+.anuales .anio.baja strong { color: var(--debil-texto); }
+.panel input[type=month] { color-scheme: dark; }
+.panel input[type=number], .panel input[type=month] { height: 36px; padding: 0 10px; border: 1px solid var(--borde-boton); border-radius: 8px; background: var(--fondo); }

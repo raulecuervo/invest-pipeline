@@ -479,6 +479,7 @@ Doble clic en `scripts\abrir_app.cmd` (o `uv run --extra app invest app`): abre 
 | Graficador | Hasta 6 acciones y los índices en una misma gráfica (ver abajo) |
 | Mi cartera | Valor, ganancia no realizada, TWR, XIRR, dividendos por cobrar; mapa de posiciones, desvío frente a las bandas del perfil, próximos dividendos, valor diario (1S a 3A o todo) y posiciones |
 | Carteras y transacciones, Perfiles, Tesis | Formularios validados (perfiles con versiones y asignación objetivo) |
+| Laboratorio | Backtesting de carteras por reglas: pesos, rebalanceo, costos, aportes, benchmark, métricas y ventanas (ver «Laboratorio de carteras») |
 | Revisión de estados | Cifras de los estados de compañías en disputa con la página del PDF resaltada y la decisión, y los documentos que no se pudieron leer: indicar las páginas de los estados o confirmar que no los traen (ver «Disputas» y «Documentos que no se pudieron leer» arriba) |
 | Documentos | Los PDF y anexos descargados (información relevante de la Superfinanciera, estados de los sitios de las compañías y los puestos a mano), con filtros por categoría (estados financieros, dividendos, capital/escisiones/OPA, asambleas, calificaciones…), activo, año, origen y texto del título; agrupados por activo y año, con la fecha, el tamaño y el estado de la lectura de los estados (leído, en disputa, sin estados adentro, escaneado). Cada uno se abre en otra pestaña; de un ZIP de la SFC se abre el PDF de los estados que trae. Solo sirve archivos de `anexos/` y `fuentes_compania/` (`src/invest/documentos.py`). Ruta: `#/documentos?categoria=…&activo=CO-…&anio=…` |
 | Salud de datos | Estado de las fuentes, últimas corridas, validación de factores, tamaño de las tablas y botones para leer la Bolsa de Colombia (abre la ventana de Chromium), actualizar el modelo y verificar el contrato |
@@ -496,6 +497,25 @@ uv run --extra app --extra pc python scripts/probar_paginas.py --datos ..\invest
 ```
 
 `--python` elige el intérprete del servidor (por omisión la `.venv` del repositorio) y `--capturas` guarda un PNG por página. Solo lee los datos (si falta `modelo.duckdb`, la construye como `invest app`). `tests/test_paginas_app.py` hace lo mismo dentro de `pytest` con un conjunto de datos sintético (`tests/app_datos_util.py`: seis acciones, tres años de precios, el modelo completo y dos carteras), con una carpeta casi vacía y, si existe, con una copia de la carpeta de demostración (`INVEST_DEMO_DIR`, por omisión `/tmp/demo`); se salta si no están Playwright y Chromium (extra `pc` y `playwright install chromium`).
+
+## Laboratorio de carteras (`src/invest/backtest.py`, `invest backtest`)
+
+Etapa 1 del plan de asignación de activos (documento maestro): prueba una cartera por reglas con la historia. No predice ni recomienda; muestra cómo se habría comportado una mezcla y qué tanto depende el resultado de cuándo empieza.
+
+- **Activos.** Cada acción con retorno total (`accion:<especie>`, índice limpio de `fact_tecnico_diario`) y los de `config/backtest.yaml`: efectivo en pesos (IBR overnight efectiva desde 2008; antes, la tasa del Banco de la República), efectivo en dólares (letra del Tesoro a 3 meses), TES a 10 años y Tesoro de EE. UU. a 10 años **aproximados** (un bono a la par de plazo constante, comprado cada mes a la tasa del mes y valorado al siguiente con la tasa nueva; TES desde la tasa larga de Colombia de la OCDE, promedio mensual, hasta que esté la curva del Banco de la República) y los índices propios del universo líquido (pesos iguales desde 1998, capitalización desde 2017). Lo que está en otra moneda se convierte con la TRM del fin de mes.
+- **Simulación mensual** (fin de mes de calendario, hasta el último mes cerrado): los pesos se desvían con los retornos y se rebalancea cada mes, trimestre, año (diciembre), por bandas (puntos de peso) o nunca. Lo comprado y vendido paga el costo del activo (supuesto: 0,5 % en acciones, 0,2–0,3 % en bonos y dólares, 0 en efectivo); los aportes mensuales entran a los pesos objetivo. El periodo es el común a todos los activos (y al benchmark).
+- **Métricas** sobre el retorno ponderado por tiempo (los aportes no cuentan como rentabilidad): retorno anual nominal y real (IPC de Colombia desde 2003, de EE. UU. en dólares), volatilidad, caída máxima con fechas y meses para recuperarse, Sharpe y Sortino frente al efectivo de la moneda, CVaR del peor 5 % de los meses, peor y mejor año, rotación y costos; y los retornos de **todas las ventanas** de 3, 5 y 10 años (peor, mediana, mejor y fracción con retorno real negativo).
+- **Avisos**: activos aproximados, acciones con meses seguidos sin negocios (su valor es el último precio), inflación que empieza después del periodo.
+
+```
+uv run invest backtest --activos
+uv run invest backtest acciones_co_igual=60,tes_10a=40 --rebalanceo anual --benchmark efectivo_cop=100
+uv run invest backtest acciones_co_igual=40,tes_10a=40,accion:coc04paao008=20 --moneda USD --rebalanceo bandas --banda 5
+```
+
+Página **Laboratorio** del aplicativo: arma la cartera con un buscador de activos y pesos (o parte de un ejemplo de `config/backtest.yaml`, que no son recomendaciones), elige moneda, rebalanceo, benchmark, fechas, valor inicial, aporte y costos; muestra indicadores, valor de 100 invertidos frente al benchmark, caídas, métricas, ventanas, retorno de cada año y los activos con su peso final. Los escenarios se guardan por nombre en `invest-data/usuario/escenarios_laboratorio.json` (`/api/backtest`, `/api/backtest/activos`, `/api/backtest/escenarios`).
+
+Con los datos al 25-nov-2026 (ejemplo, en pesos, rebalanceo anual): 60 % acciones colombianas de pesos iguales y 40 % TES aproximados, ene-2003 a oct-2026, rinden 16,8 % anual (11,3 % real) con volatilidad de 15,4 % y caída máxima de −23,9 % (2022, 24 meses para recuperarse); la peor ventana de 5 años rinde −1,9 % anual y el 29 % de las de 5 años pierden contra la inflación. El efectivo en pesos rinde 7,7 % anual desde 1998.
 
 ## Agregar una fuente
 

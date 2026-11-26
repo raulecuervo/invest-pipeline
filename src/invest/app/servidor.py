@@ -568,6 +568,121 @@ def _media_exponencial(xs: list, n: int) -> list:
     return salida
 
 
+# =========================================================================== Laboratorio de carteras
+# Backtesting de carteras por reglas (src/invest/backtest.py). Los datos se leen una vez y se reutilizan
+# mientras no cambie la base del modelo.
+_datos_backtest: dict[str, Any] = {}
+
+
+def _datos_bt():
+    from invest import backtest as bt
+    marca = (str(data_dir()), ruta_base().stat().st_mtime if ruta_base().exists() else 0)
+    if _datos_backtest.get("marca") != marca:
+        _datos_backtest.update(marca=marca, datos=bt.Datos())
+    return _datos_backtest["datos"]
+
+
+@app.get("/api/backtest/activos")
+def backtest_activos():
+    """Activos del Laboratorio (con el nemotécnico y el emisor de cada acción) y las carteras de ejemplo."""
+    from invest import backtest as bt
+    emisores = {r["emisor_id"]: r for r in q("SELECT * FROM dim_emisor")}
+    por_especie = {}
+    for r in q("SELECT * FROM dim_activo"):
+        e = emisores.get(r.get("emisor_id")) or {}
+        por_especie[r["especie"]] = {"nemotecnico": r.get("nemotecnico"),
+                                     "emisor": e.get("nombre_corto") or e.get("nombre") or r.get("nombre")}
+    salida = []
+    for x in bt.catalogo(_datos_bt()):
+        if x["id"].startswith("accion:"):
+            a = por_especie.get(x["nombre"]) or {}
+            nemo = a.get("nemotecnico") or x["nombre"]
+            x.update(nemotecnico=nemo, nombre=f"{nemo} · {a.get('emisor') or x['nombre']}")
+        salida.append(x)
+    return responder({"activos": salida, "ejemplos": bt.config().get("ejemplos") or []})
+
+
+def _pesos_json(pesos: Any) -> dict[str, float]:
+    if not isinstance(pesos, dict) or not pesos:
+        raise HTTPException(400, "Falta la cartera (activo: peso)")
+    try:
+        salida = {str(k): float(v) for k, v in pesos.items() if v not in (None, "")}
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Los pesos deben ser números") from None
+    if sum(salida.values()) > 1.5:  # en porcentaje
+        salida = {k: v / 100 for k, v in salida.items()}
+    return {k: v for k, v in salida.items() if v > 0}
+
+
+def _fecha_mes(texto: Any) -> date | None:
+    if not texto:
+        return None
+    try:
+        partes = str(texto)[:10].split("-")
+        return date(int(partes[0]), int(partes[1]), 1)
+    except (ValueError, IndexError):
+        raise HTTPException(400, f"Fecha no válida: {texto}") from None
+
+
+@app.post("/api/backtest")
+def backtest_correr(cuerpo: dict = Body(...)):
+    """Prueba una cartera con la historia. pesos y benchmark en % o en fracción; banda en puntos."""
+    from invest import backtest as bt
+    try:
+        hasta = _fecha_mes(cuerpo.get("hasta"))
+        params = bt.Parametros(
+            pesos=_pesos_json(cuerpo.get("pesos")), rebalanceo=str(cuerpo.get("rebalanceo") or "anual"),
+            banda=float(cuerpo.get("banda") or 5) / 100, moneda=str(cuerpo.get("moneda") or "COP"),
+            desde=_fecha_mes(cuerpo.get("desde")), hasta=bt.fin_de_mes(hasta) if hasta else None,
+            valor_inicial=float(cuerpo.get("valor_inicial") or 100_000_000), aporte_mensual=float(cuerpo.get("aporte_mensual") or 0),
+            con_costos=bool(cuerpo.get("con_costos", True)))
+        benchmark = _pesos_json(cuerpo["benchmark"]) if cuerpo.get("benchmark") else None
+        return responder(bt.correr(params, _datos_bt(), benchmark=benchmark))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+def _ruta_escenarios() -> Path:
+    return data_dir() / "usuario" / "escenarios_laboratorio.json"
+
+
+def _leer_escenarios() -> list[dict]:
+    ruta = _ruta_escenarios()
+    return json.loads(ruta.read_text(encoding="utf-8")) if ruta.exists() else []
+
+
+@app.get("/api/backtest/escenarios")
+def backtest_escenarios():
+    return responder(_leer_escenarios())
+
+
+@app.post("/api/backtest/escenarios")
+def backtest_guardar_escenario(cuerpo: dict = Body(...)):
+    """Guarda (o reemplaza, por nombre) un escenario del Laboratorio en usuario/escenarios_laboratorio.json."""
+    nombre = str(cuerpo.get("nombre") or "").strip()[:80]
+    if not nombre:
+        raise HTTPException(400, "Falta el nombre del escenario")
+    parametros = cuerpo.get("parametros")
+    if not isinstance(parametros, dict) or not isinstance(parametros.get("pesos"), dict):
+        raise HTTPException(400, "Faltan los parámetros del escenario")
+    escenarios = [e for e in _leer_escenarios() if e.get("nombre") != nombre]
+    escenarios.append({"nombre": nombre, "parametros": parametros, "guardado": datetime.now().isoformat(timespec="seconds")})
+    ruta = _ruta_escenarios()
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_text(json.dumps(escenarios, ensure_ascii=False, indent=1), encoding="utf-8")
+    return responder({"ok": True, "escenarios": escenarios})
+
+
+@app.delete("/api/backtest/escenarios/{nombre}")
+def backtest_borrar_escenario(nombre: str):
+    escenarios = _leer_escenarios()
+    quedan = [e for e in escenarios if e.get("nombre") != nombre]
+    if len(quedan) == len(escenarios):
+        raise HTTPException(404, "No existe ese escenario")
+    _ruta_escenarios().write_text(json.dumps(quedan, ensure_ascii=False, indent=1), encoding="utf-8")
+    return responder({"ok": True, "escenarios": quedan})
+
+
 # =========================================================================== Documentos
 @app.get("/api/documentos")
 def documentos_lista():

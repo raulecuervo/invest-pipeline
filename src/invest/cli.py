@@ -61,6 +61,32 @@ def _salida_segura() -> None:
             pass
 
 
+def _imprimir_backtest(r: dict) -> None:
+    def f(x, d=1):
+        return "—" if x is None else f"{x * 100:.{d}f} %"
+
+    per = r["periodo"]
+    print(f"Periodo {per['desde'][:7]} a {per['hasta'][:7]} ({per['meses']} meses), en {r['moneda']}")
+    for x in r["activos"]:
+        print(f"  {x['peso'] * 100:5.1f} %  {x['nombre']}  (retorno anual del activo {f(x['retorno_anual'])})")
+    cols = [("Retorno anual", "retorno_anual"), ("Retorno real anual", "retorno_real_anual"), ("Volatilidad", "volatilidad_anual"),
+            ("Caída máxima", "caida_maxima"), ("CVaR 95 % mensual", "cvar_95_mensual"), ("Costos por año", "costos_anuales")]
+    bm = (r.get("benchmark") or {}).get("metricas") or {}
+    print(f"\n  {'':22}{'Cartera':>12}{'Benchmark' if bm else '':>12}")
+    for t, k in cols:
+        print(f"  {t:22}{f(r['metricas'].get(k), 2):>12}{f(bm.get(k), 2) if bm else '':>12}")
+    for t, k in (("Sharpe", "sharpe"), ("Sortino", "sortino")):
+        v, w = r["metricas"].get(k), bm.get(k)
+        print(f"  {t:22}{'—' if v is None else f'{v:.2f}':>12}{('—' if w is None else f'{w:.2f}') if bm else '':>12}")
+    m = r["metricas"]
+    print(f"  Meses para recuperarse de la caída máxima: {m.get('meses_recuperacion') if m.get('meses_recuperacion') is not None else 'aún no se recupera'}")
+    for w in r["ventanas"]:
+        real = f", real peor {f(w.get('peor_real'))} (negativas {f(w.get('reales_negativas'), 0)})" if "peor_real" in w else ""
+        print(f"  Ventanas de {w['anios']} años ({w['ventanas']}): peor {f(w['peor'])}, mediana {f(w['mediana'])}, mejor {f(w['mejor'])}{real}")
+    for x in r["avisos"]:
+        print(f"  Aviso: {x}")
+
+
 def main(argv: list[str] | None = None) -> int:
     _salida_segura()
     p = argparse.ArgumentParser(prog="invest", description="Sistema de análisis de activos")
@@ -127,6 +153,18 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("cobertura", help="Qué documentos faltan por emisor y por dónde conseguirlos (revision/cobertura_documentos.csv)")
 
+    pb = sub.add_parser("backtest", help="Prueba una cartera con la historia (Laboratorio de carteras)")
+    pb.add_argument("pesos", nargs="?", help="activo=peso separados por coma, p. ej. acciones_co_igual=60,tes_10a=40")
+    pb.add_argument("--rebalanceo", default="anual", choices=["mensual", "trimestral", "anual", "bandas", "nunca"])
+    pb.add_argument("--banda", type=float, default=5.0, help="puntos de peso para el rebalanceo por bandas")
+    pb.add_argument("--moneda", default="COP", choices=["COP", "USD"])
+    pb.add_argument("--desde", type=date.fromisoformat)
+    pb.add_argument("--hasta", type=date.fromisoformat)
+    pb.add_argument("--aporte", type=float, default=0.0, help="aporte mensual en la moneda de la cartera")
+    pb.add_argument("--sin-costos", action="store_true")
+    pb.add_argument("--benchmark", help="cartera de comparación con el mismo formato que los pesos")
+    pb.add_argument("--activos", action="store_true", help="lista los activos disponibles y sale")
+
     pins = sub.add_parser("inspeccionar", help="Prueba en vivo la estructura de la SFC (no guarda)")
     pins.add_argument("especie", nargs="?", default="coc04paao008")
 
@@ -155,6 +193,26 @@ def main(argv: list[str] | None = None) -> int:
     if a.comando == "dims":
         for nombre, ruta in dims.construir().items():
             print(f"  {nombre}: {ruta}")
+        return 0
+
+    if a.comando == "backtest":
+        from invest import backtest as bt
+
+        if a.activos or not a.pesos:
+            for x in bt.catalogo():
+                if not x["id"].startswith("accion:"):
+                    print(f"  {x['id']:20} {x['nombre']}{' (aproximado)' if x['aproximado'] else ''}")
+            print("  accion:<especie>     cualquier acción con retorno total (p. ej. accion:coc04paao008)")
+            return 0 if a.activos else 2
+        try:
+            r = bt.correr(bt.Parametros(pesos=bt.pesos_de_texto(a.pesos), rebalanceo=a.rebalanceo, banda=a.banda / 100,
+                                        moneda=a.moneda, desde=a.desde, hasta=a.hasta, aporte_mensual=a.aporte,
+                                        con_costos=not a.sin_costos),
+                          benchmark=bt.pesos_de_texto(a.benchmark) if a.benchmark else None)
+        except ValueError as e:
+            print(f"No se pudo: {e}")
+            return 2
+        _imprimir_backtest(r)
         return 0
 
     if a.comando == "cobertura":
