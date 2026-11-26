@@ -22,6 +22,19 @@ $env:PYTHONIOENCODING = "utf-8"
 
 function Paso($texto) { Write-Host ""; Write-Host "== $texto" -ForegroundColor Cyan }
 
+# Sin la clave de la API los documentos no se leen y la corrida no sirve para eso (26-nov-2026: 91 quedaron
+# pendientes). Se pide guardarla una vez para el usuario de Windows (la usa también la tarea diaria).
+if ($Documentos -gt 0 -and -not $env:ANTHROPIC_API_KEY) {
+    $env:ANTHROPIC_API_KEY = [Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY", "User")
+}
+if ($Documentos -gt 0 -and -not $env:ANTHROPIC_API_KEY) {
+    Write-Host "Falta la clave de la API de Anthropic (ANTHROPIC_API_KEY): sin ella no se leen los documentos." -ForegroundColor Yellow
+    Write-Host "Guárdela una vez para su usuario de Windows y abra una ventana nueva de PowerShell:" -ForegroundColor Yellow
+    Write-Host '  [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", (Read-Host "Clave"), "User")'
+    Write-Host "O corra con -Documentos 0 para hacer todo lo demás." -ForegroundColor Yellow
+    exit 1
+}
+
 $Candado = Join-Path $env:TEMP "invest_ejecutar_pc.lock"
 if (Test-Path $Candado) {
     $previo = Get-Content $Candado -ErrorAction SilentlyContinue | Select-Object -First 1

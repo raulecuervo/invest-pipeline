@@ -60,14 +60,20 @@ if (Test-Path $Candado) {
     }
 }
 Set-Content -Path $Candado -Value $PID
+# La clave de la API guardada para el usuario (la tarea programada no hereda la de una ventana)
+if (-not $env:ANTHROPIC_API_KEY) { $env:ANTHROPIC_API_KEY = [Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY", "User") }
+if (-not $env:ANTHROPIC_API_KEY) { Registrar "Aviso: falta ANTHROPIC_API_KEY; los documentos de estados y dividendos quedan pendientes" }
 Registrar "Inicio"
 
 function GuardarCambios($mensaje) {
     git -C $Datos add -A
     git -C $Datos diff --cached --quiet
     if ($LASTEXITCODE -ne 0) {
-        git -C $Datos commit --quiet -m $mensaje
+        # La línea de la bitácora va antes y dentro del commit: si queda escrita después, el `git pull`
+        # tiene que apartarla (autostash) y al devolverla chocaba (26-nov-2026)
         Registrar "commit: $mensaje"
+        git -C $Datos add -A
+        git -C $Datos commit --quiet -m $mensaje
     }
 }
 
@@ -77,7 +83,7 @@ if (Test-Path (Join-Path $Datos ".git")) {
     # --autostash: la bitácora cambia después de cada commit (este script escribe en ella)
     GuardarCambios ("Cambios locales {0:yyyy-MM-dd HH:mm}" -f (Get-Date))
     $antes = git -C $Datos rev-parse HEAD
-    git -C $Datos pull --rebase --autostash --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
+    $salidaGit = git -C $Datos pull --rebase --autostash --quiet 2>&1; $codigoGit = $LASTEXITCODE; $salidaGit | ForEach-Object { Registrar "git pull: $_" }
     $script:HuboPull = ($antes -ne (git -C $Datos rev-parse HEAD))
 }
 
@@ -129,11 +135,11 @@ try {
 
 if (Test-Path (Join-Path $Datos ".git")) {
     GuardarCambios ("Ingesta PC {0:yyyy-MM-dd}" -f (Get-Date))
-    git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
-    if ($LASTEXITCODE -ne 0) {
+    $salidaGit = git -C $Datos push --quiet 2>&1; $codigoGit = $LASTEXITCODE; $salidaGit | ForEach-Object { Registrar "git push: $_" }
+    if ($codigoGit -ne 0) {
         # GitHub Actions subió algo mientras tanto: se rebasa y se intenta de nuevo
-        git -C $Datos pull --rebase --autostash --quiet 2>&1 | ForEach-Object { Registrar "git pull: $_" }
-        git -C $Datos push --quiet 2>&1 | ForEach-Object { Registrar "git push: $_" }
+        $salidaGit = git -C $Datos pull --rebase --autostash --quiet 2>&1; $codigoGit = $LASTEXITCODE; $salidaGit | ForEach-Object { Registrar "git pull: $_" }
+        $salidaGit = git -C $Datos push --quiet 2>&1; $codigoGit = $LASTEXITCODE; $salidaGit | ForEach-Object { Registrar "git push: $_" }
     }
 }
 Remove-Item $Candado -ErrorAction SilentlyContinue
