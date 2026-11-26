@@ -893,6 +893,9 @@ tablas:
       pares: UInt32
       puntaje: Float64
       banda: String
+      mediana: Float64     # mediana del grupo de comparación (solo métricas)
+      escala: Float64      # 1,4826 × desviación absoluta mediana del grupo (solo métricas)
+      direccion: Float64   # +1 más es mejor, −1 menos es mejor (solo métricas)
   fact_matriz:
     capa: gold
     ruta: fact_matriz

@@ -274,9 +274,21 @@ def macro_catalogo():
 
 
 @app.get("/api/macro/{serie_id}")
-def macro_serie(serie_id: str, anios: int = 10):
-    filas = q("""SELECT fecha, valor FROM fact_macro WHERE serie_id = ? AND fecha >= current_date - to_days(CAST(? AS INTEGER) * 365)
-                 ORDER BY fecha""", [serie_id, anios])
+def macro_serie(serie_id: str, anios: int = 10, dias: int | None = None):
+    """Serie macro de los últimos ``anios`` años, o de los últimos ``dias`` días si se dan (periodos cortos)."""
+    dias = dias if dias is not None else anios * 365
+    filas = q("""SELECT fecha, valor FROM fact_macro WHERE serie_id = ? AND fecha >= current_date - to_days(CAST(? AS INTEGER))
+                 ORDER BY fecha""", [serie_id, dias])
+    return responder(filas)
+
+
+@app.get("/api/indice_universo")
+def indice_universo(dias: int = 365, moneda: str = "COP"):
+    """Índice de pesos iguales del universo líquido en los últimos ``dias`` días (gráfico de Mercado)."""
+    filas = q("""SELECT fecha, valor FROM fact_indice_mercado
+                 WHERE indice_id = 'universo_igual' AND moneda = ?
+                   AND fecha >= (SELECT max(fecha) FROM fact_indice_mercado) - to_days(CAST(? AS INTEGER))
+                 ORDER BY fecha""", [moneda, dias])
     return responder(filas)
 
 
@@ -350,8 +362,10 @@ def ficha(especie: str):
             raise HTTPException(404, "Especie desconocida")
         return responder({"cabecera": act, "sin_puntaje": True})
     fecha = cab["fecha"]
-    auditoria = q("""SELECT p.elemento, p.nivel, p.factor, p.valor, p.z, p.puntaje, p.banda, p.percentil,
-                            p.grupo_comparacion, p.pares, v.nombre AS variable, v.formato
+    explica = "p.mediana, p.escala, p.direccion" if _graf_tabla_existe("fact_puntaje", ("mediana", "escala", "direccion")) \
+        else "NULL AS mediana, NULL AS escala, NULL AS direccion"
+    auditoria = q(f"""SELECT p.elemento, p.nivel, p.factor, p.valor, p.z, p.puntaje, p.banda, p.percentil,
+                            p.grupo_comparacion, p.pares, {explica}, v.nombre AS variable, v.formato
                      FROM fact_puntaje p LEFT JOIN dim_variable v ON v.id = p.elemento
                      WHERE p.especie = ? AND p.fecha = ? ORDER BY p.nivel, p.factor, p.elemento""", [especie, fecha])
     tecnico = q1("SELECT * FROM fact_tecnico_diario WHERE especie = ? ORDER BY fecha DESC LIMIT 1", [especie])
@@ -384,9 +398,31 @@ def ficha(especie: str):
         factor = ahora["precio"] / propia["precio"] if propia.get("precio") else None
         ahora = {**ahora, "p_vl": propia.get("p_vl") * factor if factor and propia.get("p_vl") else None,
                  "p_u": propia.get("p_u") * factor if factor and propia.get("p_u") else None}
-    return responder({"cabecera": cab, "en_curso": ahora, "auditoria": auditoria, "tecnico": tecnico, "riesgo": riesgo, "eventos": eventos,
+    return responder({"cabecera": cab, "en_curso": ahora, "auditoria": auditoria, "escala": _escala_puntaje(), "tecnico": tecnico, "riesgo": riesgo, "eventos": eventos,
                       "calendario": calendario, "metricas": metricas, "pares": pares,
                       "avisos": [a for a in ((avisos or {}).get("alertas") or "").split("; ") if a]})
+
+
+def _escala_puntaje() -> dict:
+    """Parámetros de config/escala.yaml que la ficha necesita para explicar cada puntaje."""
+    from invest import puntajes
+    cfg = puntajes.config()
+    e = cfg["escala"]
+    return {"centro": e["centro"], "pendiente": e["pendiente"], "z_max": e["z_max"], "minimo_pares": e["minimo_pares"],
+            "minimo_pares_metrica": e.get("minimo_pares_metrica", 5), "minimo_factores_global": e.get("minimo_factores_global", 1),
+            "minimo_bancos": (cfg.get("bancos") or {}).get("minimo_pares"),
+            "pesos": {f: d.get("peso", 1) for f, d in cfg["factores"].items()},
+            "fundamental": cfg["matriz"]["fundamental"], "tecnico": cfg["matriz"]["tecnico"],
+            "factores": {f: [{"metrica": m, "direccion": md.get("direccion", 1)} for m, md in d["metricas"].items()]
+                         for f, d in cfg["factores"].items()},
+            "bancos": {f: [{"metrica": m, "direccion": md.get("direccion", 1), "respaldo": md.get("respaldo")}
+                           for m, md in d["metricas"].items()]
+                       for f, d in ((cfg.get("bancos") or {}).get("factores") or {}).items()}}
+
+
+@app.get("/api/escala_puntaje")
+def escala_puntaje():
+    return responder(_escala_puntaje())
 
 
 METRICAS_BANCO_PARES = ["rote_12m", "roe_banco_12m", "nim_12m", "eficiencia_12m", "costo_riesgo_12m",
@@ -774,7 +810,9 @@ def trabajo(trabajo_id: str):
 # integrar otras páginas no choque con este código.
 GRAF_MAX_ACCIONES = 6
 # Periodos en días hacia atrás desde la última fecha con dato de las series elegidas (None: toda la historia)
-GRAF_PERIODOS: dict[str, int | None] = {"6m": 182, "1a": 365, "3a": 1095, "5a": 1826, "10a": 3652, "max": None}
+# Días hacia atrás desde el último dato; "ytd" (lo corrido del año) va desde el último cierre del año anterior
+GRAF_PERIODOS: dict[str, int | str | None] = {"1s": 7, "1m": 31, "3m": 92, "6m": 182, "ytd": "ytd", "1a": 365,
+                                              "3a": 1095, "5a": 1826, "10a": 3652, "max": None}
 # Métricas permitidas (lista cerrada). unidad: indice (base 100), veces, porcentaje (fracción) o puntaje.
 # variacion: relativa (final / inicial - 1) o puntos (final - inicial).
 GRAF_METRICAS: dict[str, dict] = {
@@ -1000,7 +1038,12 @@ def graficar(tokens: list[str], metrica: str, periodo: str) -> dict:
     ultimas = [max(d) for d in datos.values() if d]
     hasta = max(ultimas) if ultimas else None
     dias = GRAF_PERIODOS[periodo]
-    desde = hasta - timedelta(days=dias) if hasta is not None and dias is not None else None
+    if dias == "ytd" and hasta is not None:
+        # Base: el último dato del año anterior (de cualquier serie), para que la variación sea la del año
+        previos = [f for d in datos.values() for f in d if f < date(hasta.year, 1, 1)]
+        desde = max(previos) if previos else date(hasta.year, 1, 1)
+    else:
+        desde = hasta - timedelta(days=dias) if hasta is not None and dias is not None else None
     if desde is not None:
         datos = {k: {f: v for f, v in d.items() if f >= desde} for k, d in datos.items()}
     fechas = sorted(set().union(*[set(d) for d in datos.values()]))

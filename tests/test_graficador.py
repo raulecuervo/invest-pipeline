@@ -182,3 +182,18 @@ def test_pagina_en_el_menu(cliente):
     assert 'href="#/graficador"' in html
     js = cliente.get("/static/app.js").text
     assert "paginas.graficador" in js and "Comparar en el graficador" in js
+
+
+def test_periodos_cortos_y_lo_corrido_del_anio(cliente):
+    semana = _get(cliente, series="AAA", metrica="precio", periodo="1s").json()
+    assert semana["periodo"]["desde"] == "2026-02-27" and len(semana["fechas"]) == 5
+    # Sin datos del año anterior, "lo corrido del año" arranca el 1 de enero
+    anio = _get(cliente, series="AAA", metrica="p_vl", periodo="ytd").json()
+    assert anio["periodo"]["desde"] == "2026-01-01" and anio["fechas"] == ["2026-01-30", "2026-02-27"]
+    o = cliente.get("/api/graficador/opciones").json()
+    assert o["periodos"] == ["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "10a", "max"]
+
+
+def test_indice_del_universo_por_periodo(cliente):
+    filas = cliente.get("/api/indice_universo?dias=2").json()
+    assert [f["fecha"] for f in filas] == [d.isoformat() for d in D[2:]]

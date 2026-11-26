@@ -92,7 +92,7 @@ tr.clic { cursor: pointer; }
   background: transparent; color: var(--icono); padding: 0; cursor: pointer; flex: none; }
 .info:hover { color: var(--acento-suave); background: var(--activo); }
 body.sin-aprendizaje .info { display: none; }
-.barra-factor { display: grid; grid-template-columns: 130px minmax(0, 1fr) 44px; align-items: center; gap: 10px; font-size: 13px; }
+.barra-factor { display: grid; grid-template-columns: 130px minmax(0, 1fr) 44px auto; align-items: center; gap: 10px; font-size: 13px; }
 .barra-factor .riel { height: 6px; border-radius: 3px; background: var(--borde); }
 .barra-factor .riel div { height: 6px; border-radius: 3px; }
 .leyenda { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: var(--tenue); align-items: center; }
@@ -126,6 +126,9 @@ form.formulario .acciones { grid-column: 1 / -1; display: flex; gap: 8px; align-
 #popover p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 #popover .formula { color: var(--texto2); font-size: 12px; }
 #popover .cerrar { position: absolute; right: 8px; top: 6px; }
+.boton-calculo { border: 1px solid var(--borde-boton); background: transparent; color: var(--acento-suave); border-radius: 6px;
+  font-size: 11px; padding: 1px 6px; cursor: pointer; white-space: nowrap; }
+.boton-calculo:hover, .boton-calculo:focus-visible { background: var(--panel2); color: var(--texto); }
 .consola { background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; padding: 10px; font: 12px/1.5 ui-monospace, Consolas, monospace;
   max-height: 260px; overflow: auto; white-space: pre-wrap; color: var(--texto2); }
 .estado-ok { color: var(--fuerte-texto); } .estado-mal { color: var(--debil-texto); } .estado-medio { color: var(--neutral); }

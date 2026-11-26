@@ -53,6 +53,32 @@ function pesos(x) {
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const fecha = (s) => { if (!s) return "—"; const [y, m, d] = s.slice(0, 10).split("-"); return `${+d} ${MESES[+m - 1]} ${y}`; };
 const fechaCorta = (s) => { const [y, m] = s.slice(0, 7).split("-"); return `${MESES[+m - 1]} ${y.slice(2)}`; };
+const fechaDia = (s) => { const [, m, d] = s.slice(0, 10).split("-"); return `${+d} ${MESES[+m - 1]}`; };
+const diasEntre = (a, b) => (Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 864e5;
+// Periodos de los gráficos (los mismos códigos que el graficador del servidor)
+const PERIODOS = { "1s": ["1S", 7], "1m": ["1M", 31], "3m": ["3M", 92], "6m": ["6M", 182], ytd: ["En el año", null],
+  "1a": ["1A", 365], "3a": ["3A", 1095], "5a": ["5A", 1826], "10a": ["10A", 3652], max: ["Máx.", null] };
+// Días hacia atrás desde el último dato; "En el año" llega al último cierre del año anterior; "Máx." = null
+function diasPeriodo(id) {
+  if (id === "ytd") { const h = new Date(); return Math.ceil((h - new Date(h.getFullYear() - 1, 11, 31)) / 864e5); }
+  return PERIODOS[id]?.[1] ?? null;
+}
+// Grupo de botones de periodo; `ids` en orden; llama a cambiar(id) al elegir
+function botonesPeriodo(ids, actual, cambiar) {
+  const g = el("div", { class: "grupo", role: "group", "aria-label": "Periodo" });
+  const pintar = () => g.replaceChildren(...ids.map((id) => el("button", { type: "button", "aria-pressed": String(actual === id),
+    title: id === "ytd" ? "Lo corrido del año, desde el último cierre del año anterior" : null,
+    onclick: () => { actual = id; pintar(); cambiar(id); } }, PERIODOS[id][0])));
+  pintar();
+  return g;
+}
+// Filtra puntos {x: fecha} al periodo, contado desde el último dato
+function enPeriodo(puntos, id, campo = "x") {
+  const dias = diasPeriodo(id);
+  if (dias == null || !puntos.length) return puntos;
+  const ultimo = puntos[puntos.length - 1][campo];
+  return puntos.filter((p) => diasEntre(p[campo], ultimo) <= dias);
+}
 function segunFormato(v, formato) {
   switch (formato) {
     case "porcentaje": return pct(v);
@@ -119,7 +145,94 @@ function abrirVariable(id, ancla, valorTexto) {
   pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
   pop.style.top = Math.max(8, Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8)) + "px";
 }
+function mostrarPop(ancla, nodos) {
+  pop.replaceChildren(el("button", { type: "button", class: "info cerrar", "aria-label": "Cerrar", onclick: cerrarPop }, "✕"), ...nodos.filter(Boolean));
+  pop.hidden = false;
+  const r = ancla.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+  pop.style.top = Math.max(8, Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8)) + "px";
+}
 function cerrarPop() { pop.hidden = true; }
+
+// ------------------------------------------------------------------ cómo se calcula cada puntaje
+const NOMBRE_FACTOR = { valor: "Valor", calidad: "Calidad", crecimiento: "Crecimiento", momentum: "Momentum", riesgo: "Riesgo" };
+const textoGrupo = (g) => g === "universo" ? "el universo líquido del mes" : g === "bancos" ? "los bancos del CUIF" : "su sector (" + g + ")";
+const signo = (x, d = 2) => (x < 0 ? "− " : "") + num(Math.abs(x), d);
+// "1,75 + 0,56 − 0,16": suma escrita sin "+ −"
+const suma = (xs) => xs.map((x, i) => i === 0 ? signo(x) : (x < 0 ? " − " : " + ") + num(Math.abs(x), 2)).join("");
+function botonCalculo(etiqueta, abrir) {
+  return el("button", { type: "button", class: "boton-calculo", "aria-label": "Cómo se calcula " + etiqueta,
+    onclick: (ev) => { ev.stopPropagation(); abrir(ev.currentTarget); } }, "¿cómo?");
+}
+// Una métrica: z robusto frente a su grupo, con su dirección, y el paso a 1-10
+function explicarMetrica(r, esc, ancla) {
+  const f = (x) => segunFormato(x, r.formato);
+  const nombre = r.variable || r.elemento;
+  const pasos = [el("div", { class: "t" }, "Cómo se calcula · " + nombre)];
+  if (r.valor == null) {
+    pasos.push(el("p", {}, "La acción no tiene dato de esta métrica en la fecha del puntaje, así que no cuenta: el factor " +
+      (NOMBRE_FACTOR[r.factor] || r.factor) + " se promedia con las demás métricas que sí tienen dato (nunca se rellena con 5)."));
+    return mostrarPop(ancla, pasos);
+  }
+  const dir = r.direccion ?? 1;
+  pasos.push(el("p", {}, el("strong", {}, "1. Valor de la acción: "), f(r.valor), "."),
+    estado.variables[r.elemento] ? el("p", { class: "formula" }, "Fórmula: " + estado.variables[r.elemento].formula) : null,
+    el("p", {}, el("strong", {}, "2. Grupo con que se compara: "), textoGrupo(r.grupo_comparacion), r.pares != null ? ` · ${r.pares} acciones con dato.` : ".",
+      r.grupo_comparacion === "universo" ? " (Un sector se usa solo si reúne " + esc.minimo_pares + " acciones líquidas y al menos " + esc.minimo_pares_metrica + " con esta métrica.)" : ""));
+  if (r.mediana == null || r.escala == null || !(r.escala > 0)) {
+    pasos.push(el("p", {}, "El grupo no tiene suficiente dispersión o pares para esta métrica en esa fecha, así que no se puntúa."));
+    return mostrarPop(ancla, pasos);
+  }
+  const zCrudo = dir * (r.valor - r.mediana) / r.escala;
+  const limitado = Math.abs(zCrudo) > esc.z_max + 1e-9;
+  pasos.push(
+    el("p", {}, el("strong", {}, "3. Referencia del grupo: "), "mediana ", f(r.mediana), " y desviación robusta ", f(r.escala),
+      " (1,4826 × la desviación absoluta mediana; no se deja arrastrar por un valor extremo)."),
+    el("p", {}, el("strong", {}, "4. Dirección: "), dir > 0 ? "más es mejor (+1)." : "menos es mejor (−1): un valor por debajo de la mediana suma."),
+    el("p", { class: "formula" }, `z = ${dir > 0 ? "+1" : "−1"} × (${f(r.valor)} − ${f(r.mediana)}) / ${f(r.escala)} = ${signo(zCrudo)}`
+      + (limitado ? ` → se limita a ${signo(Math.sign(zCrudo) * esc.z_max, 0)}` : "")),
+    el("p", {}, el("strong", {}, "5. Puntaje: "), `${num(esc.centro, 1)} + ${num(esc.pendiente, 1)} × z, entre 1 y 10.`),
+    el("p", { class: "formula" }, `${num(esc.centro, 1)} + ${num(esc.pendiente, 1)} × (${signo(r.z)}) = ${num(r.puntaje, 1)}`),
+    el("p", {}, `Lectura: z = 0 es la mediana del grupo (${num(esc.centro, 1)}); cada desviación robusta mueve ${num(esc.pendiente, 1)} puntos.`
+      + (r.percentil != null ? ` Le va mejor que al ${num(r.percentil * 100, 0)} % del grupo en esta métrica.` : "")),
+  );
+  mostrarPop(ancla, pasos);
+}
+// Un factor: promedio de los z de sus métricas con dato
+function explicarFactor(factor, auditoria, esc, ancla) {
+  const a = auditoria.find((x) => x.nivel === "factor" && x.elemento === factor);
+  const metricas = auditoria.filter((x) => x.nivel === "metrica" && x.factor === factor);
+  const con = metricas.filter((x) => x.z != null);
+  const pasos = [el("div", { class: "t" }, "Cómo se calcula · factor " + (NOMBRE_FACTOR[factor] || factor)),
+    el("p", {}, "Promedio simple de los z de sus métricas que tienen dato; luego se pasa a 1-10 con la misma escala."),
+    ...metricas.map((x) => el("p", { class: "formula" }, `${x.variable || x.elemento}: ` + (x.z == null ? "sin dato (no cuenta)" : "z " + signo(x.z))))];
+  if (!con.length || a?.z == null) pasos.push(el("p", {}, "Ninguna métrica tiene dato: el factor queda N/D y no cuenta en el global."));
+  else pasos.push(el("p", { class: "formula" }, `z del factor = (${suma(con.map((x) => x.z))}) / ${con.length} = ${signo(a.z)}`),
+    el("p", { class: "formula" }, `Puntaje = ${num(esc.centro, 1)} + ${num(esc.pendiente, 1)} × (${signo(a.z)}) = ${num(a.puntaje, 1)}`));
+  mostrarPop(ancla, pasos);
+}
+// El global (y los ejes de la matriz): promedio ponderado de los z de los factores con dato
+function explicarGlobal(elemento, auditoria, esc, ancla) {
+  const factores = elemento === "global" ? Object.keys(esc.pesos) : esc[elemento];
+  const filas = factores.map((f) => auditoria.find((x) => x.nivel === "factor" && x.elemento === f) || { elemento: f, z: null });
+  const con = filas.filter((x) => x.z != null);
+  const g = auditoria.find((x) => x.elemento === elemento);
+  const pesoTotal = con.reduce((t, x) => t + (esc.pesos[x.elemento] ?? 1), 0);
+  const iguales = factores.every((f) => (esc.pesos[f] ?? 1) === (esc.pesos[factores[0]] ?? 1));
+  const titulo = elemento === "global" ? "puntaje global" : "eje " + elemento;
+  const pasos = [el("div", { class: "t" }, "Cómo se calcula · " + titulo),
+    el("p", {}, `Promedio ${iguales ? "" : "ponderado "}de los z de ${factores.map((f) => NOMBRE_FACTOR[f] || f).join(", ")}, solo con los que tienen dato` +
+      (elemento === "global" ? `; se necesitan al menos ${esc.minimo_factores_global}.` : ".")),
+    ...filas.map((x) => el("p", { class: "formula" }, `${NOMBRE_FACTOR[x.elemento] || x.elemento}: ` + (x.z == null ? "N/D (no cuenta)" : "z " + signo(x.z) + (iguales ? "" : " · peso " + num(esc.pesos[x.elemento], 1)))))];
+  if (g?.z == null) pasos.push(el("p", {}, elemento === "global" && con.length < esc.minimo_factores_global
+    ? `Solo ${con.length} factor(es) con dato: el global queda N/D para no comparar esta acción con las que tienen todos.` : "Sin dato suficiente: queda N/D."));
+  else pasos.push(el("p", { class: "formula" }, iguales
+      ? `z = (${suma(con.map((x) => x.z))}) / ${con.length} = ${signo(g.z)}`
+      : `z = Σ(peso × z) / ${num(pesoTotal, 1)} = ${signo(g.z)}`),
+    el("p", { class: "formula" }, `Puntaje = ${num(esc.centro, 1)} + ${num(esc.pendiente, 1)} × (${signo(g.z)}) = ${num(g.puntaje, 1)}`));
+  if (elemento === "tecnico") pasos.push(el("p", {}, "En una acción poco líquida el eje técnico queda vacío: la media de 200 se calcularía con negocios esporádicos."));
+  mostrarPop(ancla, pasos);
+}
 document.addEventListener("click", (e) => { if (!pop.hidden && !pop.contains(e.target)) cerrarPop(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarPop(); });
 
@@ -145,9 +258,11 @@ function lineas(caja, series, op = {}) {
   }
   const paso = Math.max(1, Math.ceil(xs.length / 7));
   let rotuloAnterior = null;
+  // Periodos cortos (hasta 4 meses): rótulos por día; si no, por mes
+  const porDia = xs.length > 1 && /^\d{4}-\d{2}-\d{2}/.test(xs[0]) && diasEntre(xs[0], xs[xs.length - 1]) <= 125;
   xs.forEach((x, i) => {
     if (i % paso !== 0) return;
-    const rotulo = op.fx ? op.fx(x) : fechaCorta(x);
+    const rotulo = op.fx ? op.fx(x) : porDia ? fechaDia(x) : fechaCorta(x);
     if (rotulo === rotuloAnterior) return;  // dos marcas en el mismo mes repetían el rótulo
     rotuloAnterior = rotulo;
     s.append(sv("text", { x: X(x), y: H - 6, "text-anchor": "middle" }, rotulo));
@@ -429,23 +544,29 @@ paginas.mercado = async (v) => {
   const selector = el("select", { "aria-label": "Serie macro", style: { height: "32px", background: "var(--fondo)", border: "1px solid var(--borde-boton)", borderRadius: "6px" } },
     catalogo.map((c) => el("option", { value: c.serie_id }, `${c.corto} (${c.categoria})`)));
   selector.value = catalogo.some((c) => c.serie_id === "trm_usd_cop") ? "trm_usd_cop" : catalogo[0]?.serie_id;
+  let periodoMacro = "10a", periodoIndice = "1a";
   const pintarMacro = async () => {
     if (!catalogo.length) { cajaMacro.replaceChildren(el("div", { class: "vacio" }, "Todavía no hay series macro.")); return; }
     const c = catalogo.find((x) => x.serie_id === selector.value);
-    const datos = await api("/api/macro/" + selector.value + "?anios=10");
+    const datos = await api("/api/macro/" + selector.value + "?dias=" + (diasPeriodo(periodoMacro) ?? 36500));
     const esPct = ["pct", "%"].includes(c?.unidad);
     lineas(cajaMacro, [{ nombre: c?.corto, color: "#6E9BFF", puntos: datos.map((r) => ({ x: r.fecha, y: r.valor })) }],
-      { alto: 220, titulo: c?.nombre, fy: (x) => esPct ? pp(x) : num(x, x > 100 ? 0 : 2), vacio: "Esta serie todavía no tiene historia." });
+      { alto: 220, titulo: c?.nombre, fy: (x) => esPct ? pp(x) : num(x, x > 100 ? 0 : 2),
+        vacio: datos.length ? "Sin datos en este periodo." : "Esta serie no tiene datos en este periodo (las mensuales necesitan al menos 3 meses)." });
   };
   selector.addEventListener("change", pintarMacro);
+  const pintarIndice = async () => {
+    const serie = periodoIndice === "1a" ? d.indice : await api("/api/indice_universo?dias=" + (diasPeriodo(periodoIndice) ?? 36500));
+    const base = serie[0]?.valor;
+    lineas(cajaIndice, [{ nombre: "Universo", color: "#6E9BFF", puntos: serie.map((r) => ({ x: r.fecha, y: r.valor / base * 100 })) }], { alto: 220, titulo: "Índice del universo", fy: (x) => num(x, 0) });
+  };
   v.append(el("div", { class: "fila" },
-    panel("Índice del universo líquido · 12 meses", cajaIndice, el("p", { class: "desc" }, "Retorno total con pesos iguales de las acciones líquidas (base 100 hace un año). Sirve de referencia mientras el MSCI COLCAP acumula historia.")),
-    el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Macro · 10 años"), selector), cajaMacro)));
-  requestAnimationFrame(() => {
-    const base = d.indice[0]?.valor;
-    lineas(cajaIndice, [{ nombre: "Universo", color: "#6E9BFF", puntos: d.indice.map((r) => ({ x: r.fecha, y: r.valor / base * 100 })) }], { alto: 220, titulo: "Índice del universo", fy: (x) => num(x, 0) });
-    pintarMacro();
-  });
+    el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Índice del universo líquido"),
+      botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "max"], periodoIndice, (id) => { periodoIndice = id; pintarIndice(); })), cajaIndice,
+      el("p", { class: "desc" }, "Retorno total con pesos iguales de las acciones líquidas, base 100 al inicio del periodo. Sirve de referencia mientras el MSCI COLCAP acumula historia.")),
+    el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Macro"), selector,
+      botonesPeriodo(["1m", "3m", "6m", "ytd", "1a", "3a", "5a", "10a", "max"], periodoMacro, (id) => { periodoMacro = id; pintarMacro(); })), cajaMacro)));
+  requestAnimationFrame(() => { pintarIndice(); pintarMacro(); });
 
   const TIPOS = { dividendo_ex: "Fecha ex", dividendo_pago: "Pago de dividendo", banrep_decision: "Banco de la República", dane_ipc: "IPC del DANE" };
   v.append(panel("Próximos 45 días", d.eventos.length ? tabla([
@@ -564,7 +685,8 @@ paginas.ficha = async (v, especie) => {
         ` · ${horaCorta(d.en_curso.hora)}, 15 min de retraso`,
         d.en_curso.p_vl != null ? ` · P/VL ${num(d.en_curso.p_vl, 2)}` : "", d.en_curso.p_u != null ? ` · P/U ${num(d.en_curso.p_u, 1)}` : "") : null),
     el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, el("span", { class: "nota-puntaje " + banda(c.puntaje_global), style: { fontSize: "17px", padding: "4px 10px" } }, c.puntaje_global == null ? "N/D" : num(c.puntaje_global, 1)),
-      el("span", { class: "nota" }, "global de 10", el("br"), "vs " + (c.grupo_comparacion === "universo" ? "el universo" : c.grupo_comparacion)), info("puntaje_global")),
+      el("span", { class: "nota" }, "global de 10", el("br"), "vs " + (c.grupo_comparacion === "universo" ? "el universo" : c.grupo_comparacion)), info("puntaje_global"),
+      d.escala ? botonCalculo("el puntaje global", (a) => explicarGlobal("global", d.auditoria, d.escala, a)) : null),
     c.cuadrante ? el("span", { class: "chip" }, (c.decision || CUADRANTE[c.cuadrante]) + (c.estado === "informativo" ? " · informativo" : "")) : null,
     el("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px" } }, d.avisos.map((a) => el("span", { class: "aviso" }, a))));
   v.append(cab);
@@ -572,16 +694,16 @@ paginas.ficha = async (v, especie) => {
   const barras = ["valor", "calidad", "crecimiento", "momentum", "riesgo"].map((f) => {
     const a = factores[f]; const p = a?.puntaje;
     return el("div", { class: "barra-factor" }, el("span", {}, f[0].toUpperCase() + f.slice(1)),
-      el("div", { class: "riel" }, el("div", { style: { width: p == null ? "0" : p * 10 + "%", background: COLOR_BANDA[banda(p)] } })), notaPuntaje(p));
+      el("div", { class: "riel" }, el("div", { style: { width: p == null ? "0" : p * 10 + "%", background: COLOR_BANDA[banda(p)] } })), notaPuntaje(p),
+      d.escala ? botonCalculo("el factor " + f, (ancla) => explicarFactor(f, d.auditoria, d.escala, ancla)) : null);
   });
   const cajaPrecio = el("div");
-  let dias = 365;
-  const periodos = el("div", { class: "grupo", role: "group", "aria-label": "Periodo" });
+  let periodoPrecio = "1a";
   const t = d.tecnico || {};
   // En una acción poco líquida la media de 200 abarca negocios de meses o años: no se dibuja ni se usa
   const tecnicoValido = t.tecnico_valido !== false;
   const pintarPrecio = async () => {
-    periodos.replaceChildren(...[[182, "6M"], [365, "1A"], [1095, "3A"], [1825, "5A"]].map(([n, t]) => el("button", { type: "button", "aria-pressed": String(dias === n), onclick: () => { dias = n; pintarPrecio(); } }, t)));
+    const dias = diasPeriodo(periodoPrecio) ?? 36500;
     const serie = await api(`/api/ficha/${encodeURIComponent(especie)}/precio?dias=${dias}`);
     lineas(cajaPrecio, [
       { nombre: "Precio ajustado", color: "#E6EAF2", puntos: serie.map((r) => ({ x: r.fecha, y: r.precio_ajustado })), grosor: 2.25 },
@@ -598,7 +720,8 @@ paginas.ficha = async (v, especie) => {
         ["Fuerza relativa 12 meses", pct(t.fuerza_relativa_12m), "fuerza_relativa_12m"]].map(([n, val, id]) =>
         el("div", { class: "evento", style: { justifyContent: "space-between" } }, el("span", {}, n, info(id, val)), el("strong", {}, val))),
         tecnicoValido ? null : el("p", { class: "desc" }, "Acción poco líquida: la media de 200 y el RSI se calcularían con negocios esporádicos (N/A). Los retornos usan el último negocio de hace 12 meses, si lo hubo."))),
-    el("section", { class: "panel ancho" }, el("div", { class: "encabezado" }, el("h2", {}, "Precio"), periodos), cajaPrecio,
+    el("section", { class: "panel ancho" }, el("div", { class: "encabezado" }, el("h2", {}, "Precio"),
+      botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "max"], periodoPrecio, (id) => { periodoPrecio = id; pintarPrecio(); })), cajaPrecio,
       leyenda([["#E6EAF2", "Precio ajustado por dividendos", "linea"], ...(tecnicoValido ? [["#5B6B8C", "Media de 200 sesiones", "linea"]] : [])]))));
   requestAnimationFrame(pintarPrecio);
 
@@ -617,10 +740,14 @@ paginas.ficha = async (v, especie) => {
         { k: "variable", t: "Métrica", izq: true, f: (r) => el("span", { style: { display: "inline-flex", alignItems: "center" } }, r.variable || r.elemento, info(r.elemento, segunFormato(r.valor, r.formato))) },
         { k: "factor", t: "Factor", izq: true },
         { k: "valor", t: "Valor", f: (r) => segunFormato(r.valor, r.formato) },
-        { k: "puntaje", t: "Puntaje", f: (r) => notaPuntaje(r.valor == null ? null : r.puntaje) },
+        { k: "mediana", t: "Mediana del grupo", f: (r) => r.mediana == null ? "—" : segunFormato(r.mediana, r.formato) },
+        { k: "z", t: "z", f: (r) => r.valor == null || r.z == null ? "—" : signo(r.z) },
+        { k: "puntaje", t: "Puntaje", f: (r) => el("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px" } },
+          notaPuntaje(r.valor == null ? null : r.puntaje), d.escala ? botonCalculo(r.variable || r.elemento, (a) => explicarMetrica(r, d.escala, a)) : null) },
         { k: "pares", t: "Pares", f: (r) => r.pares ?? "—" },
       ], metricas),
-      el("p", { class: "desc" }, "Puntaje = 5,5 + 1,5 × z frente a la mediana del grupo, entre 1 y 10.")),
+      el("p", { class: "desc" }, "Puntaje = 5,5 + 1,5 × z, entre 1 y 10, donde z = dirección × (valor − mediana del grupo) / desviación robusta. Toque «¿cómo?» para ver la cuenta de cada métrica, factor o del global."))));
+  v.append(el("div", { class: "fila" },
     panel("Riesgo (fin de mes)",
       tabla([
         { k: "ventana", t: "Ventana", izq: true }, { k: "moneda", t: "Moneda", izq: true },
@@ -763,7 +890,11 @@ paginas.cartera = async (v, pedida) => {
           el("p", { class: "desc" }, conObjetivo ? ["Rojo = fuera de banda ", info("bandas_asignacion"), ". Para volver al objetivo, use la calculadora de rebalanceo más abajo."] : "Esta cartera no tiene un perfil con asignación objetivo: se muestra el peso de cada clase. Asígnele un perfil en Carteras y transacciones para ver el desvío."));
       })(),
       panel("Próximos dividendos", d.dividendos.length ? d.dividendos.slice(0, 8).map((x) => el("div", { class: "evento" }, el("span", { class: "f" }, fecha(x.fecha)), el("span", {}, `${x.nombre_corto}: ${pesos(x.total)}`))) : el("div", { class: "vacio" }, "Sin pagos anunciados.")))));
-  v.append(panel("Valor de la cartera", cajaValor));
+  let periodoValor = "max";
+  const pintarValor = () => lineas(cajaValor, [{ nombre: "Valor", color: "#6E9BFF", puntos: enPeriodo(d.valor.map((r) => ({ x: r.fecha, y: r.valor })), periodoValor) }],
+    { alto: 220, fy: pesos, titulo: "Valor diario de la cartera" });
+  v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Valor de la cartera"),
+    botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "max"], periodoValor, (id) => { periodoValor = id; pintarValor(); })), cajaValor));
   v.append(panel("Posiciones", tabla([
     { k: "especie", t: "Activo", izq: true, f: (r) => r.especie === "EFECTIVO" ? "Efectivo" : el("a", { href: "#/ficha/" + r.especie, style: { fontWeight: 600 } }, r.nemotecnico || r.nombre_corto || r.especie) },
     { k: "cantidad", t: "Cantidad", f: (r) => r.especie === "EFECTIVO" ? "" : num(r.cantidad, 0) },
@@ -781,7 +912,7 @@ paginas.cartera = async (v, pedida) => {
       sub: pct(p.peso) + (p.retorno_12m != null ? " · " + pct(p.retorno_12m) : ""), r: p, href: p.especie === "EFECTIVO" ? null : "#/ficha/" + p.especie,
       filas: [["Valor", pesos(p.valor_cop)], ["Peso", pct(p.peso)], ["Retorno 12 meses", pct(p.retorno_12m)], ["Puntaje", num(p.puntaje_global, 1)]] })),
     { alto: 340, titulo: "Posiciones de la cartera", color: (it) => it.r.especie === "EFECTIVO" ? "#2A3448" : divergente(it.r.retorno_12m, 0.3) });
-    lineas(cajaValor, [{ nombre: "Valor", color: "#6E9BFF", puntos: d.valor.map((r) => ({ x: r.fecha, y: r.valor })) }], { alto: 220, fy: pesos, titulo: "Valor diario de la cartera" });
+    pintarValor();
   });
 };
 
@@ -1072,6 +1203,7 @@ paginas.salud = async (v) => {
 const NIVELES = { basico: "básico", intermedio: "intermedio", avanzado: "avanzado" };
 paginas.aprender = async (v, id) => {
   v.append(el("div", {}, el("h1", {}, "Aprender"), el("div", { class: "sub" }, "Qué es, qué hace y para qué sirve cada variable del sistema. Los textos marcados como borrador están pendientes de revisión.")));
+  v.append(await panelComoSeCalcula());
   const porCategoria = {};
   for (const x of Object.values(estado.variables)) (porCategoria[x.categoria] ||= []).push(x);
   for (const [cat, lista] of Object.entries(porCategoria).sort()) {
@@ -1086,6 +1218,30 @@ paginas.aprender = async (v, id) => {
   }
   if (id) requestAnimationFrame(() => document.getElementById("var-" + id)?.scrollIntoView({ block: "center" }));
 };
+
+// Aprender: el método del puntaje de 1 a 10, con las métricas de cada factor (config/escala.yaml)
+async function panelComoSeCalcula() {
+  let esc;
+  try { esc = await api("/api/escala_puntaje"); } catch (_) { return el("div"); }
+  const nombreVar = (m) => el("a", { href: "#/aprender/" + m, style: { color: "var(--acento)" } }, estado.variables[m]?.nombre || m);
+  const lista = (metricas) => metricas.map((m, i) => [i ? " · " : "", nombreVar(m.metrica), m.direccion > 0 ? " (más es mejor)" : " (menos es mejor)",
+    m.respaldo ? [" — mientras falte, ", nombreVar(m.respaldo)] : ""]);
+  const p = (...h) => el("p", { style: { margin: 0, fontSize: "13px", lineHeight: 1.55 } }, ...h);
+  return panel("Cómo se calcula el puntaje de 1 a 10",
+    p(el("strong", {}, "1. Valor de cada métrica. "), "Cada variable se calcula como dice su fórmula (toque su nombre abajo). Si la acción no tiene el dato, esa métrica no cuenta: nunca se rellena con 5."),
+    p(el("strong", {}, "2. Grupo de comparación. "), `El sector de la Superfinanciera si reúne ${esc.minimo_pares} acciones del universo líquido del mes y al menos ${esc.minimo_pares_metrica} con esa métrica; si no, todo el universo líquido (en la Bolsa de Colombia casi siempre es el universo). Las métricas de banco se comparan con los bancos del CUIF (al menos ${esc.minimo_bancos ?? 5}).`),
+    p(el("strong", {}, "3. z robusto. "), "z = dirección × (valor − mediana del grupo) / (1,4826 × desviación absoluta mediana del grupo). La dirección es +1 si más es mejor y −1 si menos es mejor. Con la mediana y la desviación absoluta mediana un valor extremo no mueve la referencia. ",
+      `z se limita a ±${esc.z_max}.`),
+    p(el("strong", {}, "4. Factores, ejes y global. "), "El z de un factor es el promedio de los z de sus métricas con dato. El global promedia los z de los cinco factores con dato",
+      Object.values(esc.pesos).every((w) => w === 1) ? " (todos pesan igual)" : " según sus pesos", `, y necesita al menos ${esc.minimo_factores_global} factores; el eje fundamental usa `,
+      esc.fundamental.map((f) => NOMBRE_FACTOR[f] || f).join(", "), " y el técnico ", esc.tecnico.map((f) => NOMBRE_FACTOR[f] || f).join(", "), " (vacío si la acción no es líquida)."),
+    p(el("strong", {}, "5. Escala. "), `Puntaje = ${num(esc.centro, 1)} + ${num(esc.pendiente, 1)} × z, entre 1 y 10: ${num(esc.centro, 1)} es la mediana del grupo; 8 o más, fuerte; 6 a 7,9, bueno; 4 a 5,9, neutral; menos de 4, débil.`),
+    el("table", {}, el("thead", {}, el("tr", {}, el("th", { class: "izq" }, "Factor"), el("th", { class: "izq" }, "Métricas"), el("th", { class: "izq" }, "En bancos"))),
+      el("tbody", {}, Object.entries(esc.factores).map(([f, ms]) => el("tr", {}, el("td", { class: "izq" }, NOMBRE_FACTOR[f] || f),
+        el("td", { class: "izq", style: { whiteSpace: "normal", minWidth: "260px" } }, lista(ms)),
+        el("td", { class: "izq", style: { whiteSpace: "normal", minWidth: "220px" } }, esc.bancos[f] ? lista(esc.bancos[f]) : "las mismas"))))),
+    el("p", { class: "desc" }, "En la ficha de cada acción, el botón «¿cómo?» muestra esta cuenta con los números de esa acción: su valor, la mediana y la desviación del grupo, el z y el puntaje."));
+}
 
 // ===== Valoración (bandas) =====
 // Página #/valoracion[/<especie>] y panel "Valoración frente a su historia" de la Ficha: P/VL y P/U de
@@ -1341,7 +1497,7 @@ const GRAF_COLORES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0
 // Los índices van en tinta neutra y se distinguen por el trazo: no gastan ranuras de color
 const GRAF_ESTILO_INDICE = { universo_igual: { color: "#E6EAF2", guiones: null }, universo_cap: { color: "#9AA4B8", guiones: "7 4" },
   colcap: { color: "#C3CAD8", guiones: "2 3" } };
-const GRAF_PERIODOS = [["6m", "6M"], ["1a", "1A"], ["3a", "3A"], ["5a", "5A"], ["10a", "10A"], ["max", "Máx."]];
+const GRAF_PERIODOS = ["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "10a", "max"].map((id) => [id, PERIODOS[id][0]]);
 const GRAF_MAX = 6;
 
 function grafBuscarActivo(texto) {
@@ -1423,6 +1579,13 @@ function grafTicksLog(y0, y1, Y) {
 // Eje de fechas: inicios de mes (o de año) que quepan, sin rótulos repetidos (misma regla que lineas())
 function grafTicksFecha(xs, X, ancho) {
   const max = Math.max(2, Math.floor(ancho / 80));
+  // Periodos cortos (hasta 4 meses): un rótulo por día cada tantas sesiones
+  if (xs.length > 1 && diasEntre(xs[0], xs[xs.length - 1]) <= 125) {
+    const cada = Math.max(1, Math.ceil(xs.length / max));
+    const marcas = []; let xAnterior = -Infinity;
+    xs.forEach((x, i) => { if (i % cada === 0 && X(i) - xAnterior >= 56) { marcas.push({ i, rotulo: fechaDia(x) }); xAnterior = X(i); } });
+    return marcas;
+  }
   const meses = []; let previo = null;
   xs.forEach((x, i) => { const k = x.slice(0, 7); if (k !== previo) { meses.push({ i, x, a: +x.slice(0, 4), m: +x.slice(5, 7) }); previo = k; } });
   const paso = [1, 2, 3, 6, 12, 24, 60, 120].find((p) => meses.length / p <= max) || 120;

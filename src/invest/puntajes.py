@@ -296,7 +296,11 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
                 "fecha", "especie", pl.lit(metrica).alias("elemento"), pl.lit("metrica").alias("nivel"),
                 pl.lit(factor).alias("factor"), x.cast(pl.Float64).alias("valor"), pl.col("_z").alias("z"),
                 pl.col("_pct").alias("percentil"), grupo.cast(pl.Utf8).alias("grupo_comparacion"),
-                pl.col("_pares").alias("pares")))
+                pl.col("_pares").alias("pares"),
+                # Para explicar cada número en la ficha: z = dirección × (valor − mediana) / escala
+                pl.col("_med").cast(pl.Float64).alias("mediana"),
+                (1.4826 * pl.col("_mad")).cast(pl.Float64).alias("escala"),
+                pl.lit(d).alias("direccion")))
             zs.append(q.select("fecha", "especie", pl.col("_z").alias(metrica)))
             nombres.append(metrica)
         t = zs[0]
@@ -333,7 +337,8 @@ def calcular(p: pl.DataFrame, cfg: dict | None = None, validados: set[str] | Non
                               pl.lit(a if a in cfg["factores"] else None, pl.Utf8).alias("factor"),
                               pl.lit(None, pl.Float64).alias("valor"), pl.col(a).alias("z"),
                               pl.lit(None, pl.Float64).alias("percentil"), "grupo_comparacion",
-                              pl.lit(None, pl.UInt32).alias("pares")))
+                              pl.lit(None, pl.UInt32).alias("pares"), pl.lit(None, pl.Float64).alias("mediana"),
+                              pl.lit(None, pl.Float64).alias("escala"), pl.lit(None, pl.Float64).alias("direccion")))
     puntaje = (pl.concat(largo, how="vertical_relaxed").filter(pl.col("z").is_not_null() | (pl.col("nivel") == "metrica"))
                .with_columns(_puntaje(pl.col("z"), cfg).alias("puntaje"))
                .with_columns(_banda(pl.col("puntaje"), cfg).alias("banda"))

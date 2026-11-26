@@ -1,6 +1,7 @@
 from datetime import date
 
 import polars as pl
+import pytest
 
 from invest import puntajes
 
@@ -43,6 +44,11 @@ def test_escala_z_robusta_y_faltantes():
     fila = puntaje.filter((pl.col("fecha") == date(2025, 1, 31)) & (pl.col("especie") == "e4")
                           & (pl.col("elemento") == "p_vl")).row(0, named=True)
     assert fila["z"] == 0 and fila["pares"] == 9 and fila["grupo_comparacion"] == "X"  # 9 pares del sector: alcanza el mínimo de 8
+    # Lo que la ficha usa para explicar el número: z = dirección × (valor − mediana) / escala
+    otra = puntaje.filter((pl.col("fecha") == date(2025, 1, 31)) & (pl.col("especie") == "e0")
+                          & (pl.col("elemento") == "p_vl")).row(0, named=True)
+    assert fila["mediana"] == fila["valor"] and otra["direccion"] == -1 and otra["escala"] > 0
+    assert otra["z"] == pytest.approx(max(-3, min(3, -1 * (otra["valor"] - otra["mediana"]) / otra["escala"])))
 
 
 def test_global_necesita_un_minimo_de_factores():
