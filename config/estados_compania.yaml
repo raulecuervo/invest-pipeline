@@ -32,9 +32,16 @@
 agentes:            # si se omite, se usan los de config/extraccion.yaml
   a: {nombre: analista, modelo: claude-sonnet-5-5}
   b: {nombre: auditor, modelo: claude-opus-5-5}
+  # Árbitro de las disputas (26-nov-2026): tercera lectura con otro modelo, solo de los documentos en que
+  # A y B no se pusieron de acuerdo, con las páginas de los estados y las que traen las cifras en disputa.
+  # Fable 5.2 (USD 8 / 40 por millón de tokens, el doble de Opus 5.5): unos USD 0,25 a 0,50 por documento.
+  # Si la cuenta no tiene acceso a Fable, se usa el respaldo.
+  arbitro: {nombre: arbitro, modelo: claude-fable-5-2, respaldo: claude-opus-5-5}
 
 limites:
   max_documentos_por_corrida: 6     # documentos enviados a la API por corrida (el resto queda pendiente)
+  max_arbitrajes_por_corrida: 10    # documentos en disputa que lee el árbitro por corrida
+  max_paginas_arbitraje: 12         # páginas que recibe el árbitro (estados + páginas con las cifras en disputa)
   max_paginas_por_documento: 10     # páginas enviadas por documento (8 hasta el 24-nov-2026; +2 por el estado de flujos)
   max_descargas_por_corrida: 20     # PDF nuevos bajados por corrida
   tamano_maximo_mb: 40              # PDF más grandes no se bajan (GitHub avisa desde 50 MB por archivo)

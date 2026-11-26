@@ -568,6 +568,133 @@ def _media_exponencial(xs: list, n: int) -> list:
     return salida
 
 
+# =========================================================================== Revisión de estados
+# Las cifras en que los dos lectores y el árbitro no se pusieron de acuerdo (invest-data/revision/
+# estados_compania.csv): la página del PDF con las cifras resaltadas y la decisión de Esteban.
+DECISIONES_REVISION = ("a", "b", "corregido", "rechazado", "")
+
+
+def _filas_revision_estados() -> list[dict]:
+    import csv
+
+    from invest.ingest import estados_compania as ec
+    ruta = ec.ruta_revision()
+    if not ruta.exists():
+        return []
+    with open(ruta, encoding="utf-8-sig", errors="replace", newline="") as f:
+        return list(csv.DictReader(f, delimiter=";"))
+
+
+@app.get("/api/revision_estados")
+def revision_estados():
+    return responder(_filas_revision_estados())
+
+
+def _pdf_de_revision(archivo: str) -> bytes:
+    """El PDF (o los PDF unidos) de una fila de revisión; solo archivos dentro de la carpeta de datos."""
+    from invest.config import data_dir
+    from invest.ingest import estados_compania as ec
+    base = data_dir().resolve()
+    partes = []
+    for rel in [x for x in (archivo or "").split(";") if x]:
+        ruta = (base / rel).resolve()
+        if base not in ruta.parents or ruta.suffix.lower() != ".pdf" or not ruta.exists():
+            raise HTTPException(400, "Archivo no permitido")
+        partes.append(ruta.read_bytes())
+    if not partes:
+        raise HTTPException(400, "Sin archivo")
+    return partes[0] if len(partes) == 1 else ec.unir_pdf(partes)
+
+
+def variantes_cifra(texto: str) -> list[str]:
+    """Cómo puede estar impresa una cifra: 637979587 → 637,979,587 y 637.979.587; 2705.93 → 2,705.93 y 2.705,93."""
+    try:
+        v = abs(float(texto))
+    except (TypeError, ValueError):
+        return []
+    if v == int(v):
+        coma = f"{int(v):,}"
+        salida = [coma, coma.replace(",", ".")]
+    else:
+        coma = f"{v:,.2f}"
+        salida = [coma, coma.replace(",", "X").replace(".", ",").replace("X", ".")]
+    return list(dict.fromkeys(x for x in salida if len(x) >= 3))
+
+
+COLORES_REVISION = [(245, 181, 74), (76, 201, 240), (180, 140, 255)]  # A, B, árbitro (como en la página)
+_PDFIUM = threading.Lock()  # pdfium no admite dos hilos a la vez (la página pide dos imágenes juntas)
+
+
+@app.get("/api/revision_estados/imagen")
+def revision_imagen(archivo: str, pagina: int, valores: str = "", recorte: int = 1):
+    """PNG de la página con las cifras resaltadas (A ámbar, B azul, árbitro violeta). Con ``recorte`` se
+    corta a la franja de la página donde están las cifras."""
+    with _PDFIUM:
+        return _imagen_revision(archivo, pagina, valores, recorte)
+
+
+def _imagen_revision(archivo: str, pagina: int, valores: str, recorte: int):
+    import io
+
+    import pypdfium2 as pdfium
+    from PIL import ImageDraw
+    pdf = pdfium.PdfDocument(_pdf_de_revision(archivo))
+    if not 1 <= pagina <= len(pdf):
+        raise HTTPException(404, "Página fuera del documento")
+    hoja = pdf[pagina - 1]
+    escala = 2
+    imagen = hoja.render(scale=escala).to_pil().convert("RGB")
+    _, alto = hoja.get_size()
+    texto = hoja.get_textpage()
+    dibujo = ImageDraw.Draw(imagen, "RGBA")
+    marcas = []
+    for k, valor in enumerate(valores.split(",") if valores else []):
+        color = COLORES_REVISION[k % len(COLORES_REVISION)]
+        for variante in variantes_cifra(valor):
+            busqueda = texto.search(variante, match_case=False, match_whole_word=False)
+            while (hallado := busqueda.get_next()):
+                i, n = hallado
+                cajas = [texto.get_charbox(j) for j in range(i, i + n)]
+                x0, y0 = min(c[0] for c in cajas), min(c[1] for c in cajas)
+                x1, y1 = max(c[2] for c in cajas), max(c[3] for c in cajas)
+                rect = [x0 * escala - 5, (alto - y1) * escala - 5, x1 * escala + 5, (alto - y0) * escala + 5]
+                dibujo.rectangle(rect, fill=(*color, 70), outline=(*color, 255), width=4)
+                marcas.append(rect)
+    if recorte and marcas:
+        arriba = max(0, min(m[1] for m in marcas) - 420)
+        abajo = min(imagen.height, max(m[3] for m in marcas) + 420)
+        imagen = imagen.crop((0, int(arriba), imagen.width, int(abajo)))
+    salida = io.BytesIO()
+    imagen.save(salida, format="PNG", optimize=True)
+    return Response(salida.getvalue(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/revision_estados")
+def revision_guardar(cuerpo: dict = Body(...)):
+    """Guarda la decisión de una fila (a, b, corregido con valor_revisado, rechazado, o vacío para deshacer)."""
+    import csv
+
+    from invest.ingest import estados_compania as ec
+    decision = str(cuerpo.get("revision") or "").strip().lower()
+    if decision not in DECISIONES_REVISION:
+        raise HTTPException(400, "Decisión no permitida")
+    valor = str(cuerpo.get("valor_revisado") or "").strip()
+    if decision == "corregido" and ec._a_numero(valor) is None:
+        raise HTTPException(400, "Falta la cifra corregida")
+    filas = _filas_revision_estados()
+    fila = next((f for f in filas if f.get("documento_id") == cuerpo.get("documento_id")
+                 and f.get("concepto") == cuerpo.get("concepto")), None)
+    if fila is None:
+        raise HTTPException(404, "Fila desconocida")
+    fila["revision"], fila["valor_revisado"] = decision, valor if decision == "corregido" else ""
+    fila["notas_revision"] = str(cuerpo.get("notas_revision") or fila.get("notas_revision") or "")[:500]
+    with open(ec.ruta_revision(), "w", encoding="utf-8-sig", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=ec.COLUMNAS_REVISION, delimiter=";", extrasaction="ignore")
+        escritor.writeheader()
+        escritor.writerows(filas)
+    return responder({"ok": True, "fila": fila})
+
+
 # =========================================================================== Valoración (bandas)
 # Bandas de valoración (src/invest/bandas.py): P/VL y P/U de cada acción frente a su propia historia.
 BANDAS_INDICADORES = {"p_vl": "P/VL", "p_u": "P/U"}
@@ -835,6 +962,8 @@ ACCIONES = {
     "leer_estados_ventana": ["estados-ventana"],        # lectura manual con ventana de los sitios protegidos
     "actualizar_modelo": ["modelo", "--con-dims"],  # dims primero: ahí entran los precios leídos de la Bolsa
     "rehacer_base": ["modelo", "--sin-calcular"],
+    # Incorpora lo decidido en la revisión de estados sin leer documentos nuevos ni llamar a la API
+    "incorporar_revision": ["ingest", "estados_compania"],
 }
 _trabajos: dict[str, dict] = {}
 
@@ -845,6 +974,9 @@ def _correr(trabajo_id: str, argumentos: list[str]) -> None:
         entorno = dict(os.environ)
         if t["accion"] in ("leer_bvc", "leer_en_curso", "leer_estados_ventana"):
             entorno["INVEST_LECTURA_MANUAL"] = "1"  # la pidió una persona desde el aplicativo
+        if t["accion"] == "incorporar_revision":
+            entorno["INVEST_EE_MAX_DOCUMENTOS"] = "0"
+            entorno["INVEST_EE_MAX_ARBITRAJES"] = "0"
         proceso = subprocess.Popen([sys.executable, "-m", "invest", *argumentos], stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                                    stdin=subprocess.DEVNULL, env=entorno)

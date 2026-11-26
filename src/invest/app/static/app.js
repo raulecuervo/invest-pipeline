@@ -1325,6 +1325,80 @@ paginas.alertas = async (v) => {
     ], (x) => postear("/api/usuario/dim_alerta", { filas: [{ ...x, especie: especieDe(x.especie), activa: "si", creada: hoyIso() }] }))));
 };
 
+// ===== Revisión de estados =====
+// Cifras de los estados de compañías en que los dos lectores y el árbitro no se pusieron de acuerdo:
+// la página del PDF con las cifras resaltadas y la decisión (se guarda en invest-data/revision/estados_compania.csv)
+const COLOR_A = "#F5B54A", COLOR_B = "#4CC9F0", COLOR_ARB = "#B48CFF";
+const NOMBRE_CONCEPTO = (c) => estado.variables[c]?.nombre || c.replaceAll("_", " ");
+paginas.revision = async (v) => {
+  v.append(el("div", {}, el("h1", {}, "Revisión de estados financieros"),
+    el("div", { class: "sub" }, "Cifras en que los dos lectores y el árbitro no se pusieron de acuerdo. Mire la página, elija la correcta y luego «Incorporar lo decidido».")));
+  const filas = await api("/api/revision_estados");
+  const pendientes = filas.filter((f) => !f.revision), decididas = filas.filter((f) => f.revision);
+  const estadoTxt = el("span", { class: "nota" });
+  const incorporar = el("button", { type: "button", class: "boton", disabled: !decididas.length,
+    title: "Corre la lectura de estados sin documentos nuevos ni API: solo incorpora lo decidido. Luego «Actualizar el modelo» en Salud de datos." }, "Incorporar lo decidido");
+  incorporar.onclick = async () => {
+    incorporar.disabled = true; estadoTxt.textContent = "Incorporando…";
+    const r = await postear("/api/acciones/incorporar_revision");
+    if (!r.ok) { estadoTxt.textContent = r.problemas.join("; "); incorporar.disabled = false; return; }
+    const sondeo = setInterval(async () => {
+      const t = await api("/api/acciones/" + r.trabajo);
+      if (!t.fin) return;
+      clearInterval(sondeo); incorporar.disabled = false;
+      estadoTxt.textContent = t.codigo === 0 ? "Listo. Para verlo en las fichas: «Actualizar el modelo» en Salud de datos." : "No se pudo: " + ([...t.salida].pop() || "").slice(0, 160);
+    }, 1500);
+  };
+  v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" },
+    el("h2", {}, `${pendientes.length} por decidir · ${decididas.length} decididas`), el("span", { style: { display: "inline-flex", gap: "8px", alignItems: "center" } }, incorporar, estadoTxt)),
+    leyenda([[COLOR_A, "Lector A"], [COLOR_B, "Lector B"], [COLOR_ARB, "Árbitro"]]),
+    el("p", { class: "desc" }, "Las cifras se resaltan en la página donde aparecen impresas. Si una no aparece resaltada, no está escrita así en el documento (pudo ser calculada).")));
+  if (!filas.length) { v.append(el("div", { class: "vacio" }, "No hay cifras en disputa.")); return; }
+  for (const f of [...pendientes, ...decididas]) v.append(tarjetaRevision(f));
+};
+function tarjetaRevision(f) {
+  const caja = el("section", { class: "panel tarjeta-revision" + (f.revision ? " decidida" : "") });
+  const cifra = (val, u) => val === "" || val == null ? "no la registra" : `${num(Number(val), Number(val) % 1 ? 2 : 0)} ${u ? "(" + u + ")" : ""}`;
+  const fila = (color, quien, val, u, pag) => el("div", { class: "evento" }, el("i", { class: "muestra-media", style: { background: color } }),
+    el("strong", { style: { minWidth: "90px" } }, quien), el("span", {}, cifra(val, u)), pag ? el("span", { class: "nota" }, "pág. " + pag) : null);
+  const valores = [f.valor_a, f.valor_b, f.valor_arbitro].map((x) => x || "").join(",");
+  const enviadas = (f.paginas_enviadas || "").split(",").filter(Boolean);
+  const paginasVer = [...new Set([f.pagina_a, f.pagina_b, f.pagina_arbitro].filter(Boolean))];
+  if (!paginasVer.length && enviadas.length) paginasVer.push(enviadas[0]);
+  const imagenes = el("div", { class: "imagenes-revision" }, paginasVer.map((pg) => {
+    const src = (rec) => `/api/revision_estados/imagen?archivo=${encodeURIComponent(f.archivo)}&pagina=${pg}&valores=${encodeURIComponent(valores)}&recorte=${rec}`;
+    return el("figure", {}, el("img", { src: src(1), alt: `Página ${pg} del documento`, loading: "lazy" }),
+      el("figcaption", { class: "nota" }, `Página ${pg} · `, el("a", { href: src(0), target: "_blank", style: { color: "var(--acento)" } }, "ver la página completa")));
+  }));
+  const estadoTxt = el("span", { class: "nota" }, f.revision ? `Decidido: ${f.revision}${f.valor_revisado ? " " + f.valor_revisado : ""}` : "");
+  const guardar = async (revision, valor) => {
+    try {
+      const r = await postear("/api/revision_estados", { documento_id: f.documento_id, concepto: f.concepto, revision, valor_revisado: valor || "" });
+      Object.assign(f, r.fila); caja.replaceWith(tarjetaRevision(f));
+    } catch (e) { estadoTxt.textContent = String(e.message || e); }
+  };
+  const otra = el("input", { type: "text", inputmode: "decimal", placeholder: `cifra en ${f.unidades_a || "las unidades del documento"}`, style: { width: "190px", height: "36px" } });
+  const esDocumento = f.concepto === "documento";
+  const botones = el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
+    el("button", { type: "button", class: "boton", onclick: () => guardar("a") }, esDocumento ? "Vale la lectura A" : "A es la correcta"),
+    el("button", { type: "button", class: "boton", onclick: () => guardar("b") }, esDocumento ? "Vale la lectura B" : "B es la correcta"),
+    !esDocumento && f.valor_arbitro !== "" && f.valor_arbitro != null && f.unidades_arbitro === f.unidades_a
+      ? el("button", { type: "button", class: "boton", onclick: () => guardar("corregido", f.valor_arbitro) }, "La del árbitro") : null,
+    esDocumento ? null : otra,
+    esDocumento ? null : el("button", { type: "button", class: "boton", onclick: () => guardar("corregido", otra.value) }, "Guardar otra cifra"),
+    el("button", { type: "button", class: "boton", onclick: () => guardar("rechazado") }, "Ninguna"),
+    f.revision ? el("button", { type: "button", class: "boton", onclick: () => guardar("") }, "Deshacer") : null,
+    estadoTxt);
+  caja.append(
+    el("div", { class: "encabezado" }, el("h2", {}, `${f.nombre || f.emisor_id} · ${fecha(f.fecha_corte)} · ${esDocumento ? "encabezado del documento" : NOMBRE_CONCEPTO(f.concepto)}`),
+      el("span", { class: "chip gris" }, f.diferencia || "")),
+    esDocumento ? el("p", { class: "desc" }, f.diferencia) : el("div", {}, fila(COLOR_A, "Lector A", f.valor_a, f.unidades_a, f.pagina_a),
+      fila(COLOR_B, "Lector B", f.valor_b, f.unidades_b, f.pagina_b),
+      f.modelo_arbitro ? fila(COLOR_ARB, "Árbitro", f.valor_arbitro, f.unidades_arbitro, f.pagina_arbitro) : el("div", { class: "nota" }, "Aún sin árbitro.")),
+    imagenes, botones);
+  return caja;
+}
+
 paginas.salud = async (v) => {
   const d = await api("/api/salud");
   v.append(el("div", {}, el("h1", {}, "Salud de datos y señales"), el("div", { class: "sub" }, "Estado de cada fuente, últimas corridas, validación de factores y tamaño de las tablas")));

@@ -176,6 +176,15 @@ INSTRUCCIONES = {
 }
 
 
+INSTRUCCIONES["arbitro"] = (
+    "Eres el árbitro entre dos lectores de estados financieros que no se pusieron de acuerdo en algunas "
+    "cifras. No elijas entre sus propuestas por confianza: lee tú mismo el documento adjunto, ubica cada "
+    "estado (situación financiera, resultados, flujos), su encabezado (entidad, consolidado o separado, "
+    "corte, unidades, moneda) y la columna del periodo del informe, y registra todo el documento como lo "
+    "harías desde cero. Copia cada cifra tal como aparece impresa. Si una cifra no está en las páginas "
+    "adjuntas, déjala en null; no la calcules.\n" + REGLAS)
+
+
 @dataclass
 class AgenteEE(dividendos.Agente):
     """Agente de dividendos con la instrucción y los pedidos de los estados financieros."""
@@ -409,12 +418,22 @@ def _contiene(texto: str, frases: list[str]) -> bool:
     return any(normalizar(f) in texto for f in frases)
 
 
+_CALIFICATIVOS = re.compile(r"\b(condensad[oa]s?|condesad[oa]s?|intermedi[oa]s?|resumid[oa]s?)\b ?")
+
+
+def _sin_calificativos(t: str) -> str:
+    """También "total, activo" → "total activo" (Paz del Río escribe así sus totales)."""
+    return re.sub(r"  +", " ", re.sub(r"\btotal\s*,\s*", "total ", _CALIFICATIVOS.sub("", t)))
+
+
 def localizar_paginas(textos: list[str], cfg: dict) -> list[int]:
     """Índices (desde 0) de las páginas de los estados principales, como máximo
     ``max_paginas_por_documento``: situación financiera y resultados (consolidados si los hay) y, si
     queda espacio, flujos de efectivo (por la depreciación) y cambios en el patrimonio."""
     maximo = int(cfg.get("limites", {}).get("max_paginas_por_documento", 8))
-    norm = [normalizar(t) for t in textos]
+    # "Estado condensado de resultados", "estado de situación financiera condesado [sic]" (Paz del Río,
+    # jun-2026): los calificativos de los intermedios no deben impedir reconocer el título
+    norm = [_sin_calificativos(normalizar(t)) for t in textos]
     otros_titulos = [t for clase in cfg["paginas"].values() for t in clase["titulos"]] + [
         "flujos de efectivo", "flujo de efectivo", "cash flows", "otro resultado integral"]
     elegidas: list[int] = []
@@ -657,14 +676,18 @@ def version_de(reg: dict) -> int:
 #   1. donde coinciden, vale (antes se iba todo el documento a cuarentena por una sola cifra);
 #   2. activos, pasivos y patrimonio total: si solo una de las dos propuestas cumple activos = pasivos +
 #      patrimonio (± tolerancia_balance) con lo que sí coincide, vale esa ("resuelto");
-#   3. lo demás queda en invest-data/revision/estados_compania.csv para decidirlo a mano mirando el PDF
+#   3. lo que siga pendiente lo lee un árbitro (otro modelo, por omisión Claude Fable 5.2, con las páginas
+#      de los estados y las que traen las cifras en disputa): vale la propuesta con la que coincide, si
+#      su cifra está en el texto ("arbitrado");
+#   4. lo demás queda en invest-data/revision/estados_compania.csv para decidirlo a mano mirando el PDF
 #      (columna revision: a, b, corregido con valor_revisado, o rechazado) y entra en la próxima corrida
 #      sin volver a llamar a la API ("revisado").
-RESOLUCION_VERSION = 1
-ESTADOS_ACEPTADOS = {"consenso", "resuelto", "revisado"}
+RESOLUCION_VERSION = 2
+ESTADOS_ACEPTADOS = {"consenso", "resuelto", "arbitrado", "revisado"}
 ARCHIVO_REVISION = "estados_compania.csv"
 COLUMNAS_REVISION = ["documento_id", "emisor_id", "nombre", "fecha_corte", "concepto", "unidades_a", "valor_a",
-                     "pagina_a", "unidades_b", "valor_b", "pagina_b", "archivo", "paginas_enviadas", "diferencia",
+                     "pagina_a", "unidades_b", "valor_b", "pagina_b", "unidades_arbitro", "valor_arbitro",
+                     "pagina_arbitro", "modelo_arbitro", "archivo", "paginas_enviadas", "diferencia",
                      "revision", "valor_revisado", "notas_revision"]
 ENCABEZADO = ("es_consolidado", "fecha_corte", "moneda", "unidades", "meses_acumulados")
 
@@ -717,6 +740,77 @@ def resolver_disputa(a: dict | None, b: dict | None, cfg: dict) -> tuple[dict[st
     return decidido, pendientes, []
 
 
+def paginas_arbitraje(textos: list[str], cfg: dict, a: dict | None, b: dict | None, conceptos: list[str]) -> list[int]:
+    """Páginas para el árbitro: las de los estados principales y las que traen alguna de las cifras en
+    disputa (Paz del Río jun-2026: a los dos lectores solo les llegó una página de notas)."""
+    base = localizar_paginas(textos, cfg)
+    con_cifra = []
+    for i, t in enumerate(textos):
+        compacto = dividendos._compacto(t)
+        if any(r and _cifras(r)[c] is not None and cifra_en_texto(_cifras(r)[c], compacto)
+               for r in (a, b) for c in conceptos):
+            con_cifra.append(i)
+    tope = int(cfg.get("limites", {}).get("max_paginas_arbitraje", 12))
+    elegidas = list(dict.fromkeys(con_cifra + base))[:tope]
+    return sorted(elegidas)
+
+
+def texto_arbitraje(contexto: str, a: dict | None, b: dict | None, pendientes: list[str], encabezado: list[str]) -> str:
+    lineas = [contexto, "", "Los dos lectores no coinciden en:"]
+    lineas += [f"- {d}" for d in encabezado]
+    for c in pendientes:
+        va, vb = (_cifras(a)[c] if a else None), (_cifras(b)[c] if b else None)
+        lineas.append(f"- {c}: lector A = {va} ({(a or {}).get('unidades')}), lector B = {vb} ({(b or {}).get('unidades')})")
+    lineas += ["", "Lee el documento y registra todas las cifras del periodo del informe con su página y rótulo."]
+    return "\n".join(lineas)
+
+
+def arbitrar(pdf: bytes, contexto: str, a: dict | None, b: dict | None, cliente, modelos: list[str], cfg: dict) -> dict:
+    """Tercera lectura, con otro modelo, de un documento en disputa. Para cada cifra pendiente vale la
+    propuesta (A o B) con la que coincide el árbitro, si además su cifra aparece en el texto de las
+    páginas. Si el árbitro no coincide con ninguno, queda para revisión a mano con la imagen."""
+    _, pendientes, encabezado = resolver_disputa(a, b, cfg)
+    textos = textos_paginas(pdf)
+    paginas = paginas_arbitraje(textos, cfg, a, b, pendientes) if textos else []
+    if not paginas:
+        return {"estado": "sin_paginas", "modelo": None, "paginas": [], "encabezado": None, "decisiones": {}}
+    texto = "\n".join(textos[i] for i in paginas)
+    recorte = recortar(pdf, paginas)
+    pedido = texto_arbitraje(contexto + "\nPáginas enviadas (del documento original): "
+                             + ", ".join(str(i + 1) for i in paginas), a, b, pendientes, encabezado)
+    r, modelo, ultimo_error = None, None, None
+    for m in modelos:  # el primero que responda (Fable 5.2; si la cuenta no lo tiene, el respaldo)
+        try:
+            r = cliente.registrar(m, INSTRUCCIONES["arbitro"], recorte, pedido)
+            modelo = m
+            break
+        except Exception as e:  # noqa: BLE001 - modelo no disponible para la cuenta
+            ultimo_error = e
+            if "model" not in str(e).lower():
+                raise
+    if r is None:
+        raise ultimo_error or RuntimeError("sin modelo para el arbitraje")
+    compacto = dividendos._compacto(texto)
+    verificable = len(compacto) >= 200
+    decisiones = {}
+    for c in pendientes:
+        vr = _cifras(r)[c]
+        decisiones[c] = None
+        if vr is None or (verificable and not cifra_en_texto(vr, compacto)):
+            continue
+        for ag, x in (("a", a), ("b", b)):
+            if x and _cifras(x)[c] is not None and _iguales(r, x, c):
+                decisiones[c] = ag
+                break
+    lado = None
+    if encabezado:
+        for ag, x in (("a", a), ("b", b)):
+            if x and all(r.get(k) == x.get(k) for k in ENCABEZADO):
+                lado = ag
+    return {"estado": "ok", "modelo": modelo, "paginas": paginas, "encabezado": lado, "decisiones": decisiones,
+            "registro": r, "version": VERSION_LECTURA}
+
+
 def ruta_revision() -> Path:
     return data_dir() / "revision" / ARCHIVO_REVISION
 
@@ -755,14 +849,40 @@ def huella_revision(documento_id: str, revision: dict) -> str:
     return hashlib.sha1("|".join(partes).encode()).hexdigest()[:8] if partes else "-"
 
 
-def filas_revision(doc: dict, log: dict, emisor: dict, cfg: dict) -> list[dict]:
+def _con_arbitraje(a, b, cfg, arbitraje: dict | None):
+    """Lo decidido solo (acuerdo, balance) más lo que decidió el árbitro: (elegido, pendientes, encabezado,
+    lado elegido por el árbitro para el encabezado)."""
+    decidido, pendientes, encabezado = resolver_disputa(a, b, cfg)
+    elegido = {c: (ag, "resuelto") for c, (ag, _) in decidido.items()}
+    lado = None
+    if arbitraje and arbitraje.get("estado") == "ok":
+        lado = arbitraje.get("encabezado")
+        if encabezado and not lado:
+            return elegido, pendientes, encabezado, None
+        for c in list(pendientes):
+            ag = (arbitraje.get("decisiones") or {}).get(c)
+            if ag and (not encabezado or ag == lado):
+                elegido[c] = (ag, "arbitrado")
+                pendientes.remove(c)
+    return elegido, pendientes, encabezado, lado
+
+
+def filas_revision(doc: dict, log: dict, emisor: dict, cfg: dict, arbitraje: dict | None = None) -> list[dict]:
     """Filas para el archivo de revisión de un documento en disputa: lo que no se pudo decidir solo."""
     if log.get("estado") != "en_disputa":
         return []
     a = json.loads(log["json_a"]) if log.get("json_a") else None
     b = json.loads(log["json_b"]) if log.get("json_b") else None
-    _, pendientes, encabezado = resolver_disputa(a, b, cfg)
+    _, pendientes, encabezado, lado = _con_arbitraje(a, b, cfg, arbitraje)
+    if encabezado and lado:
+        encabezado = []  # el árbitro eligió la lectura: lo pendiente es por concepto
     paginas = [int(p) for p in (log.get("paginas") or "").split(",") if p]
+    arb = (arbitraje or {}).get("registro") or {}
+    pag_arb = (arbitraje or {}).get("paginas") or []
+    extra = lambda c: {"unidades_arbitro": arb.get("unidades", ""),  # noqa: E731
+                       "valor_arbitro": "" if not arb or _cifras(arb)[c] is None else _cifras(arb)[c],
+                       "pagina_arbitro": (_pagina_original(arb, c, pag_arb) or "") if arb else "",
+                       "modelo_arbitro": (arbitraje or {}).get("modelo") or ""}
     base = {"documento_id": doc["documento_id"], "emisor_id": doc["emisor_id"], "nombre": emisor.get("nombre", ""),
             "fecha_corte": str(doc.get("corte") or (a or b or {}).get("fecha_corte") or ""),
             "archivo": doc.get("archivo", ""), "paginas_enviadas": ",".join(str(i + 1) for i in paginas),
@@ -770,11 +890,13 @@ def filas_revision(doc: dict, log: dict, emisor: dict, cfg: dict) -> list[dict]:
     if encabezado:
         return [{**base, "concepto": "documento", "unidades_a": (a or {}).get("unidades", ""), "valor_a": "",
                  "pagina_a": "", "unidades_b": (b or {}).get("unidades", ""), "valor_b": "", "pagina_b": "",
+                 "unidades_arbitro": arb.get("unidades", ""), "valor_arbitro": "", "pagina_arbitro": "",
+                 "modelo_arbitro": (arbitraje or {}).get("modelo") or "",
                  "diferencia": "; ".join(encabezado) + " (a o b elige la lectura completa)"}]
     salida = []
     for c in pendientes:
         va, vb = _cifras(a)[c], _cifras(b)[c]
-        salida.append({**base, "concepto": c, "unidades_a": a.get("unidades", ""), "valor_a": "" if va is None else va,
+        salida.append({**base, **extra(c), "concepto": c, "unidades_a": a.get("unidades", ""), "valor_a": "" if va is None else va,
                        "pagina_a": _pagina_original(a, c, paginas) or "", "unidades_b": b.get("unidades", ""),
                        "valor_b": "" if vb is None else vb, "pagina_b": _pagina_original(b, c, paginas) or "",
                        "diferencia": "solo lo registra A" if vb is None else "solo lo registra B" if va is None else "cifras distintas"})
@@ -801,7 +923,8 @@ def exportar_revision(pendientes: list[dict]) -> Path | None:
     return ruta
 
 
-def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict, revision: dict | None = None) -> list[dict]:
+def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict, revision: dict | None = None,
+                    arbitraje: dict | None = None) -> list[dict]:
     """Filas de silver (motivo vacío) y de cuarentena (con motivo) de un documento ya leído."""
     comunes = {k: doc.get(k) for k in ("emisor_id", "archivo", "fecha_publicacion", "origen_fecha_publicacion",
                                        "fecha_descubierto", "documento_id", "huella_pdf")}
@@ -815,7 +938,7 @@ def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict, revision: dic
                  "valor": None, "unidad": None, "valor_documento": None, "unidades_documento": None,
                  "pagina": None, "estado": estado, "motivo": estado}]
     if estado == "en_disputa":
-        return _filas_disputa(doc, a, b, paginas, comunes, emisor, cfg, revision or {})
+        return _filas_disputa(doc, a, b, paginas, comunes, emisor, cfg, revision or {}, arbitraje)
     r = a
     corte = _fecha(r.get("fecha_corte"))
     motivos, _ = controles(r, emisor, cfg)
@@ -833,17 +956,19 @@ def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict, revision: dic
     return salida
 
 
-def _filas_disputa(doc, a, b, paginas, comunes, emisor, cfg, revision) -> list[dict]:
+def _filas_disputa(doc, a, b, paginas, comunes, emisor, cfg, revision, arbitraje=None) -> list[dict]:
     """Un documento en disputa, concepto por concepto (ver «disputas» arriba)."""
-    decidido, pendientes, encabezado = resolver_disputa(a, b, cfg)
-    elegido = {c: (ag, "resuelto") for c, (ag, _) in decidido.items()}
+    elegido, pendientes, encabezado, lado = _con_arbitraje(a, b, cfg, arbitraje)
     rechazados, corregidos = set(), {}
     doc_rev = revision.get((doc["documento_id"], "documento"))
+    if encabezado and lado and not doc_rev:
+        doc_rev = {"revision": lado, "arbitro": True}
     if encabezado and doc_rev and doc_rev["revision"] in ("a", "b"):
         # La persona eligió una de las dos lecturas completas
         r = a if doc_rev["revision"] == "a" else b
-        elegido = {c: (doc_rev["revision"], "revisado") for c in CONCEPTOS if _cifras(r)[c] is not None}
-        pendientes = []
+        if not doc_rev.get("arbitro"):
+            elegido = {c: (doc_rev["revision"], "revisado") for c in CONCEPTOS if _cifras(r)[c] is not None}
+            pendientes = []
     for c in list(pendientes):
         d = revision.get((doc["documento_id"], c))
         if not d:
@@ -1158,6 +1283,66 @@ class ConectorEstadosCompania(Conector):
             self.notas.append(f"{len(pendientes) - maximo} documentos quedan para la próxima corrida")
         return filas
 
+    def _paginas_cambiaron(self, d: dict, leidos: dict) -> bool:
+        reg = leidos.get((d["documento_id"], d["huella_pdf"]))
+        if reg is None or reg["estado"] != "en_disputa":
+            return False
+        try:
+            pdf = unir_pdf([(data_dir() / x).read_bytes() for x in d["archivos"]])
+        except OSError:
+            return False
+        ahora = localizar_paginas(textos_paginas(pdf), self.cfg)
+        antes = [int(p) for p in (reg.get("paginas") or "").split(",") if p]  # índices desde 0
+        return bool(ahora) and sorted(ahora) != sorted(antes)
+
+    def _modelos_arbitro(self) -> list[str]:
+        ag = (self.cfg.get("agentes") or {}).get("arbitro") or {}
+        return [m for m in (ag.get("modelo") or "claude-fable-5-2", ag.get("respaldo") or "claude-opus-5-5") if m]
+
+    def _arbitrar(self, docs: list[dict], leidos: dict, arbitrajes: dict) -> None:
+        """Tercera lectura de los documentos en disputa que aún tienen cifras sin decidir (una vez por PDF)."""
+        emisores = emisores_config(self.cfg)
+        lim = self.cfg.get("limites", {})
+        maximo = int(os.environ.get("INVEST_EE_MAX_ARBITRAJES") or lim.get("max_arbitrajes_por_corrida", 10))
+        candidatos = []
+        for d in docs:
+            reg = leidos.get((d["documento_id"], d["huella_pdf"]))
+            if reg is None or reg["estado"] != "en_disputa":
+                continue
+            previo = arbitrajes.get(d["documento_id"]) or {}
+            if previo.get("huella") == d["huella_pdf"] and previo.get("estado") == "ok":
+                continue
+            a = json.loads(reg["json_a"]) if reg.get("json_a") else None
+            b = json.loads(reg["json_b"]) if reg.get("json_b") else None
+            _, pendientes, encabezado = resolver_disputa(a, b, self.cfg)
+            if pendientes or encabezado:
+                candidatos.append((d, a, b))
+        if not candidatos:
+            return
+        cliente = self.cliente
+        if cliente is None and not os.environ.get("ANTHROPIC_API_KEY"):
+            self.notas.append(f"arbitraje omitido: falta ANTHROPIC_API_KEY ({len(candidatos)} documentos en disputa)")
+            return
+        if cliente is None:
+            cliente = dividendos.ClienteLLM(int(self.cfg.get("max_tokens", 16000)), herramienta=HERRAMIENTA)
+        for d, a, b in candidatos[:maximo]:
+            em = emisores[d["emisor_id"]]
+            contexto = (f"Emisor: {em['nombre']}\nMoneda en que reporta: {em.get('moneda', 'COP')}\n"
+                        f"Corte probable según el nombre del archivo: {d['corte'] or 'desconocido'}")
+            try:
+                pdf = unir_pdf([(data_dir() / x).read_bytes() for x in d["archivos"]])
+                r = arbitrar(pdf, contexto, a, b, cliente, self._modelos_arbitro(), self.cfg)
+            except Exception as e:  # noqa: BLE001 - se reintenta en la próxima corrida
+                self.conteo["arbitraje_error"] = self.conteo.get("arbitraje_error", 0) + 1
+                self.notas.append(f"arbitraje con error: {type(e).__name__}")
+                continue
+            arbitrajes[d["documento_id"]] = {**r, "huella": d["huella_pdf"], "fecha": self._hoy().isoformat()}
+            decididas = sum(1 for v in r["decisiones"].values() if v)
+            self.conteo["arbitrados"] = self.conteo.get("arbitrados", 0) + 1
+            self.conteo["cifras_decididas_por_el_arbitro"] = self.conteo.get("cifras_decididas_por_el_arbitro", 0) + decididas
+        if len(candidatos) > maximo:
+            self.notas.append(f"{len(candidatos) - maximo} documentos en disputa esperan arbitraje")
+
     # ----------------------------------------------------------------- interfaz del conector
     def descargar(self, desde: date, hasta: date) -> list[dict]:
         self.conteo = {"bajados": 0, "manuales": 0, "fallidos": 0, "descargas_pospuestas": 0,
@@ -1190,6 +1375,9 @@ class ConectorEstadosCompania(Conector):
         pendientes += [d for d in docs if (d["documento_id"], d["huella_pdf"]) in leidos
                        and leidos[(d["documento_id"], d["huella_pdf"])]["estado"] not in REINTENTAR
                        and version_de(leidos[(d["documento_id"], d["huella_pdf"])]) < VERSION_LECTURA]
+        # Disputas leídas con otras páginas de las que se eligen hoy (Paz del Río jun-2026: antes solo se
+        # reconocía una página de notas): se leen de nuevo con las páginas correctas antes del árbitro
+        pendientes += [d for d in docs if d not in pendientes and self._paginas_cambiaron(d, leidos)]
         nuevas = self._leer(pendientes)
         if nuevas:
             storage.upsert_por_anio("silver", TABLA_EXTRACCION, pl.DataFrame(nuevas, schema=ESQUEMA_EXTRACCION),
@@ -1197,21 +1385,25 @@ class ConectorEstadosCompania(Conector):
             leidos.update({(r["documento_id"], r["huella_pdf"]): r for r in nuevas})
         # Lo leído (en esta corrida o en una anterior que falló después de leer) que aún no está en
         # silver se incorpora sin volver a llamar a la API
+        arbitrajes = self.estado_nuevo.setdefault("arbitrajes", {})
+        self._arbitrar(docs, leidos, arbitrajes)
         incorporados = self.estado_nuevo.setdefault("incorporados", {})
         emisores = emisores_config(self.cfg)
         revision = leer_revision()
         registros, por_revisar = [], []
         for d in docs:
             reg = leidos.get((d["documento_id"], d["huella_pdf"]))
+            arb = arbitrajes.get(d["documento_id"])
+            arb = arb if arb and arb.get("huella") == d["huella_pdf"] else None
             if reg is not None and reg["estado"] == "en_disputa":
-                por_revisar += filas_revision(d, reg, emisores[d["emisor_id"]], self.cfg)
+                por_revisar += filas_revision(d, reg, emisores[d["emisor_id"]], self.cfg, arb)
             marca = f"{d['huella_pdf']}:v{version_de(reg)}" if reg is not None else None
             if marca and reg["estado"] == "en_disputa":
                 # Una disputa se vuelve a incorporar si cambia la regla de resolución o una decisión a mano
-                marca += f":r{RESOLUCION_VERSION}:{huella_revision(d['documento_id'], revision)}"
+                marca += f":r{RESOLUCION_VERSION}:{huella_revision(d['documento_id'], revision)}:{(arb or {}).get('modelo') or '-'}"
             if reg is None or reg["estado"] == "error" or (incorporados.get(d["documento_id"]) == marca and not self.forzado):
                 continue
-            registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg, revision)
+            registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg, revision, arb)
             incorporados[d["documento_id"]] = marca
         sin_decidir = [f for f in por_revisar if (f["documento_id"], f["concepto"]) not in revision]
         if exportar_revision(por_revisar) and sin_decidir:

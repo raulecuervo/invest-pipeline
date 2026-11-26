@@ -148,3 +148,36 @@ def test_medias_moviles_del_precio():
     assert servidor._media_simple([1.0, None, 3.0, 4.0, 5.0], 2) == [None, None, None, 3.5, 4.5]
     e = servidor._media_exponencial(xs, 3)
     assert e[:2] == [None, None] and e[2] == 2.0 and e[3] == pytest.approx(0.5 * 4 + 0.5 * 2.0) and e[4] == pytest.approx(0.5 * 5 + 0.5 * 3.0)
+
+
+def test_revision_de_estados_guarda_la_decision_e_imagen(cliente, carpeta_datos):
+    import csv
+
+    from invest.app import servidor
+    from invest.ingest import estados_compania as ec
+    pytest.importorskip("pypdfium2")
+    assert servidor.variantes_cifra("637979587.0") == ["637,979,587", "637.979.587"]
+    assert servidor.variantes_cifra("2705.93") == ["2,705.93", "2.705,93"]
+    # Un PDF de una página con la cifra impresa
+    pdf = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj "
+           b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj "
+           b"4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 40 100 Td (Total 958,581,540) Tj ET\nendstream endobj "
+           b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF")
+    destino = carpeta_datos / "anexos" / "companias" / "CO-X" / "doc.pdf"
+    destino.parent.mkdir(parents=True)
+    destino.write_bytes(pdf)
+    fila = {c: "" for c in ec.COLUMNAS_REVISION}
+    fila.update(documento_id="d1", emisor_id="CO-X", concepto="pasivos", valor_a="637979587", valor_b="958581540",
+                archivo="anexos/companias/CO-X/doc.pdf", pagina_b="1", unidades_a="miles")
+    ec.ruta_revision().parent.mkdir(parents=True, exist_ok=True)
+    with open(ec.ruta_revision(), "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=ec.COLUMNAS_REVISION, delimiter=";")
+        w.writeheader(); w.writerow(fila)
+    assert cliente.get("/api/revision_estados").json()[0]["concepto"] == "pasivos"
+    img = cliente.get("/api/revision_estados/imagen", params={"archivo": fila["archivo"], "pagina": 1, "valores": "637979587,958581540"})
+    assert img.status_code == 200 and img.content.startswith(b"\x89PNG")
+    # Fuera de la carpeta de datos no se sirve nada
+    assert cliente.get("/api/revision_estados/imagen", params={"archivo": "../../etc/passwd.pdf", "pagina": 1}).status_code == 400
+    assert cliente.post("/api/revision_estados", json={"documento_id": "d1", "concepto": "pasivos", "revision": "corregido"}).status_code == 400
+    r = cliente.post("/api/revision_estados", json={"documento_id": "d1", "concepto": "pasivos", "revision": "b"})
+    assert r.status_code == 200 and ec.leer_revision()[("d1", "pasivos")]["revision"] == "b"

@@ -282,6 +282,7 @@ def test_revision_cruzada_llega_al_consenso(cfg, carpeta_datos, monkeypatch):
 
 
 def test_sin_consenso_va_a_cuarentena(cfg, carpeta_datos, monkeypatch):
+    monkeypatch.setenv("INVEST_EE_MAX_ARBITRAJES", "0")  # sin árbitro: queda todo para revisión
     web = Web({INDICE_NUTRESA: HTML_NUTRESA, PDF_NUTRESA: documento()})
     otra = registro(unidades="miles")
     cliente = ClienteFalso({MA: [registro()] * 3, MB: [otra] * 3})
@@ -580,8 +581,11 @@ def test_disputa_se_decide_por_concepto_y_con_el_balance(cfg, carpeta_datos, mon
     a = registro()
     b = registro(utilidad_total=1_300_000.0)
     del b["cifras"]["pasivos"]
-    res = correr(web, ClienteFalso({MA: [a] * 3, MB: [b] * 3}), monkeypatch)
-    assert res.estado == "revisar" and "1 cifras en disputa por decidir" in res.detalle
+    # El árbitro tampoco coincide (y su cifra no está en el documento): queda para decidir a mano
+    arbitro = registro(utilidad_total=1_111_111.0)
+    cliente = ClienteFalso({MA: [a] * 3, MB: [b] * 3, "claude-fable-5-2": [arbitro]})
+    res = correr(web, cliente, monkeypatch)
+    assert res.estado == "revisar" and "1 cifras en disputa por decidir" in res.detalle and "arbitrados 1" in res.detalle
     ok = {r["concepto"]: r for r in storage.leer_tabla("silver", ec.TABLA).iter_rows(named=True)}
     assert ok["pasivos"]["estado"] == "resuelto" and ok["activos"]["estado"] == "resuelto"
     assert ok["pasivos"]["valor"] == 22_002_614e6 and "utilidad_total" not in ok
@@ -589,7 +593,8 @@ def test_disputa_se_decide_por_concepto_y_con_el_balance(cfg, carpeta_datos, mon
     import csv
     with open(ec.ruta_revision(), encoding="utf-8-sig") as f:
         filas = list(csv.DictReader(f, delimiter=";"))
-    assert [(r["concepto"], r["valor_a"], r["valor_b"]) for r in filas] == [("utilidad_total", "1245336.0", "1300000.0")]
+    assert [(r["concepto"], r["valor_a"], r["valor_b"], r["valor_arbitro"], r["modelo_arbitro"]) for r in filas] == [
+        ("utilidad_total", "1245336.0", "1300000.0", "1111111.0", "claude-fable-5-2")]
 
     # Esteban mira el PDF y elige la cifra de A: entra en la próxima corrida sin volver a la API
     filas[0]["revision"] = "a"
@@ -607,3 +612,29 @@ def test_disputa_de_encabezado_se_decide_con_la_lectura_completa():
     a, b = registro(), registro(unidades="miles")
     decidido, pendientes, encabezado = ec.resolver_disputa(a, b, {})
     assert decidido == {} and "upa_basica" in pendientes and encabezado == ["unidades: A='millones' B='miles'"]
+
+
+def test_el_arbitro_decide_cuando_coincide_con_uno(cfg, carpeta_datos, monkeypatch):
+    """Tercera lectura (Fable 5.2): coincide con A en la utilidad y la cifra está en el documento."""
+    web = Web({INDICE_NUTRESA: HTML_NUTRESA, PDF_NUTRESA: documento()})
+    a, b = registro(), registro(utilidad_total=1_300_000.0)
+    cliente = ClienteFalso({MA: [a] * 3, MB: [b] * 3, "claude-fable-5-2": [registro()]})
+    res = correr(web, cliente, monkeypatch)
+    assert res.estado == "ok", res.detalle
+    ok = {r["concepto"]: r for r in storage.leer_tabla("silver", ec.TABLA).iter_rows(named=True)}
+    assert ok["utilidad_total"]["estado"] == "arbitrado" and ok["utilidad_total"]["valor"] == 1_245_336e6
+    assert cliente.llamadas[-1][0] == "claude-fable-5-2"
+
+
+def test_sin_acceso_a_fable_usa_el_respaldo(cfg, carpeta_datos, monkeypatch):
+    class SinFable(ClienteFalso):
+        def registrar(self, modelo, sistema, pdf, texto):
+            if modelo == "claude-fable-5-2":
+                raise RuntimeError("not_found_error: model: claude-fable-5-2")
+            return super().registrar(modelo, sistema, pdf, texto)
+    web = Web({INDICE_NUTRESA: HTML_NUTRESA, PDF_NUTRESA: documento()})
+    a, b = registro(), registro(utilidad_total=1_300_000.0)
+    cliente = SinFable({MA: [a] * 3, MB: [b] * 3, "claude-opus-5-5": [registro()]})
+    correr(web, cliente, monkeypatch)
+    ok = {r["concepto"]: r for r in storage.leer_tabla("silver", ec.TABLA).iter_rows(named=True)}
+    assert ok["utilidad_total"]["estado"] == "arbitrado"
