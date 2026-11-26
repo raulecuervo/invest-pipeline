@@ -416,26 +416,34 @@ fuentes:
     acceso: api_socrata
     frecuencia: diaria
     ventana_publicacion: "diaria"
-    recarga_dias: 5
+    recarga_dias: 7
     ejecuta_en: actions
     licencia: datos abiertos del Estado colombiano
     redistribuible: true
-    estado: pendiente
+    bronze_en_repositorio: false
+    estado: implementado
     fase: 3
+    historico_desde: "2018-01-01"
+    tabla_destino: fact_serie_macro
+    nota: "Formato 441: tasa y monto de las emisiones de CDT por entidad y plazo (unidad de captura 1; subcuentas 70, 110 y 130 = 90, 180 y 360 días). Se guarda el promedio ponderado por monto de cada día: sfc_cdt_90, sfc_cdt_180, sfc_cdt_360 (efectiva anual, %)"
 
   - id: fic_datos_gov
     nombre: SFC, fondos de inversión colectiva (formato F-523)
     tipo_dato: fondos
     url: https://www.datos.gov.co/resource/qhpu-8ixx.json
     acceso: api_socrata
-    frecuencia: diaria
+    frecuencia: mensual
     ventana_publicacion: "2 a 3 días hábiles de rezago"
-    recarga_dias: 10
+    recarga_dias: 35
     ejecuta_en: actions
     licencia: datos abiertos del Estado colombiano
     redistribuible: true
-    estado: pendiente
+    bronze_en_repositorio: false
+    estado: implementado
     fase: 3
+    historico_desde: "2016-01-01"
+    tabla_destino: fact_fic_mensual
+    nota: "Formato 523: solo los últimos 4 días de cada mes cerrado y las columnas usadas; se guarda el último reporte del mes de cada fondo y tipo de participación (valor de la unidad, neto de comisión)"
 
   # -------------------------------------------------------------------- Macro
   - id: dane_ipc

@@ -7,6 +7,7 @@ from invest.ingest.dane_ipc import ConectorDANEIPC
 from invest.ingest.estados_compania import ConectorEstadosCompania
 from invest.ingest.fred import ConectorFRED
 from invest.ingest.sec_edgar import ConectorEDGAR
+from invest.ingest.sfc_ahorro import ConectorCDT, ConectorFIC
 from invest.ingest.sfc import ConectorSFCEspecies, ConectorSFCFicha, ConectorSFCPrecios
 from invest.ingest.sfc_niif import ConectorNIIF
 from invest.ingest.sfc_relevante import ConectorSFCRelevante
@@ -17,5 +18,5 @@ CONECTORES = {
     c.fuente_id: c
     for c in (ConectorTRM, ConectorSFCEspecies, ConectorSFCPrecios, ConectorSFCFicha, ConectorSFCRelevante,
               ConectorDANEIPC, ConectorFRED, ConectorCUIF, ConectorEDGAR, ConectorBVC, ConectorBVCIndices, ConectorBVCEnCurso, ConectorBanRep,
-              ConectorNIIF, ConectorSupersociedades, ConectorEstadosCompania)
+              ConectorNIIF, ConectorSupersociedades, ConectorEstadosCompania, ConectorCDT, ConectorFIC)
 }

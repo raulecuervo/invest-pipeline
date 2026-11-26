@@ -26,6 +26,7 @@ def consultar(
     url: str,
     where: str | None = None,
     order: str | None = None,
+    select: str | None = None,
     pagina: int = 50_000,
     reintentos: int = 4,
     timeout: int = 60,
@@ -45,6 +46,8 @@ def consultar(
             params["$where"] = where
         if order:
             params["$order"] = order
+        if select:
+            params["$select"] = select
         lote = _pedir(sesion, url, params, headers, reintentos, timeout)
         registros.extend(lote)
         if len(lote) < pagina:

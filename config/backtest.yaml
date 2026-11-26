@@ -1,12 +1,14 @@
 # Activos del Laboratorio de carteras (src/invest/backtest.py, página «Laboratorio»).
 #
-# Además de estos, cada acción con retorno total (gold/fact_tecnico_diario) es un activo «accion:<especie>».
+# Además de estos, cada acción con retorno total (gold/fact_tecnico_diario) es un activo «accion:<especie>» y
+# cada fondo de inversión colectiva con reporte reciente (silver/fact_fic_mensual) uno «fic:<entidad>:<negocio>:<participación>».
 # tipo:
 #   tasa    el valor crece cada día con la tasa anual efectiva de la serie (la primera que tenga dato)
 #   bono    bono a la par al plazo indicado, comprado cada mes a la tasa de la serie y vendido al mes
 #           siguiente a la tasa nueva (cupón del mes + cambio de precio): una aproximación del índice de
 #           un bono de plazo constante, marcada como aproximada
 #   indice  un índice propio de gold/fact_indice_mercado (retorno total)
+#   cdt     CDT que se renueva al vencer: la tasa queda fija durante el plazo (plazo_dias)
 # costo: fracción del monto comprado o vendido que se pierde en cada operación (comisión + diferencial
 # de compra y venta). Es un supuesto; la tabla de costos del intermediario la reemplaza cuando exista.
 activos:
@@ -26,6 +28,24 @@ activos:
     series: [fred_dgs3mo]
     costo: 0.003
     nota: "Incluye la variación de la TRM cuando la cartera está en pesos."
+  cdt_90:
+    nombre: "CDT a 90 días, renovado al vencer"
+    clase: CDT
+    moneda: COP
+    tipo: cdt
+    series: [sfc_cdt_90]
+    plazo_dias: 90
+    costo: 0.0
+    nota: "Tasa promedio ponderada de las emisiones del día en todo el sistema (SFC, desde 2018), antes de la retención en la fuente."
+  cdt_360:
+    nombre: "CDT a 360 días, renovado al vencer"
+    clase: CDT
+    moneda: COP
+    tipo: cdt
+    series: [sfc_cdt_360]
+    plazo_dias: 360
+    costo: 0.0
+    nota: "Tasa promedio ponderada de las emisiones del día en todo el sistema (SFC, desde 2018), antes de la retención en la fuente."
   tes_10a:
     nombre: "TES a 10 años (aproximado)"
     clase: TES_TF
@@ -64,6 +84,7 @@ activos:
     nota: "Desde 2017 (acciones en circulación conocidas)."
 
 costo_accion: 0.005          # acciones individuales (comisión + diferencial)
+costo_fic: 0.0               # fondos de inversión colectiva: la comisión ya está descontada del valor de la unidad
 meses_sin_negocio_aviso: 3   # una acción sin negocios en tantos meses seguidos se marca: su valor es el último precio
 
 # Carteras de ejemplo para comparar en el Laboratorio. No son recomendaciones: sirven para ver cómo se

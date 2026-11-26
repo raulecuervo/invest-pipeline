@@ -22,6 +22,9 @@ indicadores:
   ipc_co: {nombre: "Índice de precios al consumidor de Colombia (DANE, base dic-2018 = 100)", corto: IPC, pais_id: CO, categoria: inflacion, unidad: indice_dic2018_100, frecuencia: mensual}
   msci_colcap: {nombre: "MSCI COLCAP", corto: COLCAP, pais_id: CO, categoria: renta_variable, unidad: puntos, frecuencia: diaria}
   msci_nuam_usd: {nombre: "MSCI NUAM USD", corto: NUAM USD, pais_id: CO, categoria: renta_variable, unidad: puntos, frecuencia: diaria}
+  sfc_cdt_90: {nombre: "Tasa de los CDT a 90 días (promedio ponderado del sistema, SFC)", corto: CDT 90 días, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  sfc_cdt_180: {nombre: "Tasa de los CDT a 180 días (promedio ponderado del sistema, SFC)", corto: CDT 180 días, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
+  sfc_cdt_360: {nombre: "Tasa de los CDT a 360 días (promedio ponderado del sistema, SFC)", corto: CDT 360 días, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: diaria}
   fred_colirltlt01stm: {nombre: "Tasa de largo plazo de Colombia (OCDE)", corto: Tasa larga CO, pais_id: CO, categoria: tasas, unidad: pct, frecuencia: mensual}
   fred_dgs10: {nombre: "Bono del Tesoro de EE. UU. a 10 años", corto: Tesoro 10 años, pais_id: US, categoria: tasas, unidad: pct, frecuencia: diaria}
   fred_dgs3mo: {nombre: "Letra del Tesoro de EE. UU. a 3 meses", corto: Tesoro 3 meses, pais_id: US, categoria: tasas, unidad: pct, frecuencia: diaria}

@@ -145,3 +145,26 @@ def test_pesos_no_validos(pesos, mensaje):
 def test_pesos_de_texto():
     assert bt.pesos_de_texto("acciones_co_igual=60, tes_10a=40") == {"acciones_co_igual": 0.6, "tes_10a": 0.4}
     assert bt.pesos_de_texto("efectivo_cop=1") == {"efectivo_cop": 1.0}
+
+
+def test_nivel_cdt_renueva_a_la_tasa_del_vencimiento():
+    diaria = pl.DataFrame({"fecha": [date(2020, 1, 1), date(2020, 3, 1)], "valor": [10.0, 4.0]})
+    meses = [date(2020, 1, 31), date(2020, 3, 31), date(2020, 6, 30)]
+    n = bt.nivel_cdt(diaria, meses, 90)
+    assert n[0] == pytest.approx(1.10 ** (30 / 365))
+    assert n[1] == pytest.approx(1.10 ** (90 / 365))                # en marzo sigue con la tasa de compra
+    vence = date(2020, 3, 31)                                        # 1-ene + 90 días; se renueva al 4 %
+    assert n[2] == pytest.approx(1.10 ** (90 / 365) * 1.04 ** ((date(2020, 6, 30) - vence).days / 365))
+
+
+def test_fondo_de_inversion_en_el_laboratorio():
+    d = DatosFalsos()
+    meses = bt.meses_entre(date(2016, 1, 31), date(2020, 12, 31))
+    d._fic = pl.DataFrame({"fecha": meses, "id": "fic:5:100:800", "valor": [10000 * 1.004 ** k for k in range(len(meses))],
+                           "nombre_fondo": "FONDO ABIERTO PRUEBA", "nombre_entidad": "Fiduciaria X", "subtipo": "FIC DE TIPO GENERAL",
+                           "valor_fondo": 1e9})
+    cat = {a["id"]: a for a in bt.catalogo(d)}
+    assert cat["fic:5:100:800"]["nombre"] == "Fondo abierto prueba · Fiduciaria X (part. 800)"
+    r = bt.correr(bt.Parametros(pesos={"fic:5:100:800": 1.0}, hasta=date(2020, 12, 31)), d)
+    assert r["metricas"]["retorno_anual"] == pytest.approx(1.004 ** 12 - 1)
+    assert r["activos"][0]["nombre"] == "Fondo abierto prueba · Fiduciaria X"

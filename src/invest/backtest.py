@@ -92,6 +92,16 @@ class Datos:
         return (self._indices.filter((pl.col("indice_id") == indice_id) & (pl.col("moneda") == "COP"))
                 .select("fecha", "valor").drop_nulls().sort("fecha"))
 
+    def fic(self) -> pl.DataFrame:
+        if getattr(self, "_fic", None) is None:
+            t = storage.leer_tabla("silver", "fact_fic_mensual")
+            self._fic = pl.DataFrame(schema={"fecha": pl.Date, "id": pl.Utf8, "valor": pl.Float64, "nombre_fondo": pl.Utf8,
+                                             "nombre_entidad": pl.Utf8, "subtipo": pl.Utf8, "valor_fondo": pl.Float64}) if t is None else \
+                t.select("fecha", pl.concat_str([pl.lit("fic:"), "codigo_entidad", pl.lit(":"), "codigo_negocio", pl.lit(":"),
+                                                 "tipo_participacion"]).alias("id"), pl.col("valor_unidad").alias("valor"),
+                         "nombre_fondo", "nombre_entidad", "subtipo", "valor_fondo").sort("fecha")
+        return self._fic
+
     def trm(self) -> pl.DataFrame:
         if self._trm is None:
             from invest.mercado import _trm
@@ -135,6 +145,27 @@ def nivel_tasa(diaria: pl.DataFrame, meses: list[date]) -> np.ndarray:
         dias = (m - f[j]).days
         salida.append(acumulado[j] * (1 + r[j] / 100) ** (dias / 365))
     return np.array(salida, dtype=float)
+
+
+def nivel_cdt(diaria: pl.DataFrame, meses: list[date], plazo_dias: int) -> np.ndarray:
+    """Valor de un CDT que se renueva al vencer: la tasa queda fija ``plazo_dias`` desde la compra y al
+    renovarse toma la tasa vigente ese día (antes de impuestos). Base 1 en la primera compra."""
+    if diaria.is_empty():
+        return np.full(len(meses), np.nan)
+    f = diaria.get_column("fecha").to_list()
+    r = diaria.get_column("valor").to_list()
+    salida = np.full(len(meses), np.nan)
+    compra, valor_compra, tasa = f[0], 1.0, r[0]
+    for k, m in enumerate(meses):
+        if m < f[0]:
+            continue
+        while (m - compra).days >= plazo_dias:  # vence y se renueva a la tasa de ese día
+            vence = compra + timedelta(days=plazo_dias)
+            valor_compra *= (1 + tasa / 100) ** (plazo_dias / 365)
+            j = _ultimo_indice(f, vence)
+            compra, tasa = vence, r[j]
+        salida[k] = valor_compra * (1 + tasa / 100) ** ((m - compra).days / 365)
+    return salida
 
 
 def _ultimo_indice(fechas: list[date], d: date) -> int | None:
@@ -199,13 +230,35 @@ def catalogo(datos: Datos | None = None) -> list[dict]:
             salida.append({"id": f"accion:{r['especie']}", "nombre": r["especie"], "clase": "ACCION", "moneda": "COP",
                            "costo": cfg.get("costo_accion", 0.005), "aproximado": False, "nota": "", "tipo": "accion",
                            "desde": r["desde"].isoformat(), "hasta": r["hasta"].isoformat(), "dias": r["dias"]})
+    fic = datos.fic()
+    if not fic.is_empty():
+        ultimo = fic.get_column("fecha").max()
+        rangos = fic.group_by("id").agg(pl.col("fecha").min().alias("desde"), pl.col("fecha").max().alias("hasta"),
+                                        pl.col("nombre_fondo").last(), pl.col("nombre_entidad").last(), pl.col("subtipo").last(),
+                                        pl.col("valor_fondo").last())
+        # Solo los que siguen reportando (hasta el último mes con datos)
+        for r in rangos.filter(pl.col("hasta") >= ultimo - timedelta(days=40)).sort("valor_fondo", descending=True, nulls_last=True).iter_rows(named=True):
+            part = r["id"].rsplit(":", 1)[-1]
+            salida.append({"id": r["id"], "nombre": f"{_titulo(r['nombre_fondo'])} · {r['nombre_entidad']} (part. {part})",
+                           "clase": "FIC", "moneda": "COP", "costo": cfg.get("costo_fic", 0.0), "aproximado": False,
+                           "nota": r["subtipo"] or "", "tipo": "fic", "desde": r["desde"].isoformat(), "hasta": r["hasta"].isoformat(),
+                           "valor_fondo": r["valor_fondo"]})
     return salida
+
+
+def _titulo(nombre: str | None) -> str:
+    """«FONDO DE INVERSIÓN COLECTIVA ABIERTO X» → «Fondo de inversión colectiva abierto X» (más corto de leer)."""
+    t = (nombre or "").strip()
+    return t[:1] + t[1:].lower() if t.isupper() else t
 
 
 def activo(aid: str) -> Activo:
     cfg = config()
     if aid.startswith("accion:"):
         return Activo(aid, aid.split(":", 1)[1], "ACCION", "COP", float(cfg.get("costo_accion", 0.005)))
+    if aid.startswith("fic:"):
+        return Activo(aid, aid, "FIC", "COP", float(cfg.get("costo_fic", 0.0)),
+                      nota="Valor de la unidad a fin de mes, ya neto de la comisión de administración.")
     a = (cfg.get("activos") or {}).get(aid)
     if a is None:
         raise ValueError(f"Activo desconocido: {aid}")
@@ -230,10 +283,18 @@ def niveles(aid: str, meses: list[date], datos: Datos) -> tuple[np.ndarray, np.n
         mes_num = np.array([(m - date(1970, 1, 1)).days for m in meses], dtype=float)
         sin_negocio = (mes_num - ultimo_negocio) > 31
         return nivel, sin_negocio
+    if aid.startswith("fic:"):
+        d = datos.fic().filter(pl.col("id") == aid).select("fecha", "valor")
+        if d.is_empty():
+            raise ValueError(f"Sin historia del fondo {aid}")
+        nivel = _al_fin_de_mes(d, meses, tolerancia_dias=10)  # un mes sin reporte queda como hueco
+        return nivel, None
     a = (cfg.get("activos") or {}).get(aid)
     if a is None:
         raise ValueError(f"Activo desconocido: {aid}")
     tipo = a.get("tipo")
+    if tipo == "cdt":
+        return nivel_cdt(datos.macro(a["series"][0]), meses, int(a.get("plazo_dias", 90))), None
     if tipo == "indice":
         return _al_fin_de_mes(datos.indice(a["indice_id"]), meses), None
     if tipo == "tasa":
@@ -464,6 +525,12 @@ def correr(params: Parametros, datos: Datos | None = None, benchmark: dict[str, 
     meses = meses_entre(primero, min(fin_de_mes(params.hasta), ultimo_cerrado) if params.hasta else ultimo_cerrado)
     trm = _al_fin_de_mes(datos.trm(), meses)
     info = {a: activo(a) for a in todos}
+    for a in todos:
+        if a.startswith("fic:"):
+            f = datos.fic().filter(pl.col("id") == a)
+            if not f.is_empty():
+                ult = f.row(-1, named=True)
+                info[a].nombre = f"{_titulo(ult['nombre_fondo'])} · {ult['nombre_entidad']}"
     mat, sin_negocio, avisos = {}, {}, []
     for a in todos:
         nivel, quieto = niveles(a, meses, datos)
