@@ -85,6 +85,7 @@ Opcional: un *app token* gratuito de datos.gov.co en la variable `SOCRATA_APP_TO
 | `invest factores` | Factores mensuales y su validación estadística |
 | `invest modelo [--sin-calcular]` | Tablas del aplicativo, base `invest-data/modelo.duckdb` y verificación del contrato (código 1 si hay problemas). Solo recalcula los pasos con insumos nuevos y dice cuáles saltó. No reconstruye las tablas de `invest dims` (`fact_fundamental`, precios, retornos, liquidez, macro, dividendos web): si el código de una de ellas es más nuevo que la tabla, avisa que falta correr `invest dims` antes |
 | `invest modelo --todo` | Lo mismo, recalculando todos los pasos aunque sus insumos no hayan cambiado |
+| `invest modelo --con-dims` | Corre antes `invest dims` (ahí entran los precios nuevos de la SFC y de la Bolsa). Es lo que hace el botón «Actualizar el modelo» del aplicativo desde el 25-nov-2026; antes ese botón no incorporaba los precios leídos |
 | `invest app [--puerto 8790] [--no-abrir]` | Aplicativo local en el navegador (doble clic: `scripts\abrir_app.cmd`) |
 | `invest usuario --plantillas` / `--importar TABLA ARCHIVO.csv` | Tablas vacías y CSV de ejemplo para perfiles, carteras y transacciones; carga validada desde Excel |
 | `invest ficha [--abrir]` | Puntaje de los factores validados por acción y tablero `invest-data/tableros/matriz_factores.html` (`scripts\abrir_tablero.cmd` lo hace con doble clic) |

@@ -667,7 +667,7 @@ def contrato():
 ACCIONES = {
     "leer_bvc": ["ingest", "bvc_web", "bvc_indices"],  # lectura manual: la lanza Esteban con el botón
     "leer_estados_ventana": ["estados-ventana"],        # lectura manual con ventana de los sitios protegidos
-    "actualizar_modelo": ["modelo"],
+    "actualizar_modelo": ["modelo", "--con-dims"],  # dims primero: ahí entran los precios leídos de la Bolsa
     "rehacer_base": ["modelo", "--sin-calcular"],
 }
 _trabajos: dict[str, dict] = {}

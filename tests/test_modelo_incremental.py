@@ -128,3 +128,12 @@ def test_avisa_si_una_tabla_de_dims_es_anterior_a_su_codigo(datos):
     for a in archivos:
         os.utime(a, (1, 1))  # 1970: más vieja que mercado.py
     assert "fact_precio_diario" in modelo.tablas_de_dims_atrasadas()
+
+
+def test_modelo_con_dims_reconstruye_los_precios(datos, monkeypatch, capsys):
+    llamado = []
+    monkeypatch.setattr(cli.dims, "construir", lambda: llamado.append(1) or {"fact_precio_diario": "ok"})
+    cli.main(["modelo", "--con-dims"])
+    assert llamado == [1] and "dims:" in capsys.readouterr().out
+    from invest.app import servidor
+    assert servidor.ACCIONES["actualizar_modelo"] == ["modelo", "--con-dims"]

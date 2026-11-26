@@ -87,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     modo.add_argument("--sin-calcular", action="store_true", help="solo rehace la base y verifica")
     modo.add_argument("--todo", action="store_true",
                       help="recalcula todos los pasos (por omisión salta los que no tienen insumos nuevos)")
+    pm.add_argument("--con-dims", action="store_true",
+                    help="corre antes invest dims (precios, retornos, liquidez, fundamentales): lo usa el botón del aplicativo")
 
     pa = sub.add_parser("app", help="Aplicativo local en el navegador")
     pa.add_argument("--puerto", type=int, default=8790, help="si está ocupado por otro programa, usa el siguiente libre")
@@ -248,6 +250,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.comando == "modelo":
         from invest import modelo
+
+        if a.con_dims:
+            print("dims: construyendo precios, retornos, liquidez, fundamentales y macro", flush=True)
+            for nombre, ruta in dims.construir().items():
+                print(f"  {nombre}: {ruta}", flush=True)
 
         def informar(nombre: str, res: dict) -> None:
             if res.get("saltado"):
