@@ -300,11 +300,19 @@ function prefPrecio() {
 }
 function guardarPrefPrecio(p) { try { localStorage.setItem("invest.precio", JSON.stringify(p)); } catch (_) { /* sin almacenamiento */ } }
 const claveSemana = (s) => { const d = new Date(s.slice(0, 10) + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); return d.toISOString().slice(0, 10); };
-// Velas por día, semana o mes. Con apertura, máximo, mínimo y cierre de la Bolsa en todos los días del
+// Tamaño de cada vela: clave del periodo que agrupa los días
+const CLAVE_VELA = {
+  dia: (s) => s.slice(0, 10), semana: claveSemana, mes: (s) => s.slice(0, 7),
+  trimestre: (s) => s.slice(0, 4) + "-T" + Math.ceil(+s.slice(5, 7) / 3), anio: (s) => s.slice(0, 4),
+};
+const TAMANOS_VELA = [["dia", "1 día", "diarias"], ["semana", "1 semana", "semanales"], ["mes", "1 mes", "mensuales"],
+  ["trimestre", "1 trimestre", "trimestrales"], ["anio", "1 año", "anuales"]];
+const MAX_VELAS = 1500;   // más velas que eso no caben ni de un píxel en un gráfico normal
+// Velas por día, semana, mes, trimestre o año. Con apertura, máximo, mínimo y cierre de la Bolsa en todos los días del
 // periodo, la vela es la real; si no, va del último precio del periodo anterior al último del periodo,
 // con el rango de los precios promedio diarios de la SFC (aproximada)
 function agruparVelas(serie, cada) {
-  const clave = cada === "mes" ? (s) => s.slice(0, 7) : cada === "semana" ? claveSemana : (s) => s.slice(0, 10);
+  const clave = CLAVE_VELA[cada] || CLAVE_VELA.dia;
   const grupos = [];
   for (const r of serie) {
     if (r.precio_ajustado == null) continue;
@@ -401,10 +409,22 @@ function panelPrecio(cargar, op = {}) {
       onclick: () => { cambiar(id); pintar(); } }, t)));
     pintar(); return g;
   };
-  const tipo = grupo([["linea", "Línea"], ["velas", "Velas"]], () => pref.tipo, (id) => { pref.tipo = id; guardarPrefPrecio(pref); cada.hidden = id !== "velas"; pintar(); }, "Tipo de gráfico");
-  const cada = grupo([["auto", "Auto"], ["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]], () => pref.cada,
-    (id) => { pref.cada = id; guardarPrefPrecio(pref); pintar(); }, "Periodicidad de las velas");
-  cada.hidden = pref.tipo !== "velas";
+  const tipo = grupo([["linea", "Línea"], ["velas", "Velas"]], () => pref.tipo, (id) => { pref.tipo = id; guardarPrefPrecio(pref); filaVela.hidden = id !== "velas"; pintar(); }, "Tipo de gráfico");
+  // Tamaño de cada vela, independiente del marco de tiempo; se desactiva el que daría menos de 2 velas o
+  // más de MAX_VELAS en el marco elegido
+  const cada = el("div", { class: "grupo", role: "group", "aria-label": "Tamaño de cada vela" });
+  const conteo = (c) => new Set(serie.filter((r) => r.precio_ajustado != null).map((r) => CLAVE_VELA[c](r.fecha))).size;
+  const autoVela = () => TAMANOS_VELA.map(([c]) => c).find((c) => conteo(c) <= 130) || "anio";
+  const pintarCada = () => cada.replaceChildren(...[["auto", "Auto"], ...TAMANOS_VELA].map(([id, t]) => {
+    const n = id === "auto" ? null : conteo(id);
+    const fuera = n != null && serie.length && (n < 2 || n > MAX_VELAS);
+    return el("button", { type: "button", "aria-pressed": String(pref.cada === id), disabled: fuera,
+      title: id === "auto" ? "Hasta unas 130 velas en el marco de tiempo" : fuera ? (n < 2 ? "Daría menos de 2 velas en este marco de tiempo" : `Daría ${n} velas: demasiadas para verse`) : `${n} velas en este marco de tiempo`,
+      onclick: () => { pref.cada = id; guardarPrefPrecio(pref); pintar(); } }, t);
+  }));
+  const rotulo = (t) => el("span", { class: "rotulo-control" }, t);
+  const filaVela = el("div", { class: "control" }, rotulo("Tamaño de cada vela"), cada);
+  filaVela.hidden = pref.tipo !== "velas";
   const medias = el("div", { class: "grupo", role: "group", "aria-label": "Medias móviles" },
     MEDIAS.map(([k, nombre, color]) => el("button", { type: "button", "aria-pressed": String(pref.medias.includes(k)), disabled: !conMedias,
       title: k.startsWith("ema") ? "Media exponencial (pesa más lo reciente)" : "Media simple de las últimas sesiones",
@@ -415,13 +435,17 @@ function panelPrecio(cargar, op = {}) {
   const pintar = () => {
     const elegidas = conMedias ? MEDIAS.filter(([k]) => pref.medias.includes(k)) : [];
     const fy = (x) => num(x, x < 100 ? 2 : 0);
+    pintarCada();
     if (pref.tipo === "velas") {
-      const auto = serie.length <= 130 ? "dia" : serie.length <= 800 ? "semana" : "mes";
-      const c = pref.cada === "auto" ? auto : pref.cada;
+      // Un tamaño que no cabe en el marco elegido pasa al automático (sin olvidar la elección)
+      const n = pref.cada === "auto" ? null : conteo(pref.cada);
+      const c = pref.cada === "auto" || n < 2 || n > MAX_VELAS ? autoVela() : pref.cada;
       const barras = agruparVelas(serie, c);
       velas(caja, barras, elegidas, { alto: op.alto || 300, titulo: "Velas del precio ajustado", fy });
       const reales = barras.filter((b) => b.real).length;
-      nota.textContent = `Velas ${{ dia: "diarias", semana: "semanales", mes: "mensuales" }[c]}${pref.cada === "auto" ? " (automático según el periodo)" : ""}. `
+      const nombreVela = TAMANOS_VELA.find(([id]) => id === c)[2];
+      nota.textContent = `${barras.length} velas ${nombreVela} en ${PERIODOS[periodo][0] === "Máx." ? "toda la historia" : "el marco de " + PERIODOS[periodo][0]}`
+        + `${c !== pref.cada ? " (tamaño automático)" : ""}. `
         + (reales === barras.length ? "Todas con apertura, máximo, mínimo y cierre de la Bolsa."
           : (reales ? `${reales} de ${barras.length} con datos de la Bolsa (rellenas); las huecas son aproximadas: ` : "Velas aproximadas (huecas): ")
             + "la SFC solo publica el precio promedio del día, así que van del último precio del periodo anterior al último del periodo, con el rango de los promedios diarios. Las reales se acumulan desde la primera lectura de la Bolsa (23-nov-2026).");
@@ -437,8 +461,13 @@ function panelPrecio(cargar, op = {}) {
   };
   const recargar = async () => { serie = await cargar(diasPeriodo(periodo) ?? 36500); pintar(); };
   const nodo = el("section", { class: "panel ancho" },
-    el("div", { class: "encabezado" }, el("h2", {}, op.titulo || "Precio"), botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "max"], periodo, (id) => { periodo = id; recargar(); })),
-    el("div", { class: "controles-precio" }, tipo, cada, medias), caja, cajaLeyenda, nota);
+    el("h2", {}, op.titulo || "Precio"),
+    el("div", { class: "controles-precio" },
+      el("div", { class: "control" }, rotulo("Marco de tiempo"),
+        botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "5a", "10a", "max"], periodo, (id) => { periodo = id; recargar(); })),
+      el("div", { class: "control" }, rotulo("Gráfico"), tipo), filaVela,
+      el("div", { class: "control" }, rotulo("Medias móviles"), medias)),
+    caja, cajaLeyenda, nota);
   requestAnimationFrame(recargar);
   return nodo;
 }

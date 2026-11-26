@@ -64,7 +64,9 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; }
 .grupo { display: flex; gap: 2px; flex-wrap: wrap; }
 .grupo button { height: 32px; min-width: 40px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent;
   color: var(--tenue); font-size: 12px; font-weight: 600; cursor: pointer; }
-.controles-precio { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+.controles-precio { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
+.controles-precio .control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rotulo-control { font-size: 12px; color: var(--tenue); white-space: nowrap; }
 .controles-precio [hidden] { display: none; }
 .muestra-media { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .grupo button:disabled { opacity: .45; cursor: not-allowed; }
