@@ -181,16 +181,25 @@ emisores:
     verificadas: []
     otros_formatos: "celsia.com responde con el desafío de Imperva Incapsula a los clientes automáticos (24-nov-2026). El reporte integrado 2025 está en files.grupoargos.com (ReporteIntegradoCelsia2025_Mar20-comprimido.pdf) pero no trae los estados completos. Celsia cotiza también en Santiago (CELSIACL): la CMF de Chile publica sus estados (alternativa por estudiar). PDF a mano en invest-data/fuentes_compania/CO-COT60/"
 
-  # ------------------------------------------------------------------ Terpel (sin URL)
+  # ------------------------------------------------------------------ Terpel
   - emisor_id: CO-COG20
     nombre: Terpel
-    descarga: pendiente
+    descarga: automatica
     moneda: COP
-    unidades_esperadas: [millones]
+    unidades_esperadas: [miles]
+    # La página de la asamblea (terpel.com/accionistas-e-inversionistas/gobierno-corporativo/asamblea-accionistas,
+    # leída el 25-nov-2026) enlaza los anuales como "Descargar" a /var/site/storage/original/application/<huella>.pdf:
+    # ni el texto ni el nombre dicen qué es cada uno, así que no sirve de página índice. Solo directas.
     paginas_indice: []
-    patrones: []
-    verificadas: []
-    otros_formatos: "No se encontró una URL verificable de sus estados en terpel.com (24-nov-2026; la página de inversionistas no se pudo leer). Mientras tanto, PDF a mano en invest-data/fuentes_compania/CO-COG20/ (se procesan aunque el emisor esté pendiente)."
+    directas:   # nombres sin patrón (huella): encontrados con búsqueda web y leídos el 25-nov-2026
+      - {url: "https://www.terpel.com/var/site/storage/original/application/67cb56f49ddb0a24dbf5a602ca8166b5.pdf", corte: 2025-12-31}
+      - {url: "https://www.terpel.com/var/site/storage/original/application/de900a221f54a11c4fe8f86c697383c8.pdf", corte: 2026-03-31}
+      - {url: "https://www.terpel.com/var/site/storage/original/application/c0df412bd3bb2afe920c77a3de65f37e.pdf", corte: 2025-03-31}
+    verificadas:
+      - {url: "https://www.terpel.com/var/site/storage/original/application/67cb56f49ddb0a24dbf5a602ca8166b5.pdf", corte: 2025-12-31, unidades: miles, nota: "consolidados anuales con dictamen; ingresos 38.147.135.440"}
+      - {url: "https://www.terpel.com/var/site/storage/original/application/de900a221f54a11c4fe8f86c697383c8.pdf", corte: 2026-03-31, unidades: miles, nota: "intermedios consolidados, certificación del 14-may-2026"}
+      - {url: "https://www.terpel.com/var/site/storage/original/application/c0df412bd3bb2afe920c77a3de65f37e.pdf", corte: 2025-03-31, unidades: miles, nota: "intermedios consolidados; controladora 166.880.091; UPA 919,89"}
+    otros_formatos: "Los de jun y sep-2026 no aparecieron en la búsqueda web (25-nov-2026): agregarlos a directas cuando se encuentren, o PDF a mano en invest-data/fuentes_compania/CO-COG20/. Los PDF también traen separados (b729ed49…, asamblea 2026)."
 
   # ------------------------------------------------------------------ Ecopetrol (control: tiene XBRL)
   - emisor_id: CO-COC04
@@ -268,11 +277,15 @@ emisores:
 
   - emisor_id: CO-COD05
     nombre: Enka de Colombia
-    descarga: pendiente
+    descarga: automatica
     moneda: COP
-    unidades_esperadas: [miles, millones]
-    paginas_indice: []
-    otros_formatos: "Sin dirección verificada de sus estados en enka.com.co (24-nov-2026). PDF a mano en invest-data/fuentes_compania/CO-COD05/."
+    unidades_esperadas: [miles]
+    paginas_indice: []   # enka.com.co no deja leer su robots.txt (25-nov-2026): sin página índice
+    directas:   # encontradas con búsqueda web el 25-nov-2026
+      - {url: "https://www.enka.com.co/wp-content/uploads/2025/11/Enka_Estados-Financieros-Consolidados-septiembre-2025-PROJD.pdf", corte: 2025-09-30}
+      - {url: "https://www.enka.com.co/wp-content/uploads/2024/11/Enka_Estados-Financieros-Consolidados_Septiembre-2024VSPROT.pdf", corte: 2024-09-30}
+      - {url: "https://www.enka.com.co/wp-content/uploads/2024/08/Enka_EEFF-consolidado-junio-2024-Firmados.pdf", corte: 2024-06-30}
+    otros_formatos: "Consolidados (Enka y Eko Red, miles de pesos) en enka.com.co/wp-content/uploads/<año>/<mes>/; los nombres cambian cada trimestre. La SFC (información relevante) dice que publicó consolidados de mar y jun-2026 y el cierre de 2025, pero no se encontró su dirección en enka.com.co: PDF a mano en invest-data/fuentes_compania/CO-COD05/. Separados: EEFF-<Mes>-<año>-Enka-de-Colombia.pdf."
 
   - emisor_id: CO-COD04
     nombre: Fabricato
@@ -280,7 +293,7 @@ emisores:
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice: []
-    otros_formatos: "Sin dirección verificada de sus estados (24-nov-2026). PDF a mano en invest-data/fuentes_compania/CO-COD04/."
+    otros_formatos: "fabricato.com/inversionistas/informacion-financiera/ (leída el 25-nov-2026) solo trae el informe del 1T-2025 y un folleto consolidado de mar-2024: los estados de 2025-2026 (fin de ejercicio 2025 y trimestrales, separados y consolidados) se publican en la información relevante de la SFC (tipo 034, entidad 004), que se consulta a mano. PDF a mano en invest-data/fuentes_compania/CO-COD04/."
 
   - emisor_id: CO-COD06
     nombre: Manufacturas de Cemento (Titán)
@@ -288,4 +301,4 @@ emisores:
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice: []
-    otros_formatos: "Sitio titancemento.com sin dirección verificada de estados (24-nov-2026). PDF a mano en invest-data/fuentes_compania/CO-COD06/."
+    otros_formatos: "Sin estados publicados en la web (búsqueda del 25-nov-2026: solo agregadores como TradingView o stockanalysis, que no se usan). Está en reorganización. PDF a mano en invest-data/fuentes_compania/CO-COD06/, desde la información relevante de la SFC."

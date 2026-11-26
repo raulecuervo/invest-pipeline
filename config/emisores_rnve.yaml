@@ -44,9 +44,9 @@ emisores:
   - {emisor_id: CO-COD12, nit: "8600299951", nombre: Acerías Paz del Río, codigos: [{tipo: 45, codigo: 3}]}
   - {emisor_id: CO-COF20, nit: "8909224474", nombre: Construcciones El Cóndor, codigos: [{tipo: 56, codigo: 8}]}
   - {emisor_id: CO-COD06, nit: "8600030122", nombre: Manufacturas de Cemento, codigos: [{tipo: 44, codigo: 5}]}
-  # Bolsa Mercantil: el SIMEV no devuelve ningún informe con tipo 76 / código 1 (24-nov-2026): los códigos
-  # están por confirmar en su ficha del SIMEV ("Tipo entidad" y "Código Entidad")
-  - {emisor_id: CO-COR02, nit: "8600712509", nombre: Bolsa Mercantil (antes Bolsa Nacional Agropecuaria), codigos: [{tipo: 76, codigo: 1}]}
+  # Bolsa Mercantil: en el SIMEV es "400 BOLSAS AGROPECUARIAS", código 001 (lista de emisores inscritos
+  # vigentes del RNVE, 25-nov-2026); con 76 / 1 no devolvía ningún informe
+  - {emisor_id: CO-COR02, nit: "8600712509", nombre: Bolsa Mercantil (antes Bolsa Nacional Agropecuaria), codigos: [{tipo: 400, codigo: 1}]}
   # Canacol reporta en dólares aunque la unidad del XBRL diga COP (activos de 1,29 millones de miles = USD 1.290 millones)
   # Canacol entró en reestructuración (CCAA) el 17-nov-2025: negociación suspendida en la BVC por tiempo
   # indefinido, deslistada de Toronto el 29-dic-2025; la SFC la mantiene inscrita solo para revelar información
