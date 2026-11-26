@@ -571,3 +571,39 @@ def test_estados_desde_la_informacion_relevante_de_la_sfc(cfg, carpeta_datos, mo
     assert fila["archivo"].startswith("anexos/companias/CO-COG20/2025-12-31_sfc_aaa") and fila["emisor_id"] == "CO-COG20"
     assert fila["origen_fecha_publicacion"] == "sfc_informacion_relevante"
     assert (carpeta_datos / fila["archivo"]).read_bytes() == documento()
+
+
+def test_disputa_se_decide_por_concepto_y_con_el_balance(cfg, carpeta_datos, monkeypatch):
+    """B no registra los pasivos (Paz del Río jun-2026): coinciden en lo demás y activos = pasivos +
+    patrimonio con la cifra de A, así que vale. La utilidad en que difieren va al archivo de revisión."""
+    web = Web({INDICE_NUTRESA: HTML_NUTRESA, PDF_NUTRESA: documento()})
+    a = registro()
+    b = registro(utilidad_total=1_300_000.0)
+    del b["cifras"]["pasivos"]
+    res = correr(web, ClienteFalso({MA: [a] * 3, MB: [b] * 3}), monkeypatch)
+    assert res.estado == "revisar" and "1 cifras en disputa por decidir" in res.detalle
+    ok = {r["concepto"]: r for r in storage.leer_tabla("silver", ec.TABLA).iter_rows(named=True)}
+    assert ok["pasivos"]["estado"] == "resuelto" and ok["activos"]["estado"] == "resuelto"
+    assert ok["pasivos"]["valor"] == 22_002_614e6 and "utilidad_total" not in ok
+    assert set(cuarentena().get_column("concepto")) == {"utilidad_total"}
+    import csv
+    with open(ec.ruta_revision(), encoding="utf-8-sig") as f:
+        filas = list(csv.DictReader(f, delimiter=";"))
+    assert [(r["concepto"], r["valor_a"], r["valor_b"]) for r in filas] == [("utilidad_total", "1245336.0", "1300000.0")]
+
+    # Esteban mira el PDF y elige la cifra de A: entra en la próxima corrida sin volver a la API
+    filas[0]["revision"] = "a"
+    with open(ec.ruta_revision(), "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=ec.COLUMNAS_REVISION, delimiter=";")
+        w.writeheader(); w.writerows(filas)
+    otro = ClienteFalso({MA: [], MB: []})
+    res2 = correr(web, otro, monkeypatch)
+    assert otro.llamadas == [] and "por decidir" not in res2.detalle
+    ok = {r["concepto"]: r for r in storage.leer_tabla("silver", ec.TABLA).iter_rows(named=True)}
+    assert ok["utilidad_total"]["estado"] == "revisado" and ok["utilidad_total"]["valor"] == 1_245_336e6
+
+
+def test_disputa_de_encabezado_se_decide_con_la_lectura_completa():
+    a, b = registro(), registro(unidades="miles")
+    decidido, pendientes, encabezado = ec.resolver_disputa(a, b, {})
+    assert decidido == {} and "upa_basica" in pendientes and encabezado == ["unidades: A='millones' B='miles'"]

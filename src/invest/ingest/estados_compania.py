@@ -37,6 +37,7 @@ notas de la corrida solo traen conteos, nunca cifras.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
@@ -651,7 +652,156 @@ def version_de(reg: dict) -> int:
     return 1
 
 
-def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict) -> list[dict]:
+# --------------------------------------------------------------------------- disputas
+# Cuando los dos agentes no se ponen de acuerdo, cada concepto se decide por separado:
+#   1. donde coinciden, vale (antes se iba todo el documento a cuarentena por una sola cifra);
+#   2. activos, pasivos y patrimonio total: si solo una de las dos propuestas cumple activos = pasivos +
+#      patrimonio (± tolerancia_balance) con lo que sí coincide, vale esa ("resuelto");
+#   3. lo demás queda en invest-data/revision/estados_compania.csv para decidirlo a mano mirando el PDF
+#      (columna revision: a, b, corregido con valor_revisado, o rechazado) y entra en la próxima corrida
+#      sin volver a llamar a la API ("revisado").
+RESOLUCION_VERSION = 1
+ESTADOS_ACEPTADOS = {"consenso", "resuelto", "revisado"}
+ARCHIVO_REVISION = "estados_compania.csv"
+COLUMNAS_REVISION = ["documento_id", "emisor_id", "nombre", "fecha_corte", "concepto", "unidades_a", "valor_a",
+                     "pagina_a", "unidades_b", "valor_b", "pagina_b", "archivo", "paginas_enviadas", "diferencia",
+                     "revision", "valor_revisado", "notas_revision"]
+ENCABEZADO = ("es_consolidado", "fecha_corte", "moneda", "unidades", "meses_acumulados")
+
+
+def _pagina_original(r: dict | None, concepto: str, paginas: list[int]) -> int | None:
+    pag = (((r or {}).get("cifras") or {}).get(concepto) or {}).get("pagina")
+    return paginas[pag - 1] + 1 if isinstance(pag, int) and 1 <= pag <= len(paginas) else None
+
+
+def _iguales(a: dict, b: dict, c: str) -> bool:
+    x, y = normalizado(a, c), normalizado(b, c)
+    if x is None or y is None:
+        return x is None and y is None
+    tolerancia = 0.01 if c in POR_ACCION else 0.5 * min(FACTOR.get(a.get("unidades"), 1), FACTOR.get(b.get("unidades"), 1))
+    return abs(x - y) <= max(tolerancia, 1e-9 * abs(x))
+
+
+def resolver_disputa(a: dict | None, b: dict | None, cfg: dict) -> tuple[dict[str, tuple[str, str]], list[str], list[str]]:
+    """({concepto: (agente "a"/"b", "acuerdo"/"balance")}, conceptos pendientes, diferencias de encabezado).
+    Con diferencias de encabezado (consolidado, corte, moneda, unidades, meses) no se decide nada solo."""
+    if not a or not b:
+        return {}, [c for c in CONCEPTOS if _cifras(a or b or {})[c] is not None], ["falta una de las dos lecturas"]
+    encabezado = [f"{k}: A={a.get(k)!r} B={b.get(k)!r}" for k in ENCABEZADO if a.get(k) != b.get(k)]
+    presentes = [c for c in CONCEPTOS if _cifras(a)[c] is not None or _cifras(b)[c] is not None]
+    if encabezado:
+        return {}, presentes, encabezado
+    decidido = {c: ("a", "acuerdo") for c in presentes if _iguales(a, b, c)}
+    pendientes = [c for c in presentes if c not in decidido]
+    tol = float(cfg.get("tolerancia_balance", 0.01))
+    trio = ("activos", "pasivos", "patrimonio_total")
+    for c in [x for x in trio if x in pendientes]:
+        otros = [x for x in trio if x != c]
+        if any(x not in decidido for x in otros):
+            continue
+        v = {x: normalizado(a if decidido[x][0] == "a" else b, x) for x in otros}
+        if None in v.values():
+            continue
+        cumple = []
+        for agente, r in (("a", a), ("b", b)):
+            cand = normalizado(r, c)
+            if cand is None:
+                continue
+            act = cand if c == "activos" else v["activos"]
+            suma = (cand if c == "pasivos" else v["pasivos"]) + (cand if c == "patrimonio_total" else v["patrimonio_total"])
+            if abs(act - suma) <= tol * abs(act):
+                cumple.append(agente)
+        if len(cumple) == 1:
+            decidido[c] = (cumple[0], "balance")
+            pendientes.remove(c)
+    return decidido, pendientes, []
+
+
+def ruta_revision() -> Path:
+    return data_dir() / "revision" / ARCHIVO_REVISION
+
+
+def leer_revision() -> dict[tuple[str, str], dict]:
+    """{(documento_id, concepto): fila con decisión} del archivo de revisión (solo las decididas)."""
+    ruta = ruta_revision()
+    if not ruta.exists():
+        return {}
+    with open(ruta, encoding="utf-8-sig", errors="replace", newline="") as f:
+        filas = list(csv.DictReader(f, delimiter=";"))
+    salida = {}
+    for r in filas:
+        decision = (r.get("revision") or "").strip().lower()
+        if decision in ("a", "b", "corregido", "rechazado"):
+            salida[(r["documento_id"], r["concepto"])] = {**r, "revision": decision}
+    return salida
+
+
+def _a_numero(texto) -> float | None:
+    t = str(texto or "").strip().replace("$", "").replace(" ", "")
+    if not t:
+        return None
+    if "," in t:  # 1.234.567,89 (como lo escribe Excel en español)
+        t = t.replace(".", "").replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def huella_revision(documento_id: str, revision: dict) -> str:
+    """Huella de las decisiones de un documento: si cambian, el documento se vuelve a incorporar."""
+    partes = sorted(f"{c}={d['revision']}:{d.get('valor_revisado', '')}" for (doc, c), d in revision.items()
+                    if doc == documento_id)
+    return hashlib.sha1("|".join(partes).encode()).hexdigest()[:8] if partes else "-"
+
+
+def filas_revision(doc: dict, log: dict, emisor: dict, cfg: dict) -> list[dict]:
+    """Filas para el archivo de revisión de un documento en disputa: lo que no se pudo decidir solo."""
+    if log.get("estado") != "en_disputa":
+        return []
+    a = json.loads(log["json_a"]) if log.get("json_a") else None
+    b = json.loads(log["json_b"]) if log.get("json_b") else None
+    _, pendientes, encabezado = resolver_disputa(a, b, cfg)
+    paginas = [int(p) for p in (log.get("paginas") or "").split(",") if p]
+    base = {"documento_id": doc["documento_id"], "emisor_id": doc["emisor_id"], "nombre": emisor.get("nombre", ""),
+            "fecha_corte": str(doc.get("corte") or (a or b or {}).get("fecha_corte") or ""),
+            "archivo": doc.get("archivo", ""), "paginas_enviadas": ",".join(str(i + 1) for i in paginas),
+            "revision": "", "valor_revisado": "", "notas_revision": ""}
+    if encabezado:
+        return [{**base, "concepto": "documento", "unidades_a": (a or {}).get("unidades", ""), "valor_a": "",
+                 "pagina_a": "", "unidades_b": (b or {}).get("unidades", ""), "valor_b": "", "pagina_b": "",
+                 "diferencia": "; ".join(encabezado) + " (a o b elige la lectura completa)"}]
+    salida = []
+    for c in pendientes:
+        va, vb = _cifras(a)[c], _cifras(b)[c]
+        salida.append({**base, "concepto": c, "unidades_a": a.get("unidades", ""), "valor_a": "" if va is None else va,
+                       "pagina_a": _pagina_original(a, c, paginas) or "", "unidades_b": b.get("unidades", ""),
+                       "valor_b": "" if vb is None else vb, "pagina_b": _pagina_original(b, c, paginas) or "",
+                       "diferencia": "solo lo registra A" if vb is None else "solo lo registra B" if va is None else "cifras distintas"})
+    return salida
+
+
+def exportar_revision(pendientes: list[dict]) -> Path | None:
+    """Reescribe el archivo de revisión: las filas nuevas sin decidir y las ya decididas, tal como están."""
+    ruta = ruta_revision()
+    previas = []
+    if ruta.exists():
+        with open(ruta, encoding="utf-8-sig", errors="replace", newline="") as f:
+            previas = list(csv.DictReader(f, delimiter=";"))
+    decididas = {(r["documento_id"], r["concepto"]): r for r in previas if (r.get("revision") or "").strip()}
+    filas = list(decididas.values()) + [r for r in pendientes if (r["documento_id"], r["concepto"]) not in decididas]
+    if not filas:
+        return None
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    # Punto y coma y BOM: Excel en español lo abre en columnas y con tildes
+    with open(ruta, "w", encoding="utf-8-sig", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=COLUMNAS_REVISION, delimiter=";", extrasaction="ignore")
+        escritor.writeheader()
+        escritor.writerows(sorted(filas, key=lambda r: (r["emisor_id"], r["fecha_corte"], r["concepto"])))
+    return ruta
+
+
+def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict, revision: dict | None = None) -> list[dict]:
     """Filas de silver (motivo vacío) y de cuarentena (con motivo) de un documento ya leído."""
     comunes = {k: doc.get(k) for k in ("emisor_id", "archivo", "fecha_publicacion", "origen_fecha_publicacion",
                                        "fecha_descubierto", "documento_id", "huella_pdf")}
@@ -664,26 +814,82 @@ def filas_documento(doc: dict, log: dict, emisor: dict, cfg: dict) -> list[dict]
         return [{**comunes, "fecha_corte": doc.get("corte") or doc.get("fecha_descubierto"), "concepto": "documento",
                  "valor": None, "unidad": None, "valor_documento": None, "unidades_documento": None,
                  "pagina": None, "estado": estado, "motivo": estado}]
-    r = a if estado == "consenso" else (a or b)
+    if estado == "en_disputa":
+        return _filas_disputa(doc, a, b, paginas, comunes, emisor, cfg, revision or {})
+    r = a
     corte = _fecha(r.get("fecha_corte"))
-    if estado == "en_disputa" and (corte is None or (b and _fecha(b.get("fecha_corte")) != corte)):
-        corte = doc.get("corte") or corte
-    if estado == "consenso":
-        motivos, _ = controles(r, emisor, cfg)
-    else:
-        motivos = {c: "sin_consenso" for c in CONCEPTOS}
+    motivos, _ = controles(r, emisor, cfg)
     salida = []
     for c in CONCEPTOS:
         bruto = _cifras(r)[c]
-        otro = _cifras(b)[c] if (b and estado == "en_disputa") else None
-        if bruto is None and otro is None:
+        if bruto is None:
             continue
         pag = ((r.get("cifras") or {}).get(c) or {}).get("pagina")
         original = paginas[pag - 1] + 1 if isinstance(pag, int) and 1 <= pag <= len(paginas) else None
         salida.append({**comunes, "fecha_corte": corte or doc.get("fecha_descubierto"), "concepto": c,
                        "valor": normalizado(r, c), "unidad": unidad_de(r.get("moneda") or emisor.get("moneda", "COP"), c),
                        "valor_documento": bruto, "unidades_documento": r.get("unidades"), "pagina": original,
-                       "estado": estado, "motivo": motivos.get(c) or (None if bruto is not None else "sin_consenso")})
+                       "estado": estado, "motivo": motivos.get(c)})
+    return salida
+
+
+def _filas_disputa(doc, a, b, paginas, comunes, emisor, cfg, revision) -> list[dict]:
+    """Un documento en disputa, concepto por concepto (ver «disputas» arriba)."""
+    decidido, pendientes, encabezado = resolver_disputa(a, b, cfg)
+    elegido = {c: (ag, "resuelto") for c, (ag, _) in decidido.items()}
+    rechazados, corregidos = set(), {}
+    doc_rev = revision.get((doc["documento_id"], "documento"))
+    if encabezado and doc_rev and doc_rev["revision"] in ("a", "b"):
+        # La persona eligió una de las dos lecturas completas
+        r = a if doc_rev["revision"] == "a" else b
+        elegido = {c: (doc_rev["revision"], "revisado") for c in CONCEPTOS if _cifras(r)[c] is not None}
+        pendientes = []
+    for c in list(pendientes):
+        d = revision.get((doc["documento_id"], c))
+        if not d:
+            continue
+        pendientes.remove(c)
+        if d["revision"] in ("a", "b"):
+            elegido[c] = (d["revision"], "revisado")
+        elif d["revision"] == "corregido" and _a_numero(d.get("valor_revisado")) is not None:
+            corregidos[c] = _a_numero(d["valor_revisado"])  # en las unidades de la lectura A
+            elegido[c] = ("a", "revisado")
+        else:
+            rechazados.add(c)
+    # Registro combinado en pesos para los controles (balance, signos, corte, moneda)
+    base = a or b
+    combinado = {k: base.get(k) for k in ("es_consolidado", "fecha_corte", "moneda", "meses_acumulados")}
+    if encabezado and doc_rev and doc_rev["revision"] in ("a", "b"):
+        combinado = {k: (a if doc_rev["revision"] == "a" else b).get(k) for k in combinado}
+    combinado["unidades"] = "pesos"
+    combinado["cifras"] = {}
+    for c, (ag, _) in elegido.items():
+        r = a if ag == "a" else b
+        v = corregidos.get(c, _cifras(r)[c])
+        if v is not None:
+            combinado["cifras"][c] = {"valor": v if c in POR_ACCION else v * FACTOR.get(r.get("unidades"), float("nan"))}
+    motivos, _ = controles(combinado, emisor, cfg) if elegido else ({}, [])
+    corte = _fecha(combinado.get("fecha_corte"))
+    if encabezado and not (doc_rev and doc_rev["revision"] in ("a", "b")):
+        corte = doc.get("corte") or corte
+    salida = []
+    for c in CONCEPTOS:
+        if c in elegido:
+            ag, estado = elegido[c]
+            r = a if ag == "a" else b
+            bruto = corregidos.get(c, _cifras(r)[c])
+            salida.append({**comunes, "fecha_corte": corte or doc.get("fecha_descubierto"), "concepto": c,
+                           "valor": normalizado({**r, "cifras": {c: {"valor": bruto}}}, c),
+                           "unidad": unidad_de(r.get("moneda") or emisor.get("moneda", "COP"), c),
+                           "valor_documento": bruto, "unidades_documento": r.get("unidades"),
+                           "pagina": _pagina_original(r, c, paginas), "estado": estado, "motivo": motivos.get(c)})
+        elif c in pendientes or c in rechazados:
+            r = a if (a and _cifras(a)[c] is not None) else b
+            salida.append({**comunes, "fecha_corte": corte or doc.get("fecha_descubierto"), "concepto": c,
+                           "valor": normalizado(r, c), "unidad": unidad_de(r.get("moneda") or emisor.get("moneda", "COP"), c),
+                           "valor_documento": _cifras(r)[c], "unidades_documento": r.get("unidades"),
+                           "pagina": _pagina_original(r, c, paginas), "estado": "en_disputa",
+                           "motivo": "rechazado_en_revision" if c in rechazados else "sin_consenso"})
     return salida
 
 
@@ -993,14 +1199,23 @@ class ConectorEstadosCompania(Conector):
         # silver se incorpora sin volver a llamar a la API
         incorporados = self.estado_nuevo.setdefault("incorporados", {})
         emisores = emisores_config(self.cfg)
-        registros = []
+        revision = leer_revision()
+        registros, por_revisar = [], []
         for d in docs:
             reg = leidos.get((d["documento_id"], d["huella_pdf"]))
+            if reg is not None and reg["estado"] == "en_disputa":
+                por_revisar += filas_revision(d, reg, emisores[d["emisor_id"]], self.cfg)
             marca = f"{d['huella_pdf']}:v{version_de(reg)}" if reg is not None else None
+            if marca and reg["estado"] == "en_disputa":
+                # Una disputa se vuelve a incorporar si cambia la regla de resolución o una decisión a mano
+                marca += f":r{RESOLUCION_VERSION}:{huella_revision(d['documento_id'], revision)}"
             if reg is None or reg["estado"] == "error" or (incorporados.get(d["documento_id"]) == marca and not self.forzado):
                 continue
-            registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg)
+            registros += filas_documento(d, reg, emisores[d["emisor_id"]], self.cfg, revision)
             incorporados[d["documento_id"]] = marca
+        sin_decidir = [f for f in por_revisar if (f["documento_id"], f["concepto"]) not in revision]
+        if exportar_revision(por_revisar) and sin_decidir:
+            self.notas.append(f"{len(sin_decidir)} cifras en disputa por decidir en revision/{ARCHIVO_REVISION}")
         resumen = {k: v for k, v in self.conteo.items() if v}
         if resumen:
             self.notas.append(", ".join(f"{k} {v}" for k, v in resumen.items()))
@@ -1019,7 +1234,7 @@ class ConectorEstadosCompania(Conector):
 
     def validar(self, df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
         cuarentena = df.filter(pl.col("motivo").is_not_null())
-        validas = df.filter(pl.col("motivo").is_null() & (pl.col("estado") == "consenso")
+        validas = df.filter(pl.col("motivo").is_null() & pl.col("estado").is_in(sorted(ESTADOS_ACEPTADOS))
                             & pl.col("valor").is_not_null() & pl.col("fecha_corte").is_not_null()).drop("motivo")
         return validas, cuarentena
 
