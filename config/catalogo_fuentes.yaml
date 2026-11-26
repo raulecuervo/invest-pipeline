@@ -193,7 +193,7 @@ fuentes:
     historico_desde: "2007-01-01"
     tabla_destino: fact_evento_sfc
     bronze_en_repositorio: false
-    nota: "Consulta mes a mes con tema Todos. Anexos (PDF) solo de dividendos y cambios de capital de emisores con acciones, últimos 400 días, en invest-data/anexos/. Categoría y emisor se asignan en gold/fact_evento_corporativo"
+    nota: "Consulta mes a mes con tema Todos. Anexos (PDF) de dividendos y cambios de capital de emisores con acciones (últimos 400 días) y estados financieros (informe periódico trimestral y de fin de ejercicio, últimos 800 días) de los emisores con estados_desde_sfc en config/estados_compania.yaml, en invest-data/anexos/sfc/; los de más de 60 MB no se guardan. Categoría y emisor se asignan en gold/fact_evento_corporativo"
 
   - id: sfc_rnve_niif
     nombre: SFC, estados financieros NIIF de emisores (SIMEV / RNVE), XBRL
@@ -392,7 +392,7 @@ fuentes:
     tabla_destino: fact_ee_compania
     columna_fecha: fecha_corte
     requiere: "ANTHROPIC_API_KEY para la lectura (sin ella se bajan los PDF y la lectura queda pendiente)"
-    nota: "Respaldo de los emisores sin XBRL (Grupo Argos, Nutresa, Éxito, Mineros; Cementos Argos y Celsia con PDF a mano por la protección contra robots de sus sitios; Ecopetrol como control). Páginas índice, plantillas de URL y unidades en config/estados_compania.yaml. Solo PDF nuevos, solo las páginas de los estados principales, como máximo 6 documentos por corrida; dos agentes con consenso como en dividendos; cuarentena para lo que no tiene consenso o no pasa los controles (activos = pasivos + patrimonio, controladora <= total, signos). Lecturas en silver/fact_ee_compania_extraccion"
+    nota: "Respaldo de los emisores sin XBRL (Grupo Argos, Nutresa, Éxito, Mineros; Cementos Argos y Celsia con PDF a mano por la protección contra robots de sus sitios; Ecopetrol como control; Terpel, Enka, Fabricato, Manufacturas de Cemento, El Cóndor y Cibest también desde la información relevante de la SFC, que baja sfc_informacion_relevante en Actions). Páginas índice, plantillas de URL y unidades en config/estados_compania.yaml. Solo PDF nuevos, solo las páginas de los estados principales, como máximo 6 documentos por corrida; dos agentes con consenso como en dividendos; cuarentena para lo que no tiene consenso o no pasa los controles (activos = pasivos + patrimonio, controladora <= total, signos). Lecturas en silver/fact_ee_compania_extraccion"
 
   # -------------------------------------------------------------- Renta fija
   - id: banrep_curva_tes

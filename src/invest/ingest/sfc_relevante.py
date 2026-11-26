@@ -9,7 +9,10 @@ Fuente: "Consulta todas las entidades" del Registro Nacional de Valores y Emisor
    las primeras 20 filas y el total (``rowCount``).
 3. Si hay más de 20, un POST de paginación (AJAX de PrimeFaces) pide hasta 2.000 filas de una vez.
 4. El anexo de una fila (casi siempre un PDF) se pide con otro POST que nombra el índice de la fila.
-   Solo se bajan los de dividendos y cambios de capital de emisores con acciones inscritas.
+   Solo se bajan los de dividendos y cambios de capital de emisores con acciones inscritas, y los
+   estados financieros (informe periódico trimestral o de fin de ejercicio) de los emisores que en
+   ``config/estados_compania.yaml`` tienen ``estados_desde_sfc: true``: los que no transmiten XBRL
+   ni publican sus estados en su sitio. ``invest.ingest.estados_compania`` los lee de ahí.
 
 Se consulta mes a mes: en marzo, temporada de asambleas, llegan unos 1.200 registros.
 """
@@ -24,8 +27,10 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import unquote, urljoin
 
 import polars as pl
+import yaml
 
 from invest import eventos, storage
+from invest.config import CONFIG_DIR
 from invest.ingest import http
 from invest.ingest.base import Conector
 
@@ -39,7 +44,17 @@ FILAS_POR_PEDIDO = 2000
 CATEGORIAS_CON_ANEXO = {"dividendo", "ex_dividendo", "capital", "escision_fusion", "opa"}
 DIAS_ANEXOS = 400          # solo anexos recientes; el histórico completo pesaría cientos de MB
 MAX_ANEXOS_POR_CORRIDA = 60
-MAX_MESES_PENDIENTES = 3   # meses que se vuelven a consultar por corrida para bajar anexos que faltan
+DIAS_ANEXOS_ESTADOS = 800   # estados financieros: dos cierres anuales y los trimestres entre ellos
+_ES_ESTADOS = re.compile(r"ESTADOS? FINANCIER|INFORME PERIODICO|FIN DE EJERCICIO|INFORME FINANCIERO|EEFF")
+_NO_ESTADOS = re.compile(r"PROYECTO|CONVOCATORIA|ASUNTOS SOCIALES|ENCUESTA|CODIGO PAIS|CALIFICACION")
+_TEMA_ESTADOS = re.compile(r"INFORMES DE FIN DE EJERCICIO|NOTAS A ESTADOS|CORRECCIONES INFORMACION FINANCIERA")
+_SI_ESTADOS = re.compile(r"ESTADOS? FINANCIER|INFORME PERIODICO")   # pesa más que _NO_ESTADOS
+MAX_MB_ANEXO = 60   # un anexo más grande no se guarda (el repositorio de datos tiene tope de 100 MB por archivo)
+_MESES = {m: i + 1 for i, m in enumerate(
+    ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE",
+     "NOVIEMBRE", "DICIEMBRE"])}
+_TRIMESTRES = {"PRIMER": 1, "SEGUNDO": 2, "TERCER": 3, "CUARTO": 4}
+MAX_MESES_PENDIENTES = 6   # meses que se vuelven a consultar por corrida para bajar anexos que faltan
 
 _RE_VS = re.compile(r'name="javax\.faces\.ViewState"[^>]*value="([^"]*)"')
 _RE_VS_PARCIAL = re.compile(r'<update id="[^"]*ViewState[^"]*"><!\[CDATA\[(.*?)\]\]>', re.S)
@@ -185,6 +200,73 @@ def evento_id(fecha: date, hora: str, entidad: str, tema: str, resumen: str) -> 
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
 
 
+def emisores_con_estados_sfc() -> set[str]:
+    """Emisores (``CO-XXXXX``) cuyos estados financieros se bajan de la información relevante."""
+    ruta = CONFIG_DIR / "estados_compania.yaml"
+    if not ruta.exists():
+        return set()
+    cfg = yaml.safe_load(ruta.read_text(encoding="utf-8")) or {}
+    return {e["emisor_id"] for e in cfg.get("emisores") or [] if e.get("estados_desde_sfc")}
+
+
+def es_informe_financiero(tema: str | None, resumen: str | None) -> bool:
+    """Evento de "Informes de fin de ejercicio" que trae estados financieros (no el proyecto de
+    utilidades, la convocatoria ni el capítulo de asuntos sociales y ambientales)."""
+    r = eventos.normal(resumen)
+    return (bool(_TEMA_ESTADOS.search(eventos.normal(tema))) and bool(_ES_ESTADOS.search(r))
+            and (bool(_SI_ESTADOS.search(r)) or not _NO_ESTADOS.search(r)))
+
+
+def _fin_trimestre(anio: int, t: int) -> date:
+    return {1: date(anio, 3, 31), 2: date(anio, 6, 30), 3: date(anio, 9, 30), 4: date(anio, 12, 31)}[t]
+
+
+def corte_de_resumen(resumen: str | None, publicado: date | None) -> date | None:
+    """Fecha de corte que dice el resumen ("con corte al 30 de septiembre de 2026", "primer trimestre
+    del 2026", "fin de ejercicio 2025"); si no la dice, el último fin de trimestre antes de publicarse
+    (en enero-abril, el cierre del año anterior)."""
+    t = eventos.normal(resumen)
+    m = re.search(r"\b(\d{1,2}) DE (" + "|".join(_MESES) + r") (?:DE |DEL )?(?:ANO )?(\d{4})", t)
+    if m:
+        try:
+            d = date(int(m.group(3)), _MESES[m.group(2)], int(m.group(1)))
+        except ValueError:
+            d = None
+        if d and (d.month, d.day) in {(3, 31), (6, 30), (9, 30), (12, 31)}:
+            return d
+    m = re.search(r"(PRIMER|SEGUNDO|TERCER|CUARTO) TRIMESTRE (?:DE |DEL )?(?:(?:EL )?ANO )?(\d{4})", t)
+    if m:
+        return _fin_trimestre(int(m.group(2)), _TRIMESTRES[m.group(1)])
+    m = re.search(r"EJERCIC\w*\D{0,40}?(\d{4})", t)
+    if m:
+        return date(int(m.group(1)), 12, 31)
+    if publicado is None:
+        return None
+    if publicado.month <= 4:
+        return date(publicado.year - 1, 12, 31)
+    for anio in (publicado.year, publicado.year - 1):
+        for tr in (4, 3, 2, 1):
+            if _fin_trimestre(anio, tr) < publicado:
+                return _fin_trimestre(anio, tr)
+    return None
+
+
+def anexo_deseado(tema: str | None, resumen: str | None, entidad: str | None, fecha: date | None, hoy: date,
+                  emisores: dict, alias: dict, con_estados: set[str]) -> bool:
+    """Si el anexo de un evento se guarda: dividendos y capital de cualquier emisor con acciones, y
+    estados financieros de los emisores de ``con_estados``."""
+    if fecha is None:
+        return False
+    emisor = eventos.emisor_de(entidad, emisores, alias)
+    if not emisor:
+        return False
+    dias = (hoy - fecha).days
+    if dias <= DIAS_ANEXOS and eventos.clasificar(tema, resumen) in CATEGORIAS_CON_ANEXO:
+        return True
+    return (dias <= DIAS_ANEXOS_ESTADOS and f"CO-{emisor.upper()}" in con_estados
+            and es_informe_financiero(tema, resumen))
+
+
 def ventanas_mensuales(desde: date, hasta: date) -> list[tuple[date, date]]:
     ventanas, inicio = [], desde
     while inicio <= hasta:
@@ -196,20 +278,25 @@ def ventanas_mensuales(desde: date, hasta: date) -> list[tuple[date, date]]:
 
 
 def meses_con_anexos_pendientes(previos: pl.DataFrame | None, hoy: date, emisores: dict, alias: dict,
-                                cubiertos: list[tuple[date, date]]) -> list[tuple[date, date]]:
+                                cubiertos: list[tuple[date, date]],
+                                con_estados: set[str] | None = None,
+                                omitidos: dict | None = None) -> list[tuple[date, date]]:
     """Meses (más recientes primero) con eventos que debían tener PDF guardado y aún no lo tienen,
     por ejemplo porque una corrida llegó al tope de anexos. No incluye los meses ya consultados."""
     if previos is None or previos.is_empty():
         return []
     candidatos = previos.filter(
         pl.col("tiene_anexo") & pl.col("anexo_archivo").is_null()
-        & (pl.col("fecha") >= hoy - timedelta(days=DIAS_ANEXOS))
+        & (pl.col("fecha") >= hoy - timedelta(days=max(DIAS_ANEXOS, DIAS_ANEXOS_ESTADOS)))
     )
     meses: set[date] = set()
-    for fecha, entidad, tema, resumen in candidatos.select("fecha", "entidad", "tema", "resumen").iter_rows():
+    for ev, fecha, entidad, tema, resumen in candidatos.select(
+            "evento_id", "fecha", "entidad", "tema", "resumen").iter_rows():
+        if ev in (omitidos or {}):
+            continue
         if any(ini <= fecha <= fin for ini, fin in cubiertos):
             continue
-        if eventos.clasificar(tema, resumen) in CATEGORIAS_CON_ANEXO and eventos.emisor_de(entidad, emisores, alias):
+        if anexo_deseado(tema, resumen, entidad, fecha, hoy, emisores, alias, con_estados or set()):
             meses.add(fecha.replace(day=1))
     salida = []
     for inicio in sorted(meses, reverse=True)[:MAX_MESES_PENDIENTES]:
@@ -261,7 +348,9 @@ class ConectorSFCRelevante(Conector):
         anexos = fallidos = 0
         http.nueva_sesion()
         ventanas = ventanas_mensuales(desde, hasta)
-        pendientes = meses_con_anexos_pendientes(previos, hoy, emisores, alias, ventanas)
+        con_estados = emisores_con_estados_sfc()
+        omitidos = self.estado_nuevo.setdefault("anexos_omitidos", {})
+        pendientes = meses_con_anexos_pendientes(previos, hoy, emisores, alias, ventanas, con_estados, omitidos)
         if pendientes:
             self.notas.append(f"{len(pendientes)} meses consultados de nuevo por anexos pendientes")
         for ini, fin in ventanas + pendientes:
@@ -278,10 +367,9 @@ class ConectorSFCRelevante(Conector):
                 }
                 reg["anexo_archivo"] = ya_guardados.get(reg["evento_id"])
                 quiere_anexo = (
-                    reg["anexo_archivo"] is None and f["anexo_control"] and d and (hoy - d).days <= DIAS_ANEXOS
-                    and anexos < MAX_ANEXOS_POR_CORRIDA
-                    and eventos.clasificar(f["tema"], f["resumen"]) in CATEGORIAS_CON_ANEXO
-                    and eventos.emisor_de(f["entidad"], emisores, alias)
+                    reg["anexo_archivo"] is None and f["anexo_control"] and anexos < MAX_ANEXOS_POR_CORRIDA
+                    and reg["evento_id"] not in omitidos
+                    and anexo_deseado(f["tema"], f["resumen"], f["entidad"], d, hoy, emisores, alias, con_estados)
                 )
                 if quiere_anexo:
                     try:
@@ -289,6 +377,10 @@ class ConectorSFCRelevante(Conector):
                     except (http.ErrorHTTP, ErrorFormulario):
                         fallidos += 1
                     else:
+                        if len(contenido) > MAX_MB_ANEXO * 1024 * 1024:
+                            omitidos[reg["evento_id"]] = f"{hoy.isoformat()} {len(contenido) // 2**20} MB"
+                            registros.append(reg)
+                            continue
                         relativa = f"sfc/{d.year}/{reg['evento_id']}_{_nombre_archivo(nombre)}"
                         storage.guardar_anexo(relativa, contenido)
                         reg["anexo_archivo"] = relativa
@@ -298,6 +390,8 @@ class ConectorSFCRelevante(Conector):
             self.notas.append(f"{anexos} anexos guardados")
         if fallidos:
             self.notas.append(f"{fallidos} anexos no se pudieron bajar")
+        if omitidos:
+            self.notas.append(f"{len(omitidos)} anexos omitidos por tamaño (más de {MAX_MB_ANEXO} MB)")
         return registros
 
     def interpretar(self, registros: list[dict]) -> pl.DataFrame:

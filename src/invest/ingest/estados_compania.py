@@ -6,7 +6,11 @@ Respaldo de los emisores sin XBRL en el SIMEV (``config/estados_compania.yaml``)
    direcciones ``.pdf`` que la página trae dentro de su código), plantillas de URL por corte (p. ej.
    Éxito ``consolidados/<t>t<año>.pdf``) y archivos puestos a mano en
    ``invest-data/fuentes_compania/<emisor_id>/`` (sitios con protección contra robots, que no se
-   esquiva). Se filtran con los patrones del emisor y se deja uno por corte (el de más prioridad).
+   esquiva). Para los emisores con ``estados_desde_sfc: true`` también toma los estados que
+   transmitieron como información relevante a la SFC (informe periódico trimestral o de fin de
+   ejercicio), que baja ``sfc_informacion_relevante`` a ``invest-data/anexos/sfc/``. Se filtran con
+   los patrones del emisor y se deja uno por corte (el de más prioridad: a mano, sitio de la
+   compañía, SFC consolidado, SFC separado).
 2. **Baja solo lo nuevo**: una URL ya guardada no se vuelve a pedir (salvo ``--desde``); un 404 se
    reintenta cada ``reintentar_404_dias``; un 401/403 o un desafío contra robots detiene ese emisor
    en la corrida y queda anotado. Los PDF van a ``invest-data/anexos/companias/<emisor_id>/``
@@ -48,7 +52,7 @@ from urllib.parse import unquote, urljoin, urlparse
 import polars as pl
 import yaml
 
-from invest import dividendos, storage
+from invest import dividendos, eventos, storage
 from invest.config import CONFIG_DIR, data_dir
 from invest.ingest import http
 from invest.ingest.base import Conector
@@ -348,6 +352,25 @@ def es_bloqueo(contenido: bytes | None) -> bool:
     muestra = (contenido or b"")[:20000].lower()
     return any(m in muestra for m in MARCAS_BLOQUEO) or (
         len(contenido or b"") < 30000 and any(m in muestra for m in MARCAS_GENERICAS))
+
+
+def pdf_de_zip(contenido: bytes) -> bytes | None:
+    """El PDF de estados financieros dentro de un ZIP (los anexos de la SFC a veces vienen así): el que
+    dice consolidado, si no el que dice estados financieros, si no el más grande."""
+    import zipfile
+    try:
+        z = zipfile.ZipFile(io.BytesIO(contenido))
+    except zipfile.BadZipFile:
+        return None
+    pdfs = [i for i in z.infolist() if i.filename.lower().endswith(".pdf") and not i.is_dir()]
+    if not pdfs:
+        return None
+
+    def orden(i):
+        n = normalizar(i.filename)
+        return ("consolidad" not in n, not re.search(r"estado|eeff|financier", n), -i.file_size)
+    datos = z.read(min(pdfs, key=orden))
+    return datos if es_pdf(datos) else None
 
 
 def _nombre_archivo(url: str) -> str:
@@ -792,6 +815,58 @@ class ConectorEstadosCompania(Conector):
                            "fecha_descubierto": self._hoy().isoformat()}
             self.conteo["manuales"] += 1
 
+    def _eventos_sfc(self) -> list[dict]:
+        """Eventos de información relevante con estados financieros y anexo guardado (una vez por corrida)."""
+        if getattr(self, "_cache_sfc", None) is None:
+            from invest.ingest import sfc_relevante
+            ev = storage.leer_tabla("silver", "fact_evento_sfc")
+            filas: list[dict] = []
+            if ev is not None and not ev.is_empty():
+                emisores = eventos.tabla_emisores(storage.leer_tabla("silver", "dim_especie_sfc"))
+                alias = eventos.alias_manuales()
+                for r in ev.filter(pl.col("anexo_archivo").is_not_null()).iter_rows(named=True):
+                    emisor = eventos.emisor_de(r["entidad"], emisores, alias)
+                    if emisor and sfc_relevante.es_informe_financiero(r["tema"], r["resumen"]):
+                        filas.append({**r, "emisor_id": f"CO-{emisor.upper()}",
+                                      "corte": sfc_relevante.corte_de_resumen(r["resumen"], r["fecha"])})
+            self._cache_sfc = filas
+        return self._cache_sfc
+
+    def _desde_sfc(self, emisor: dict) -> None:
+        """Estados financieros que el emisor transmitió como información relevante a la SFC (los baja
+        ``sfc_informacion_relevante``). Si el anexo es un ZIP se guarda aparte el PDF de los estados."""
+        docs = self.estado_nuevo.setdefault("documentos", {})
+        for ev in self._eventos_sfc():
+            if ev["emisor_id"] != emisor["emisor_id"]:
+                continue
+            clave = f"sfc:{ev['evento_id']}"
+            ruta = data_dir() / "anexos" / ev["anexo_archivo"]
+            if not ruta.exists():
+                continue
+            contenido = ruta.read_bytes()
+            huella = _huella(contenido)
+            if clave in docs and docs[clave].get("huella_origen", docs[clave]["huella"]) == huella:
+                continue
+            archivo = f"anexos/{ev['anexo_archivo']}"
+            if not es_pdf(contenido):
+                pdf = pdf_de_zip(contenido)
+                if pdf is None:
+                    continue
+                corte_txt = ev["corte"].isoformat() if ev["corte"] else "sin_corte"
+                relativa = f"{CARPETA_ANEXOS}/{emisor['emisor_id']}/{corte_txt}_sfc_{ev['evento_id']}.pdf"
+                storage.guardar_anexo(relativa, pdf)
+                archivo = f"anexos/{relativa}"
+            r = eventos.normal(ev["resumen"])
+            # Prioridad (menor gana): lo del sitio de la compañía (0) antes que la SFC, y en la SFC el
+            # consolidado antes que el separado
+            prioridad = 2 if "SEPARADO" in r and "CONSOLIDADO" not in r else 1
+            docs[clave] = {"emisor_id": emisor["emisor_id"], "archivo": archivo, "huella": _huella((data_dir() / archivo).read_bytes()),
+                           "huella_origen": huella, "corte": ev["corte"].isoformat() if ev["corte"] else None,
+                           "prioridad": prioridad, "fecha_publicacion": ev["fecha"].isoformat(),
+                           "origen_fecha_publicacion": "sfc_informacion_relevante",
+                           "fecha_descubierto": self._hoy().isoformat()}
+            self.conteo["desde_sfc"] += 1
+
     # ----------------------------------------------------------------- documentos
     def documentos(self) -> list[dict]:
         """Agrupa los archivos guardados por emisor y corte: uno por corte (el de más prioridad, y
@@ -880,12 +955,14 @@ class ConectorEstadosCompania(Conector):
     def descargar(self, desde: date, hasta: date) -> list[dict]:
         self.conteo = {"bajados": 0, "manuales": 0, "fallidos": 0, "descargas_pospuestas": 0,
                        "demasiado_grandes": 0, "paginas_enviadas": 0, "indices_sin_enlaces": 0,
-                       "emisores_en_pausa_por_bloqueo": 0}
+                       "emisores_en_pausa_por_bloqueo": 0, "desde_sfc": 0}
         self.bloqueados: set[str] = set()
         hoy = self._hoy()
         pausa = int(self.cfg.get("limites", {}).get("reintentar_404_dias", 7))
         for em in self.cfg["emisores"]:
             self._manuales(em)
+            if em.get("estados_desde_sfc"):
+                self._desde_sfc(em)
             if em.get("descarga") != "automatica":
                 continue
             bloqueo = _fecha((self.estado_previo.get("bloqueos") or {}).get(em["emisor_id"], "")[:10])

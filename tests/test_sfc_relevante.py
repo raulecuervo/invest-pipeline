@@ -185,3 +185,36 @@ def test_anexos_pendientes_se_bajan_en_corridas_siguientes(carpeta_datos, especi
     sitio.pedidos.clear()
     tercera = rel.ConectorSFCRelevante(rel.ClienteRelevante(sitio)).ejecutar(date(2026, 11, 1), date(2026, 11, 22))
     assert "anexos pendientes" not in tercera.detalle
+
+
+# ------------------------------------------------------------------------- estados financieros
+@pytest.mark.parametrize("resumen, publicado, corte", [
+    ("se publica el informe periódico trimestral, con corte al 30 de Junio de 2026.", date(2026, 8, 14), date(2026, 6, 30)),
+    ("se permite publicar el informe periódico correspondiente al primer trimestre del 2026.", date(2026, 5, 15), date(2026, 3, 31)),
+    ("Se radica el informe periódico correspondiente al tercer trimestre del año 2025", date(2025, 11, 15), date(2025, 9, 30)),
+    ("Radicamos el Informe Periódico de Fin de Ejercicio 2025.", date(2026, 4, 13), date(2025, 12, 31)),
+    ("informe periódico de fin de ejercico correspondiente al año 2024", date(2025, 4, 9), date(2024, 12, 31)),
+    ("Se envía el informe financiero que contiene: estados financieros junto con las notas", date(2026, 3, 13), date(2025, 12, 31)),
+])
+def test_corte_de_los_estados_financieros(resumen, publicado, corte):
+    assert rel.corte_de_resumen(resumen, publicado) == corte
+
+
+def test_que_cuenta_como_estados_financieros():
+    tema = "Informes de fin de Ejercicio."
+    assert rel.es_informe_financiero(tema, "se publica el informe periódico trimestral, con corte al 30 de junio de 2026")
+    assert rel.es_informe_financiero(tema, "Se envía el informe financiero que contiene: estados financieros, notas, "
+                                           "proyecto de distribución de utilidades, dictamen del revisor fiscal")
+    assert not rel.es_informe_financiero(tema, "Se radica Proyectos de distribución de utilidades año 2025.")
+    assert not rel.es_informe_financiero(tema, "publica el proyecto del capítulo sobre los asuntos sociales y ambientales")
+    assert not rel.es_informe_financiero("Decisiones de asamblea", "se publica el informe periódico trimestral")
+
+
+def test_anexo_de_estados_solo_para_los_emisores_marcados():
+    emisores = {eventos.clave_nombre("AO ORGANIZACION TERPEL S.A.", es_especie=True): "cog20",
+                eventos.clave_nombre("AO GRUPO ARGOS S.A.", es_especie=True): "cot09"}
+    tema, resumen = "Informes de fin de Ejercicio.", "se publica el informe periódico trimestral, con corte al 30 de junio de 2026"
+    hoy, fecha = date(2026, 11, 25), date(2026, 8, 14)
+    assert rel.anexo_deseado(tema, resumen, "ORGANIZACION TERPEL S.A.", fecha, hoy, emisores, {}, {"CO-COG20"})
+    assert not rel.anexo_deseado(tema, resumen, "GRUPO ARGOS S.A.", fecha, hoy, emisores, {}, {"CO-COG20"})
+    assert not rel.anexo_deseado(tema, resumen, "ORGANIZACION TERPEL S.A.", fecha, date(2029, 1, 1), emisores, {}, {"CO-COG20"})

@@ -529,3 +529,45 @@ def test_separados_se_aceptan_solo_si_el_emisor_no_tiene_consolidados():
     r = registro(es_consolidado=False)
     assert "no_consolidado" in set(ec.controles(r, emisor, {})[0].values())
     assert "no_consolidado" not in set(ec.controles(r, {**emisor, "acepta_separados": True}, {})[0].values())
+
+
+def test_estados_desde_la_informacion_relevante_de_la_sfc(cfg, carpeta_datos, monkeypatch):
+    """Emisor sin sitio con estados: toma el informe periódico que bajó sfc_informacion_relevante,
+    también si viene en un ZIP, y el consolidado pesa más que el separado del mismo corte."""
+    import io
+    import zipfile
+    from datetime import datetime, timezone
+    terpel = {"emisor_id": "CO-COG20", "nombre": "Terpel", "descarga": "pendiente", "estados_desde_sfc": True,
+              "moneda": "COP", "unidades_esperadas": ["millones"], "paginas_indice": []}
+    prueba = {**cfg, "emisores": [terpel]}
+    monkeypatch.setattr(ec, "config", lambda: copy.deepcopy(prueba))
+    especies = pl.DataFrame([{"fecha_reporte": date(2026, 11, 18), "especie": "cog20paao006",
+                              "nombre": "AO ORGANIZACION TERPEL S.A.", "emisor": "cog20", "clase": "ordinaria"}])
+    storage.upsert_por_anio("silver", "dim_especie_sfc", especies, ("fecha_reporte", "especie"), "fecha_reporte")
+    zipeado = io.BytesIO()
+    with zipfile.ZipFile(zipeado, "w") as z:
+        z.writestr("Informe/Certificacion.pdf", documento()[:2000])
+        z.writestr("Informe/EEFF Consolidados 2025.pdf", documento())
+    storage.guardar_anexo("sfc/2026/aaa_INFORME.zip", zipeado.getvalue())
+    storage.guardar_anexo("sfc/2026/bbb_SEPARADOS.pdf", documento())
+    ts = datetime(2026, 11, 25, tzinfo=timezone.utc)
+    ev = pl.DataFrame([
+        {"evento_id": "aaa", "fecha": date(2026, 3, 12), "hora": "10:00", "entidad": "ORGANIZACION TERPEL S.A.",
+         "tema": "Informes de fin de Ejercicio.", "resumen": "publica Estados Financieros Consolidados de fin de ejercicio 2025",
+         "tiene_anexo": True, "anexo_archivo": "sfc/2026/aaa_INFORME.zip", "fuente_id": "x", "ingest_ts": ts},
+        {"evento_id": "bbb", "fecha": date(2026, 3, 12), "hora": "10:01", "entidad": "ORGANIZACION TERPEL S.A.",
+         "tema": "Informes de fin de Ejercicio.", "resumen": "publica Estados Financieros Separados de fin de ejercicio 2025",
+         "tiene_anexo": True, "anexo_archivo": "sfc/2026/bbb_SEPARADOS.pdf", "fuente_id": "x", "ingest_ts": ts},
+        {"evento_id": "ccc", "fecha": date(2026, 2, 19), "hora": "10:00", "entidad": "ORGANIZACION TERPEL S.A.",
+         "tema": "Informes de fin de Ejercicio.", "resumen": "Se radica Proyectos de distribución de utilidades año 2025.",
+         "tiene_anexo": True, "anexo_archivo": "sfc/2026/bbb_SEPARADOS.pdf", "fuente_id": "x", "ingest_ts": ts},
+    ])
+    storage.upsert_por_anio("silver", "fact_evento_sfc", ev, ("evento_id",), "fecha")
+    web = Web({})
+    res = correr(web, ClienteFalso({MA: [registro()], MB: [registro()]}), monkeypatch)
+    assert res.estado == "ok", res.detalle
+    assert not web.pedidos and "desde_sfc 2" in res.detalle
+    fila = storage.leer_tabla("silver", ec.TABLA).row(0, named=True)
+    assert fila["archivo"].startswith("anexos/companias/CO-COG20/2025-12-31_sfc_aaa") and fila["emisor_id"] == "CO-COG20"
+    assert fila["origen_fecha_publicacion"] == "sfc_informacion_relevante"
+    assert (carpeta_datos / fila["archivo"]).read_bytes() == documento()

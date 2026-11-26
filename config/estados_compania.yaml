@@ -185,6 +185,7 @@ emisores:
   - emisor_id: CO-COG20
     nombre: Terpel
     descarga: automatica
+    estados_desde_sfc: true   # informe periódico trimestral en la información relevante de la SFC
     moneda: COP
     unidades_esperadas: [miles]
     # La página de la asamblea (terpel.com/accionistas-e-inversionistas/gobierno-corporativo/asamblea-accionistas,
@@ -199,7 +200,7 @@ emisores:
       - {url: "https://www.terpel.com/var/site/storage/original/application/67cb56f49ddb0a24dbf5a602ca8166b5.pdf", corte: 2025-12-31, unidades: miles, nota: "consolidados anuales con dictamen; ingresos 38.147.135.440"}
       - {url: "https://www.terpel.com/var/site/storage/original/application/de900a221f54a11c4fe8f86c697383c8.pdf", corte: 2026-03-31, unidades: miles, nota: "intermedios consolidados, certificación del 14-may-2026"}
       - {url: "https://www.terpel.com/var/site/storage/original/application/c0df412bd3bb2afe920c77a3de65f37e.pdf", corte: 2025-03-31, unidades: miles, nota: "intermedios consolidados; controladora 166.880.091; UPA 919,89"}
-    otros_formatos: "Los de jun y sep-2026 no aparecieron en la búsqueda web (25-nov-2026): agregarlos a directas cuando se encuentren, o PDF a mano en invest-data/fuentes_compania/CO-COG20/. Los PDF también traen separados (b729ed49…, asamblea 2026)."
+    otros_formatos: "Los de jun y sep-2026 no aparecieron en la búsqueda web (25-nov-2026): llegan por la información relevante de la SFC (estados_desde_sfc). Los PDF también traen separados (b729ed49…, asamblea 2026)."
 
   # ------------------------------------------------------------------ Ecopetrol (control: tiene XBRL)
   - emisor_id: CO-COC04
@@ -278,6 +279,7 @@ emisores:
   - emisor_id: CO-COD05
     nombre: Enka de Colombia
     descarga: automatica
+    estados_desde_sfc: true   # publica consolidados y separados de fin de ejercicio en la SFC
     moneda: COP
     unidades_esperadas: [miles]
     paginas_indice: []   # enka.com.co no deja leer su robots.txt (25-nov-2026): sin página índice
@@ -285,20 +287,41 @@ emisores:
       - {url: "https://www.enka.com.co/wp-content/uploads/2025/11/Enka_Estados-Financieros-Consolidados-septiembre-2025-PROJD.pdf", corte: 2025-09-30}
       - {url: "https://www.enka.com.co/wp-content/uploads/2024/11/Enka_Estados-Financieros-Consolidados_Septiembre-2024VSPROT.pdf", corte: 2024-09-30}
       - {url: "https://www.enka.com.co/wp-content/uploads/2024/08/Enka_EEFF-consolidado-junio-2024-Firmados.pdf", corte: 2024-06-30}
-    otros_formatos: "Consolidados (Enka y Eko Red, miles de pesos) en enka.com.co/wp-content/uploads/<año>/<mes>/; los nombres cambian cada trimestre. La SFC (información relevante) dice que publicó consolidados de mar y jun-2026 y el cierre de 2025, pero no se encontró su dirección en enka.com.co: PDF a mano en invest-data/fuentes_compania/CO-COD05/. Separados: EEFF-<Mes>-<año>-Enka-de-Colombia.pdf."
+    otros_formatos: "Consolidados (Enka y Eko Red, miles de pesos) en enka.com.co/wp-content/uploads/<año>/<mes>/; los nombres cambian cada trimestre. La SFC (información relevante) dice que publicó consolidados de mar y jun-2026 y el cierre de 2025, pero no se encontró su dirección en enka.com.co: llegan por la SFC (estados_desde_sfc). Separados: EEFF-<Mes>-<año>-Enka-de-Colombia.pdf."
 
   - emisor_id: CO-COD04
     nombre: Fabricato
-    descarga: pendiente
+    descarga: pendiente     # su sitio no trae los recientes
+    estados_desde_sfc: true # informe periódico trimestral y de fin de ejercicio en la SFC
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice: []
-    otros_formatos: "fabricato.com/inversionistas/informacion-financiera/ (leída el 25-nov-2026) solo trae el informe del 1T-2025 y un folleto consolidado de mar-2024: los estados de 2025-2026 (fin de ejercicio 2025 y trimestrales, separados y consolidados) se publican en la información relevante de la SFC (tipo 034, entidad 004), que se consulta a mano. PDF a mano en invest-data/fuentes_compania/CO-COD04/."
+    otros_formatos: "fabricato.com/inversionistas/informacion-financiera/ (leída el 25-nov-2026) solo trae el informe del 1T-2025 y un folleto consolidado de mar-2024: los estados de 2025-2026 (fin de ejercicio 2025 y trimestrales, separados y consolidados) se publican en la información relevante de la SFC (tipo 034, entidad 004), que baja sfc_informacion_relevante (estados_desde_sfc)."
 
   - emisor_id: CO-COD06
     nombre: Manufacturas de Cemento (Titán)
-    descarga: pendiente
+    descarga: pendiente     # sin sitio con estados
+    estados_desde_sfc: true # informe periódico trimestral y de fin de ejercicio en la SFC
     moneda: COP
     unidades_esperadas: [miles, millones]
     paginas_indice: []
-    otros_formatos: "Sin estados publicados en la web (búsqueda del 25-nov-2026: solo agregadores como TradingView o stockanalysis, que no se usan). Está en reorganización. PDF a mano en invest-data/fuentes_compania/CO-COD06/, desde la información relevante de la SFC."
+    otros_formatos: "Sin estados publicados en la web (búsqueda del 25-nov-2026: solo agregadores como TradingView o stockanalysis, que no se usan). Está en reorganización. Llegan por la información relevante de la SFC (estados_desde_sfc)."
+
+  # ------------------------------------------------------------------ Solo por la información relevante de la SFC
+  - emisor_id: CO-COF20
+    nombre: Construcciones El Cóndor
+    descarga: pendiente     # no se buscó en su sitio: el informe periódico llega por la SFC
+    estados_desde_sfc: true
+    moneda: COP
+    unidades_esperadas: [miles, millones]
+    paginas_indice: []
+    otros_formatos: "Informe periódico trimestral y de fin de ejercicio en la información relevante de la SFC (25-nov-2026: cortes sep-2025, dic-2025 y sep-2026)."
+
+  - emisor_id: CO-COTK7
+    nombre: Grupo Cibest
+    descarga: pendiente
+    estados_desde_sfc: true
+    moneda: COP
+    unidades_esperadas: [millones, miles_de_millones]
+    paginas_indice: []
+    otros_formatos: "Holding de Bancolombia desde 2025. Informe periódico en la información relevante de la SFC (25-nov-2026: de sep-2025 a sep-2026); los anexos NIIF de la SFC llegan con más rezago."
