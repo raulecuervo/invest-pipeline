@@ -69,3 +69,44 @@ def test_posiciones_costo_y_desempeno(carpeta_datos):
 def test_xirr_conocido():
     flujos = [(date(2024, 1, 1), -100.0), (date(2025, 1, 1), 110.0)]
     assert abs(cartera.xirr(flujos) - 0.10) < 1e-3
+
+
+def test_activos_propios_con_precio_manual_y_fic_de_la_sfc(carpeta_datos):
+    """BACCO (Mercado Global) se valora con el precio del extracto; el FIC con el valor de la unidad de la SFC
+    cuando se empareja por nombre, y si no, con el del extracto."""
+    sesiones = sesiones_entre(date(2026, 9, 1), date(2026, 10, 30))
+    storage.escribir_por_anio("gold", "fact_precio_diario",
+                              pl.DataFrame([{"fecha": d, "especie": "x", "precio": 1.0} for d in sesiones]), "fecha")
+    usuario.guardar("dim_activo_usuario", pl.DataFrame([
+        {"especie": "BACCO", "nombre": "Bank of America (MGC)", "clase_activo_id": "MGC", "pais_id": "US", "moneda_id": "COP"},
+        {"especie": "FIC_VISTA", "nombre": "FIC Accival Vista", "clase_activo_id": "FIC", "fic_entidad": "Acciones",
+         "fic_fondo": "accival vista"},
+        {"especie": "FIC_180", "nombre": "Accival Renta Fija 180", "clase_activo_id": "FIC", "fic_entidad": "Acciones",
+         "fic_fondo": "renta fija 180"}], schema=usuario.TABLAS["dim_activo_usuario"]["columnas"]))
+    usuario.guardar("fact_precio_manual", pl.DataFrame([
+        {"especie": "BACCO", "fecha": date(2026, 9, 30), "precio": 150000.0, "moneda": "COP"},
+        {"especie": "FIC_180", "fecha": date(2026, 10, 30), "precio": 18400.0, "moneda": "COP"}],
+        schema=usuario.TABLAS["fact_precio_manual"]["columnas"]))
+    fic = pl.DataFrame({"fecha": [date(2026, 9, 30), date(2026, 9, 30), date(2026, 9, 30)],
+                        "codigo_entidad": ["85", "85", "85"], "nombre_entidad": ["Acciones & Valores S.A."] * 3,
+                        "codigo_negocio": ["1", "2", "2"], "nombre_fondo": ["FIC ACCIVAL VISTA", "ACCIVAL RENTA FIJA 180", "ACCIVAL RENTA FIJA 180"],
+                        "tipo_participacion": ["501", "501", "502"], "valor_unidad": [10100.0, 18300.0, 18350.0]})
+    storage.escribir_por_anio("silver", "fact_fic_mensual", fic, "fecha")
+    t = pl.DataFrame([
+        {"transaccion_id": "a", "cartera_id": "c", "fecha_operacion": date(2026, 9, 1), "tipo": "aporte", "monto": 200000.0, "moneda": "COP"},
+        {"transaccion_id": "b", "cartera_id": "c", "fecha_operacion": date(2026, 9, 1), "tipo": "compra", "especie": "BACCO",
+         "cantidad": 1.0, "precio": 136500.0, "moneda": "COP"},
+        {"transaccion_id": "v", "cartera_id": "c", "fecha_operacion": date(2026, 9, 1), "tipo": "compra", "especie": "FIC_VISTA",
+         "cantidad": 2.0, "precio": 10000.0, "moneda": "COP"},
+        {"transaccion_id": "f", "cartera_id": "c", "fecha_operacion": date(2026, 9, 1), "tipo": "compra", "especie": "FIC_180",
+         "cantidad": 1.0, "precio": 18000.0, "moneda": "COP"}], schema=usuario.TABLAS["fact_transaccion"]["columnas"])
+    pos = cartera.fact_posicion(t, hasta=date(2026, 10, 30)).filter(pl.col("fecha") == date(2026, 10, 30))
+    fila = {r["especie"]: r for r in pos.iter_rows(named=True)}
+    assert (fila["BACCO"]["precio"], fila["BACCO"]["fuente_precio"], fila["BACCO"]["nombre"]) == (150000.0, "manual", "Bank of America (MGC)")
+    assert (fila["FIC_VISTA"]["precio"], fila["FIC_VISTA"]["fuente_precio"]) == (10100.0, "fic_sfc")
+    # Renta Fija 180 tiene dos participaciones: no se adivina, se usa el extracto
+    assert (fila["FIC_180"]["precio"], fila["FIC_180"]["fuente_precio"]) == (18400.0, "manual")
+    mapa, avisos = cartera.fic_emparejados(usuario.leer("dim_activo_usuario"), fic)
+    assert mapa == {"FIC_VISTA": "fic:85:1:501"} and "2 fondos o participaciones" in avisos[0]
+    clases = set(cartera.fact_asignacion(pos).get_column("clase_activo_id").to_list())
+    assert {"MGC", "FIC", "EFECTIVO"} <= clases

@@ -642,6 +642,88 @@ def backtest_correr(cuerpo: dict = Body(...)):
         raise HTTPException(400, str(e)) from None
 
 
+def _pct_txt(w: float) -> str:
+    return "menos de 0,1 %" if w < 0.0005 else f"{w * 100:.1f} %".replace(".", ",")
+
+
+@app.get("/api/backtest/desde_cartera/{cartera_id}")
+def backtest_desde_cartera(cartera_id: str):
+    """Pesos de la cartera real a su última fecha, traducidos a activos del Laboratorio: cada acción con su
+    serie, el efectivo como efectivo en pesos y cada FIC emparejado con la SFC con su valor de la unidad.
+    Lo que no tiene serie (un FIC sin emparejar, una acción del Mercado Global) se aproxima o se deja por
+    fuera, y se dice."""
+    from invest import backtest as bt
+    from invest import cartera as ct
+    f = (q1("SELECT max(fecha) AS f FROM fact_posicion WHERE cartera_id = ?", [cartera_id]) or {}).get("f")
+    if f is None:
+        raise HTTPException(404, "La cartera no tiene posiciones")
+    posiciones = q("""SELECT p.especie, p.valor_cop, coalesce(a.nemotecnico, p.nombre, p.especie) AS nombre,
+                             coalesce(a.clase_activo_id, p.clase_activo_id) AS clase
+                      FROM fact_posicion p LEFT JOIN dim_activo a USING (especie)
+                      WHERE p.cartera_id = ? AND p.fecha = ? AND p.valor_cop > 0""", [cartera_id, f])
+    datos = _datos_bt()
+    con_serie = set(datos.tecnico().get_column("especie").unique().to_list())
+    mapa, _ = ct.fic_emparejados(usuario.leer("dim_activo_usuario"), storage.leer_tabla("silver", "fact_fic_mensual"))
+    pesos: dict[str, float] = {}
+    avisos, fuera = [], 0.0
+    total = sum(p["valor_cop"] for p in posiciones) or 1.0
+    for p in posiciones:
+        w = p["valor_cop"] / total
+        if p["especie"] == "EFECTIVO":
+            destino = "efectivo_cop"
+        elif p["especie"] in con_serie:
+            destino = f"accion:{p['especie']}"
+        elif p["especie"] in mapa:
+            destino = mapa[p["especie"]]
+        elif p["clase"] in ("FIC", "CDT"):
+            destino = "efectivo_cop"
+            avisos.append(f"{p['nombre']} ({_pct_txt(w)}) no tiene serie: se aproxima con efectivo en pesos.")
+        else:
+            fuera += w
+            avisos.append(f"{p['nombre']} ({_pct_txt(w)}) no tiene serie de precios: queda por fuera y los demás pesos se reescalan.")
+            continue
+        pesos[destino] = pesos.get(destino, 0.0) + w
+    if not pesos:
+        raise HTTPException(409, "Ninguna posición de la cartera tiene serie para el Laboratorio")
+    escala = sum(pesos.values())
+    pesos = {k: round(v / escala * 100, 1) for k, v in pesos.items()}
+    pesos = {k: v for k, v in pesos.items() if v > 0}
+    ajuste = round(100 - sum(pesos.values()), 1)  # redondeo: que sumen exactamente 100
+    mayor = max(pesos, key=pesos.get)
+    pesos[mayor] = round(pesos[mayor] + ajuste, 1)
+    return responder({"fecha": f, "pesos": pesos, "avisos": avisos, "fuera": fuera})
+
+
+@app.post("/api/asignacion")
+def asignacion_calcular(cuerpo: dict = Body(...)):
+    """Supuestos de mercado y las tres carteras (optimizada con vistas, HRP y benchmark del perfil).
+    Porcentajes en fracción (0,10 = 10 %)."""
+    from invest import asignacion as asg
+    perfil, asignacion_perfil = None, []
+    perfil_id = cuerpo.get("perfil_id")
+    if perfil_id:
+        perfiles = usuario.leer("dim_perfil").filter(pl.col("perfil_id") == perfil_id).sort("version")
+        if perfiles.is_empty():
+            raise HTTPException(404, "Perfil desconocido")
+        perfil = perfiles.row(-1, named=True)
+        asignacion_perfil = usuario.leer("dim_perfil_asignacion").filter(
+            (pl.col("perfil_id") == perfil_id) & (pl.col("version") == perfil["version"])).to_dicts()
+    try:
+        vol = cuerpo.get("volatilidad_objetivo")
+        vol = float(vol) if vol not in (None, "") else float((perfil or {}).get("volatilidad_objetivo") or 0.10)
+        maximo = cuerpo.get("maximo_por_activo")
+        maximo = float(maximo) if maximo not in (None, "") else 0.6
+        ajustes = {k: float(v) for k, v in (cuerpo.get("ajustes") or {}).items() if v not in (None, "")}
+        vistas = [v for v in (cuerpo.get("vistas") or []) if v.get("activo") and v.get("retorno_real") not in (None, "")]
+        r = asg.calcular(activos=cuerpo.get("activos") or None, moneda=str(cuerpo.get("moneda") or (perfil or {}).get("moneda_base") or "COP"),
+                         volatilidad_objetivo=vol, maximo_por_activo=maximo, vistas=vistas, ajustes=ajustes,
+                         perfil=perfil, asignacion_perfil=asignacion_perfil, datos=_datos_bt())
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    r["perfil"] = perfil
+    return responder(r)
+
+
 def _ruta_escenarios() -> Path:
     return data_dir() / "usuario" / "escenarios_laboratorio.json"
 
@@ -1014,8 +1096,8 @@ def cartera_rebalanceo(cartera_id: str, aporte: float = 0.0, modo: str = "comple
         raise HTTPException(404, "La cartera no tiene posiciones")
     posiciones = q("""
         SELECT p.especie, p.cantidad, p.precio, p.valor_cop,
-               CASE WHEN p.especie = 'EFECTIVO' THEN 'EFECTIVO' ELSE coalesce(a.clase_activo_id, 'OTRO') END AS clase_activo_id,
-               coalesce(e.nombre_corto, a.emisor_id) AS emisor, coalesce(a.nemotecnico, e.nombre_corto, p.especie) AS nombre
+               CASE WHEN p.especie = 'EFECTIVO' THEN 'EFECTIVO' ELSE coalesce(a.clase_activo_id, p.clase_activo_id, 'OTRO') END AS clase_activo_id,
+               coalesce(e.nombre_corto, a.emisor_id, p.nombre) AS emisor, coalesce(a.nemotecnico, e.nombre_corto, p.nombre, p.especie) AS nombre
         FROM fact_posicion p LEFT JOIN dim_activo a USING (especie) LEFT JOIN dim_emisor e ON e.emisor_id = a.emisor_id
         WHERE p.cartera_id = ? AND p.fecha = ?""", [cartera_id, f])
     asignacion = q("""SELECT clase_activo_id, peso_objetivo FROM fact_asignacion

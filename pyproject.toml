@@ -16,11 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "httpx>=0.27"]
+dev = ["pytest>=8.0", "httpx>=0.27", "skfolio>=1.0"]
 # Conectores que corren en el PC con navegador (Bolsa de Colombia). Luego: uv run playwright install chromium
 pc = ["playwright>=1.48"]
 # Aplicativo local (invest app): servidor web pequeño que lee modelo.duckdb
-app = ["fastapi>=0.110", "uvicorn>=0.29", "pypdfium2>=4.30", "pillow>=10.0"]
+app = ["fastapi>=0.110", "uvicorn>=0.29", "pypdfium2>=4.30", "pillow>=10.0", "skfolio>=1.0"]
 
 [project.scripts]
 invest = "invest.cli:main"

@@ -1025,6 +1025,10 @@ tablas:
       valor_usd: Float64
       peso: Float64
       ganancia_no_realizada_cop: Float64
+      fecha_precio: Date
+      fuente_precio: String
+      nombre: String
+      clase_activo_id: String
   fact_asignacion:
     capa: gold
     ruta: fact_asignacion

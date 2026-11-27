@@ -21,7 +21,7 @@ usuario/dim_parametro_tributario se aplican solo cuando estén validadas por un 
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import polars as pl
 
@@ -78,6 +78,84 @@ def _costo_promedio(t: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame(filas).unique(subset=["cartera_id", "especie", "fecha"], keep="last", maintain_order=True)
 
 
+def _normal(texto: str | None) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", (texto or "").upper())
+    return " ".join("".join(c if c.isalnum() else " " for c in t if not unicodedata.combining(c)).split())
+
+
+def fic_emparejados(activos: pl.DataFrame, fic: pl.DataFrame | None) -> tuple[dict[str, str], list[str]]:
+    """{especie del usuario: fic_id de la SFC} y los avisos de los que no se pudieron emparejar.
+
+    Un FIC del usuario se empareja por ``fic_id`` si lo tiene; si no, con los fondos que siguen reportando
+    cuyo nombre contiene todas las palabras de ``fic_fondo``, cuya entidad contiene ``fic_entidad`` y, si se
+    da, con el tipo de participación. Solo vale una coincidencia única."""
+    mapa, avisos = {}, []
+    if activos.is_empty():
+        return mapa, avisos
+    recientes = None
+    if fic is not None and not fic.is_empty():
+        ultimo = fic.get_column("fecha").max()
+        recientes = (fic.filter(pl.col("fecha") >= ultimo - timedelta(days=40))
+                     .unique(["codigo_entidad", "codigo_negocio", "tipo_participacion"], keep="last")
+                     .with_columns(pl.concat_str([pl.lit("fic:"), "codigo_entidad", pl.lit(":"), "codigo_negocio", pl.lit(":"),
+                                                  "tipo_participacion"]).alias("fic_id")).to_dicts())
+    for a in activos.filter(pl.col("clase_activo_id") == "FIC").iter_rows(named=True):
+        if a.get("fic_id"):
+            mapa[a["especie"]] = a["fic_id"]
+            continue
+        if not a.get("fic_fondo") or recientes is None:
+            continue
+        palabras = _normal(a["fic_fondo"]).split()
+        entidad = _normal(a.get("fic_entidad"))
+        cand = [r for r in recientes if all(w in _normal(r["nombre_fondo"]).split() for w in palabras)
+                and (not entidad or entidad in _normal(r["nombre_entidad"]))
+                and (not a.get("fic_participacion") or str(r["tipo_participacion"]) == str(a["fic_participacion"]))]
+        ids = sorted({r["fic_id"] for r in cand})
+        if len(ids) == 1:
+            mapa[a["especie"]] = ids[0]
+        else:
+            avisos.append(f"{a['nombre']}: {'ningún fondo' if not ids else f'{len(ids)} fondos o participaciones'} de la SFC coincide"
+                          f"{'n' if len(ids) > 1 else ''} con «{a['fic_fondo']}»; se usa el precio manual (indique fic_participacion o fic_id)")
+    return mapa, avisos
+
+
+def precios_de_todas_las_fuentes(precios: pl.DataFrame | None, activos: pl.DataFrame, manuales: pl.DataFrame,
+                                 fic: pl.DataFrame | None, trm: pl.DataFrame, operaciones: pl.DataFrame | None = None) -> pl.DataFrame:
+    """especie, _fp (fecha del precio), precio en pesos, fuente_precio: mercado (gold/fact_precio_diario), FIC de la
+    SFC (valor de la unidad a fin de mes), manual (extractos) y, a falta de todo, el precio de la propia compra o
+    venta. En una misma fecha manda el mercado, luego la SFC, el extracto y la operación."""
+    partes = []
+    if operaciones is not None and not operaciones.is_empty():
+        o = operaciones.filter(pl.col("tipo").is_in(["compra", "venta"]) & pl.col("especie").is_not_null() & (pl.col("cantidad") > 0))
+        o = o.with_columns(pl.coalesce(pl.col("monto") / pl.col("cantidad"), "precio").alias("_precio"),
+                           pl.when(pl.col("moneda") == "USD").then(pl.col("trm")).otherwise(1.0).alias("_a_cop"))
+        partes.append(o.filter(pl.col("_precio").is_not_null()).select(
+            "especie", pl.col("fecha_operacion").alias("_fp"), (pl.col("_precio") * pl.col("_a_cop")).alias("precio"),
+            pl.lit("operacion").alias("fuente_precio"), pl.lit(0).alias("_prioridad")))
+    if precios is not None and not precios.is_empty():
+        partes.append(precios.select("especie", pl.col("fecha").alias("_fp"), "precio", pl.lit("mercado").alias("fuente_precio"),
+                                     pl.lit(3).alias("_prioridad")))
+    mapa, _ = fic_emparejados(activos, fic)
+    if mapa and fic is not None:
+        ids = fic.with_columns(pl.concat_str([pl.lit("fic:"), "codigo_entidad", pl.lit(":"), "codigo_negocio", pl.lit(":"),
+                                              "tipo_participacion"]).alias("fic_id"))
+        inverso = pl.DataFrame({"especie": list(mapa), "fic_id": list(mapa.values())})
+        partes.append(ids.join(inverso, on="fic_id").select("especie", pl.col("fecha").alias("_fp"), pl.col("valor_unidad").alias("precio"),
+                                                            pl.lit("fic_sfc").alias("fuente_precio"), pl.lit(2).alias("_prioridad")))
+    if not manuales.is_empty():
+        m = manuales.sort("fecha").join_asof(trm.select(pl.col("fecha_mercado").alias("fecha"), "trm").sort("fecha"),
+                                             on="fecha", strategy="backward")
+        partes.append(m.select("especie", pl.col("fecha").alias("_fp"),
+                               pl.when(pl.col("moneda") == "USD").then(pl.col("precio") * pl.col("trm")).otherwise(pl.col("precio")).alias("precio"),
+                               pl.lit("manual").alias("fuente_precio"), pl.lit(1).alias("_prioridad")))
+    if not partes:
+        return pl.DataFrame(schema={"especie": pl.Utf8, "_fp": pl.Date, "precio": pl.Float64, "fuente_precio": pl.Utf8})
+    todo = pl.concat([x.with_columns(pl.col("_fp").cast(pl.Date), pl.col("precio").cast(pl.Float64), pl.col("_prioridad").cast(pl.Int32))
+                      for x in partes])
+    return todo.sort(["especie", "_fp", "_prioridad"]).unique(["especie", "_fp"], keep="last").drop("_prioridad").sort("_fp")
+
+
 def fact_posicion(transacciones: pl.DataFrame | None = None, hasta: date | None = None) -> pl.DataFrame | None:
     t = transacciones if transacciones is not None else usuario.leer("fact_transaccion")
     if t.is_empty():
@@ -110,16 +188,17 @@ def fact_posicion(transacciones: pl.DataFrame | None = None, hasta: date | None 
     if not partes:
         return None
     pos = pl.concat([p.select("fecha", "cartera_id", "especie", "cantidad", "costo_fiscal_cop") for p in partes])
-    if precios is not None and not precios.is_empty():
-        pr = precios.select("especie", pl.col("fecha").alias("_fp"), "precio").sort("_fp")
-        pos = pos.sort("fecha").join_asof(pr, left_on="fecha", right_on="_fp", by="especie", strategy="backward",
-                                          check_sortedness=False).drop("_fp")
-    else:
-        pos = pos.with_columns(pl.lit(None, pl.Float64).alias("precio"))
+    activos_usuario = usuario.leer("dim_activo_usuario")
+    pr = precios_de_todas_las_fuentes(precios, activos_usuario, usuario.leer("fact_precio_manual"),
+                                      storage.leer_tabla("silver", "fact_fic_mensual"), trm, t)
+    pos = pos.sort("fecha").join_asof(pr, left_on="fecha", right_on="_fp", by="especie", strategy="backward",
+                                      check_sortedness=False).rename({"_fp": "fecha_precio"})
     pos = pos.sort("fecha").join_asof(trm, left_on="fecha", right_on="fecha_mercado", strategy="backward",
                                       check_sortedness=False)
     pos = pos.with_columns(
         pl.when(pl.col("especie") == EFECTIVO).then(1.0).otherwise(pl.col("precio")).alias("precio"),
+        pl.when(pl.col("especie") == EFECTIVO).then(pl.col("fecha")).otherwise(pl.col("fecha_precio")).alias("fecha_precio"),
+        pl.when(pl.col("especie") == EFECTIVO).then(pl.lit("efectivo")).otherwise(pl.col("fuente_precio")).alias("fuente_precio"),
     ).with_columns((pl.col("cantidad") * pl.col("precio")).alias("valor_cop")).with_columns(
         (pl.col("valor_cop") / pl.col("trm")).alias("valor_usd"),
         (pl.col("valor_cop") / pl.col("valor_cop").sum().over("cartera_id", "fecha")).alias("peso"),
@@ -128,8 +207,13 @@ def fact_posicion(transacciones: pl.DataFrame | None = None, hasta: date | None 
     )
     # Una posición cerrada (cantidad 0) deja de aparecer después del día en que se cerró
     pos = pos.filter((pl.col("especie") == EFECTIVO) | (pl.col("cantidad").abs() > 1e-9))
+    # Nombre y clase de los activos propios del usuario (los de la SFC los trae dim_activo)
+    propios = activos_usuario.select("especie", pl.col("nombre").alias("nombre_usuario"), pl.col("clase_activo_id").alias("clase_usuario"))
+    pos = pos.join(propios, on="especie", how="left")
     return pos.select("fecha", "cartera_id", "especie", "cantidad", "costo_fiscal_cop", "precio", "valor_cop",
-                      "valor_usd", "peso", "ganancia_no_realizada_cop").sort(["cartera_id", "fecha", "especie"])
+                      "valor_usd", "peso", "ganancia_no_realizada_cop", "fecha_precio", "fuente_precio",
+                      pl.col("nombre_usuario").alias("nombre"), pl.col("clase_usuario").alias("clase_activo_id")
+                      ).sort(["cartera_id", "fecha", "especie"])
 
 
 def fact_asignacion(pos: pl.DataFrame) -> pl.DataFrame:
@@ -137,7 +221,13 @@ def fact_asignacion(pos: pl.DataFrame) -> pl.DataFrame:
     activos = storage.leer_dim("dim_activo")
     clase = (activos.select("especie", "clase_activo_id", "pais_id", "moneda_id") if activos is not None
              else pl.DataFrame(schema={"especie": pl.Utf8, "clase_activo_id": pl.Utf8, "pais_id": pl.Utf8, "moneda_id": pl.Utf8}))
-    p = pos.join(clase, on="especie", how="left").with_columns(
+    propia = pos.select("especie", pl.col("clase_activo_id").alias("_clase_usuario")).unique("especie") \
+        if "clase_activo_id" in pos.columns else None
+    p = pos.drop([c for c in ("clase_activo_id",) if c in pos.columns]).join(clase, on="especie", how="left")
+    if propia is not None:
+        p = p.join(propia, on="especie", how="left").with_columns(
+            pl.coalesce("clase_activo_id", "_clase_usuario").alias("clase_activo_id")).drop("_clase_usuario")
+    p = p.with_columns(
         pl.when(pl.col("especie") == EFECTIVO).then(pl.lit("EFECTIVO")).otherwise(pl.col("clase_activo_id").fill_null("OTRO"))
         .alias("clase_activo_id"))
     actual = p.group_by("cartera_id", "fecha", "clase_activo_id").agg(pl.col("peso").sum(), pl.col("valor_cop").sum())
@@ -158,7 +248,8 @@ def fact_asignacion(pos: pl.DataFrame) -> pl.DataFrame:
         (pl.col("peso") - pl.col("peso_objetivo")).alias("desvio"),
         ((pl.col("peso") < pl.col("banda_minima")) | (pl.col("peso") > pl.col("banda_maxima"))).fill_null(False)
         .alias("fuera_de_banda"))
-    return t.sort(["cartera_id", "fecha", "clase_activo_id"])
+    # Una cartera sin perfil deja filas sin clase en la unión con los objetivos: no significan nada
+    return t.filter(pl.col("clase_activo_id").is_not_null()).sort(["cartera_id", "fecha", "clase_activo_id"])
 
 
 def xirr(flujos: list[tuple[date, float]]) -> float | None:

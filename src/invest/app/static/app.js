@@ -1024,6 +1024,7 @@ function elegirCartera(v, alCambiar, pedida) {
   return { sel, actual };
 }
 
+const FUENTE_PRECIO = { mercado: "Bolsa", fic_sfc: "valor de la unidad (SFC)", manual: "extracto", operacion: "precio de la operación" };
 paginas.cartera = async (v, pedida) => {
   const eleccion = elegirCartera(v, (id) => { location.hash = "#/cartera/" + encodeURIComponent(id); }, pedida);
   if (eleccion && pedida && eleccion.actual !== pedida) {
@@ -1070,9 +1071,13 @@ paginas.cartera = async (v, pedida) => {
   v.append(el("section", { class: "panel" }, el("div", { class: "encabezado" }, el("h2", {}, "Valor de la cartera"),
     botonesPeriodo(["1s", "1m", "3m", "6m", "ytd", "1a", "3a", "max"], periodoValor, (id) => { periodoValor = id; pintarValor(); })), cajaValor));
   v.append(panel("Posiciones", tabla([
-    { k: "especie", t: "Activo", izq: true, f: (r) => r.especie === "EFECTIVO" ? "Efectivo" : el("a", { href: "#/ficha/" + r.especie, style: { fontWeight: 600 } }, r.nemotecnico || r.nombre_corto || r.especie) },
-    { k: "cantidad", t: "Cantidad", f: (r) => r.especie === "EFECTIVO" ? "" : num(r.cantidad, 0) },
-    { k: "precio", t: "Precio", f: (r) => r.especie === "EFECTIVO" ? "" : num(r.precio, 0) },
+    { k: "especie", t: "Activo", izq: true, f: (r) => r.especie === "EFECTIVO" ? "Efectivo"
+      : r.nemotecnico ? el("a", { href: "#/ficha/" + r.especie, style: { fontWeight: 600 } }, r.nemotecnico || r.nombre_corto)
+      : el("span", { style: { fontWeight: 600 }, title: "Activo propio (no está en el catálogo de la SFC)" }, r.nombre || r.especie) },
+    { k: "cantidad", t: "Cantidad", f: (r) => r.especie === "EFECTIVO" ? "" : num(r.cantidad, r.cantidad % 1 ? 4 : 0) },
+    { k: "precio", t: "Precio", f: (r) => r.especie === "EFECTIVO" ? "" : el("span", { title: r.fuente_precio ? `${FUENTE_PRECIO[r.fuente_precio] || r.fuente_precio}, ${fecha(r.fecha_precio)}` : "Sin precio" },
+      num(r.precio, r.precio < 100 || r.fuente_precio !== "mercado" ? 2 : 0),
+      r.fuente_precio && r.fuente_precio !== "mercado" ? el("span", { class: "nota" }, " · " + (FUENTE_PRECIO[r.fuente_precio] || r.fuente_precio) + " " + fechaCorta(r.fecha_precio)) : null) },
     { k: "costo_fiscal_cop", t: "Costo fiscal", f: (r) => pesos(r.costo_fiscal_cop) },
     { k: "valor_cop", t: "Valor", f: (r) => pesos(r.valor_cop) },
     ...(d.hora_en_curso ? [{ k: "precio_en_curso", t: "Precio ahora", f: (r) => r.precio_en_curso == null ? "" : el("span", {}, num(r.precio_en_curso, 0), " ", el("span", { class: (r.variacion_en_curso || 0) >= 0 ? "sube" : "baja" }, pct(r.variacion_en_curso, 1))) }] : []),
@@ -1082,8 +1087,8 @@ paginas.cartera = async (v, pedida) => {
   ], d.posiciones, { orden: "valor_cop" })));
   if (d.asignacion.some((a) => a.peso_objetivo != null)) v.append(calculadoraRebalanceo(eleccion.actual));
   requestAnimationFrame(() => {
-    mapaArbol(cajaMapa, d.posiciones.map((p) => ({ valor: p.valor_cop, etiqueta: p.especie === "EFECTIVO" ? "Efectivo" : (p.nemotecnico || p.nombre_corto || p.especie),
-      sub: pct(p.peso) + (p.retorno_12m != null ? " · " + pct(p.retorno_12m) : ""), r: p, href: p.especie === "EFECTIVO" ? null : "#/ficha/" + p.especie,
+    mapaArbol(cajaMapa, d.posiciones.map((p) => ({ valor: p.valor_cop, etiqueta: p.especie === "EFECTIVO" ? "Efectivo" : (p.nemotecnico || p.nombre || p.nombre_corto || p.especie),
+      sub: pct(p.peso) + (p.retorno_12m != null ? " · " + pct(p.retorno_12m) : ""), r: p, href: p.especie === "EFECTIVO" || !p.nemotecnico ? null : "#/ficha/" + p.especie,
       filas: [["Valor", pesos(p.valor_cop)], ["Peso", pct(p.peso)], ["Retorno 12 meses", pct(p.retorno_12m)], ["Puntaje", num(p.puntaje_global, 1)]] })),
     { alto: 340, titulo: "Posiciones de la cartera", color: (it) => it.r.especie === "EFECTIVO" ? "#2A3448" : divergente(it.r.retorno_12m, 0.3) });
     pintarValor();
@@ -1519,7 +1524,8 @@ let estadoLab = null;  // lo último que se probó: la página se repinta al cam
 paginas.laboratorio = async (v) => {
   v.append(el("div", {}, el("h1", {}, "Laboratorio de carteras"),
     el("div", { class: "sub" }, "Pruebe una mezcla de activos con la historia: cómo le habría ido, cuánto habría caído y qué tan distinto sale según cuándo empieza. Es una prueba con el pasado, no una predicción ni una recomendación.")));
-  const [cat, guardados0] = await Promise.all([api("/api/backtest/activos"), api("/api/backtest/escenarios")]);
+  const [cat, guardados0, estado] = await Promise.all([api("/api/backtest/activos"), api("/api/backtest/escenarios"), api("/api/estado")]);
+  const misCarteras = estado.carteras || [];
   let guardados = guardados0;
   const porId = new Map(cat.activos.map((a) => [a.id, a]));
   const etiqueta = (a) => a.id.startsWith("accion:") ? `${a.nombre} (desde ${a.desde?.slice(0, 4)})` : a.nombre;
@@ -1583,11 +1589,20 @@ paginas.laboratorio = async (v) => {
   };
   // Partir de un ejemplo o de un escenario guardado
   const partir = el("select", { "aria-label": "Partir de" });
-  const pintarPartir = () => partir.replaceChildren(el("option", { value: "" }, "Partir de un ejemplo o de un escenario guardado…"),
+  const pintarPartir = () => partir.replaceChildren(el("option", { value: "" }, "Partir de mi cartera, un ejemplo o un escenario guardado…"),
+    misCarteras.length ? el("optgroup", { label: "Mis carteras (pesos de hoy)" }, misCarteras.map((c) => el("option", { value: "ca:" + c.cartera_id }, c.nombre))) : null,
     el("optgroup", { label: "Ejemplos (para comparar, no son recomendaciones)" }, cat.ejemplos.map((e) => el("option", { value: "ej:" + e.id }, e.nombre))),
     guardados.length ? el("optgroup", { label: "Escenarios guardados" }, guardados.map((e) => el("option", { value: "es:" + e.nombre }, e.nombre))) : null);
   pintarPartir();
-  partir.addEventListener("change", () => {
+  partir.addEventListener("change", async () => {
+    if (partir.value.startsWith("ca:")) {
+      try {
+        const r = await api("/api/backtest/desde_cartera/" + encodeURIComponent(partir.value.slice(3)));
+        cargarPesos(r.pesos);
+        estadoTxt.textContent = `Pesos de la cartera al ${fecha(r.fecha)}.` + (r.avisos.length ? " " + r.avisos.join(" ") : "");
+      } catch (e) { estadoTxt.textContent = "No se pudo: " + String(e.message || e).replace(/^\d+ · /, ""); }
+      return;
+    }
     if (partir.value.startsWith("ej:")) cargarPesos(cat.ejemplos.find((e) => "ej:" + e.id === partir.value).pesos);
     else if (partir.value.startsWith("es:")) aplicar(guardados.find((e) => "es:" + e.nombre === partir.value).parametros);
   });
@@ -1691,6 +1706,149 @@ function pintarResultado(caja, r, nombreBench) {
   lineas(grafico, series, { alto: 280, titulo: "Valor de la cartera", fy: (x) => num(x, 0) });
   lineas(graficoCaidas, seriesCaidas, { alto: 180, titulo: "Caídas", max: 0, fy: (x) => num(x, 0) + " %" });
 }
+
+// ===== Asignación de activos (etapa 3) =====
+// Supuestos de mercado por componentes y las tres carteras: optimizada (con vistas de Black-Litterman),
+// HRP y benchmark del perfil (src/invest/asignacion.py). Carteras modelo para comparar, no recomendaciones.
+const METODO_TXT = { optimizada: "Optimizada", hrp: "Paridad de riesgo jerárquica (HRP)", benchmark: "Benchmark del perfil" };
+const COLORES_ACTIVO = ["#6E9BFF", "#3DDC97", "#FFB547", "#C792EA", "#FF7A6B", "#4FD1C5", "#F78FB3", "#A3BE8C"];
+let estadoAsig = null;
+paginas.asignacion = async (v) => {
+  v.append(el("div", {}, el("h1", {}, "Asignación de activos"),
+    el("div", { class: "sub" }, "Tres maneras de repartir el dinero entre clases de activos, con los supuestos de retorno a la vista. Son carteras modelo para comparar y aprender, no una recomendación: cambie los supuestos y vea qué tanto se mueven.")));
+  const [cat, estado] = await Promise.all([api("/api/backtest/activos"), api("/api/estado")]);
+  const porId = new Map(cat.activos.map((a) => [a.id, a]));
+  const nombre = (id) => porId.get(id)?.nombre || id;
+  const color = (id, lista) => COLORES_ACTIVO[lista.indexOf(id) % COLORES_ACTIVO.length];
+  const st = estadoAsig || { activos: ["efectivo_cop", "tes_10a", "acciones_co_igual", "efectivo_usd", "tesoro_10a"], moneda: "COP",
+    volatilidad_objetivo: 10, maximo_por_activo: 60, vistas: [], ajustes: {}, perfil_id: "" };
+  // Parámetros
+  const perfil = el("select", { "aria-label": "Perfil" }, el("option", { value: "" }, "Sin perfil (parámetros a mano)"),
+    (estado.perfiles || []).map((p) => el("option", { value: p.perfil_id }, p.nombre)));
+  perfil.value = st.perfil_id || "";
+  const moneda = el("select", { "aria-label": "Moneda" }, el("option", { value: "COP" }, "Pesos"), el("option", { value: "USD" }, "Dólares"));
+  moneda.value = st.moneda;
+  const vol = el("input", { type: "number", min: "1", max: "60", step: "0.5", value: String(st.volatilidad_objetivo), "aria-label": "Volatilidad objetivo", style: { width: "80px" } });
+  const maximo = el("input", { type: "number", min: "5", max: "100", step: "5", value: String(st.maximo_por_activo), "aria-label": "Máximo por activo", style: { width: "80px" } });
+  const control = (rotulo, ...hijos) => el("span", { class: "control" }, el("span", { class: "rotulo-control" }, rotulo), ...hijos);
+  // Activos elegidos
+  const elegidos = new Set(st.activos);
+  const chips = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" } });
+  const lista = el("datalist", { id: "asig-activos" }, cat.activos.map((a) => el("option", { value: a.nombre })));
+  const porNombre = new Map(cat.activos.map((a) => [a.nombre, a.id]));
+  const buscar = el("input", { type: "text", list: "asig-activos", placeholder: "Agregar un activo", "aria-label": "Agregar un activo", style: { width: "280px" } });
+  buscar.addEventListener("change", () => { const id = porNombre.get(buscar.value.trim()); if (id) { elegidos.add(id); buscar.value = ""; pintarChips(); } });
+  const pintarChips = () => chips.replaceChildren(...[...elegidos].map((id) => {
+    const quitar = el("button", { type: "button", class: "boton", "aria-label": "Quitar " + nombre(id), style: { height: "26px", padding: "0 8px" } }, "×");
+    quitar.onclick = () => { elegidos.delete(id); pintarChips(); };
+    return el("span", { class: "chip gris", style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, nombre(id), quitar);
+  }), buscar);
+  pintarChips();
+  // Vistas
+  const vistas = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
+  const agregarVista = (x = {}) => {
+    const act = el("select", { "aria-label": "Activo de la vista" }, [...elegidos].map((id) => el("option", { value: id }, nombre(id))));
+    if (x.activo) act.value = x.activo;
+    const ret = el("input", { type: "number", step: "0.5", "aria-label": "Retorno real anual esperado", value: x.retorno_real != null ? String(x.retorno_real * 100) : "", placeholder: "% real anual", style: { width: "110px" } });
+    const conf = el("input", { type: "number", min: "1", max: "99", step: "5", "aria-label": "Confianza", value: String(x.confianza != null ? x.confianza * 100 : 50), style: { width: "80px" } });
+    const quitar = el("button", { type: "button", class: "boton", "aria-label": "Quitar vista" }, "×");
+    const fila = el("div", { class: "vista", style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+      act, el("span", { class: "nota" }, "rendirá"), ret, el("span", { class: "nota" }, "% real al año, con confianza de"), conf, el("span", { class: "nota" }, "%"), quitar);
+    quitar.onclick = () => fila.remove();
+    vistas.append(fila);
+  };
+  for (const x of st.vistas) agregarVista(x);
+  const botonVista = el("button", { type: "button", class: "boton" }, "Agregar una vista");
+  botonVista.onclick = () => agregarVista();
+  const leerVistas = () => [...vistas.querySelectorAll(".vista")].map((f) => {
+    const [act, ret, conf] = f.querySelectorAll("select, input");
+    return { activo: act.value, retorno_real: ret.value === "" ? null : Number(ret.value) / 100, confianza: Number(conf.value) / 100 };
+  }).filter((x) => x.retorno_real != null);
+  const calcularBoton = el("button", { type: "button", class: "boton primario" }, "Calcular las tres carteras");
+  const estadoTxt = el("span", { class: "nota", role: "status" });
+  const supuestosCaja = el("div");
+  const resultados = el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } });
+  const ajustes = { ...st.ajustes };
+  v.append(lista, el("section", { class: "panel" }, el("h2", {}, "Parámetros"),
+    el("div", { class: "controles-precio" }, control("Perfil", perfil), control("Moneda", moneda),
+      control("Volatilidad objetivo", vol, el("span", { class: "nota" }, "% anual")), control("Máximo por activo", maximo, el("span", { class: "nota" }, "%"))),
+    el("div", { style: { marginTop: "12px" } }, el("span", { class: "rotulo-control" }, "Activos"), chips),
+    el("p", { class: "desc" }, "Con un perfil, la volatilidad objetivo y la moneda salen de él (puede cambiarlas) y el benchmark es su asignación objetivo. Aún no hay acciones del exterior ni curva de TES: los TES y el Tesoro se aproximan desde su tasa.")),
+    el("section", { class: "panel" }, el("h2", {}, "Vistas propias (opcional)"),
+      el("p", { class: "desc" }, "Si cree que un activo rendirá distinto del supuesto, escríbalo con su confianza: Black-Litterman mezcla la vista con el supuesto según esa confianza y según cómo se mueve el activo con los demás."),
+      vistas, el("div", { style: { marginTop: "8px" } }, botonVista)),
+    el("div", { style: { display: "flex", gap: "12px", alignItems: "center" } }, calcularBoton, estadoTxt),
+    supuestosCaja, resultados);
+  perfil.addEventListener("change", () => {
+    const p = (estado.perfiles || []).find((x) => x.perfil_id === perfil.value);
+    if (p) estadoTxt.textContent = "Al calcular se usan la volatilidad objetivo y la moneda del perfil, salvo que las cambie aquí.";
+  });
+  const parametros = () => ({ activos: [...elegidos], moneda: moneda.value, volatilidad_objetivo: Number(vol.value) / 100,
+    maximo_por_activo: Number(maximo.value) / 100, vistas: leerVistas(), ajustes: { ...ajustes }, perfil_id: perfil.value || null });
+  calcularBoton.onclick = async () => {
+    calcularBoton.disabled = true; estadoTxt.textContent = "Calculando…";
+    try {
+      const par = parametros();
+      estadoAsig = { ...par, volatilidad_objetivo: Number(vol.value), maximo_por_activo: Number(maximo.value), perfil_id: perfil.value };
+      const r = await postear("/api/asignacion", par);
+      estadoTxt.textContent = "";
+      pintarSupuestos(r); pintarMetodos(r);
+    } catch (e) { estadoTxt.textContent = "No se pudo: " + String(e.message || e).replace(/^\d+ · /, ""); }
+    calcularBoton.disabled = false;
+  };
+  const pintarSupuestos = (r) => {
+    const filas = Object.entries(r.supuestos).map(([id, s]) => ({ id, ...s }));
+    const entrada = (f) => {
+      const x = el("input", { type: "number", step: "0.25", value: (f.real * 100).toFixed(2), "aria-label": "Retorno real de " + nombre(f.id), style: { width: "90px" } });
+      x.addEventListener("change", () => { ajustes[f.id] = Number(x.value) / 100; estadoTxt.textContent = "Supuesto cambiado: vuelva a calcular."; });
+      return el("span", { style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, x, "%", f.ajustado ? el("span", { class: "chip" }, "suyo") : null);
+    };
+    const cuenta = (f) => el("ul", { class: "desc", style: { margin: 0, paddingLeft: "18px", whiteSpace: "normal", minWidth: "320px" } }, f.componentes.map(([t, v]) => el("li", {}, `${t}: ${pct(v, 2)}`)), f.nota ? el("li", { class: "nota" }, "Datos: " + f.nota) : null);
+    const restaurar = el("button", { type: "button", class: "boton" }, "Volver a los supuestos calculados");
+    restaurar.onclick = () => { for (const k of Object.keys(ajustes)) delete ajustes[k]; calcularBoton.onclick(); };
+    supuestosCaja.replaceChildren(el("section", { class: "panel" },
+      el("div", { class: "encabezado" }, el("h2", {}, "Supuestos de mercado · retorno real anual esperado a 10 años"), Object.keys(ajustes).length ? restaurar : null),
+      el("p", { class: "desc" }, `Por componentes con los datos de hoy, nunca el promedio histórico. Inflación esperada: ${pct(r.inflacion_esperada.COP, 1)} en Colombia y ${pct(r.inflacion_esperada.USD, 1)} en EE. UU. (config/supuestos_mercado.yaml). Escriba otro valor para usar el suyo.`),
+      tabla([{ k: "id", t: "Activo", izq: true, f: (f) => nombre(f.id) }, { k: "real", t: "Central", f: entrada },
+        { k: "rango", t: "Rango", f: (f) => `${pct(f.bajo, 1)} a ${pct(f.alto, 1)}` }, { k: "nominal", t: "Nominal", f: (f) => pct(f.nominal, 1) },
+        { k: "componentes", t: "Cuenta", izq: true, f: cuenta }], filas)));
+  };
+  const pintarMetodos = (r) => {
+    const lista = r.activos.concat(Object.keys(r.metodos.benchmark.pesos).filter((a) => !r.activos.includes(a)));
+    const barra = (valor, c, texto) => el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+      el("div", { style: { flex: "1 1 auto", background: "var(--panel2)", borderRadius: "4px", height: "10px", overflow: "hidden" } },
+        el("div", { style: { width: `${Math.max(0, Math.min(100, valor * 100))}%`, background: c, height: "100%", borderRadius: "4px" } })),
+      el("span", { class: "nota", style: { minWidth: "48px", textAlign: "right" } }, texto));
+    const tarjeta = (clave) => {
+      const m = r.metodos[clave];
+      const ids = Object.keys(m.pesos).sort((a, b) => m.pesos[b] - m.pesos[a]);
+      const probar = el("button", { type: "button", class: "boton" }, "Probar en el Laboratorio");
+      probar.onclick = () => {
+        estadoLab = { pesos: Object.fromEntries(ids.map((id) => [id, Math.round(m.pesos[id] * 1000) / 10])), rebalanceo: "anual", banda: 5,
+          moneda: r.moneda, desde: null, hasta: null, valor_inicial: 100000000, aporte_mensual: 0, con_costos: true, benchmark_id: "efectivo_cop" };
+        location.hash = "#/laboratorio";
+      };
+      return el("section", { class: "panel", style: { flex: "1 1 300px", minWidth: "280px" } },
+        el("h2", {}, METODO_TXT[clave]), el("p", { class: "desc" }, m.nota),
+        el("dl", { class: "resumen-metodo" },
+          el("dt", {}, "Retorno real esperado"), el("dd", {}, el("strong", {}, pct(m.retorno_real, 1)),
+            m.retorno_real_bajo != null ? el("span", { class: "nota" }, ` (${pct(m.retorno_real_bajo, 1)} a ${pct(m.retorno_real_alto, 1)})`) : null),
+          el("dt", {}, "Volatilidad anual"), el("dd", {}, el("strong", {}, pct(m.volatilidad, 1))),
+          el("dt", {}, "Peor 5 % de los meses (CVaR)"), el("dd", {}, el("strong", {}, pct(m.cvar_95_mensual, 1)))),
+        el("h3", { class: "rotulo-control", style: { marginTop: "12px" } }, "Pesos"),
+        ...ids.map((id) => el("div", {}, el("div", { class: "nota" }, nombre(id)), barra(m.pesos[id], color(id, lista), pct(m.pesos[id], 1)))),
+        m.contribucion_riesgo ? el("h3", { class: "rotulo-control", style: { marginTop: "12px" } }, "Cuánto del riesgo aporta cada uno") : null,
+        ...(m.contribucion_riesgo ? ids.filter((id) => m.contribucion_riesgo[id] != null).map((id) =>
+          el("div", {}, el("div", { class: "nota" }, nombre(id)), barra(Math.max(0, m.contribucion_riesgo[id]), color(id, lista), pct(m.contribucion_riesgo[id], 0)))) : []),
+        el("div", { style: { marginTop: "12px" } }, probar));
+    };
+    resultados.replaceChildren(
+      ...(r.avisos.length ? [el("section", { class: "panel" }, el("h2", {}, "Tenga en cuenta"), el("ul", { class: "desc" }, r.avisos.map((a) => el("li", {}, a))))] : []),
+      el("div", { style: { display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "stretch" } }, ...["optimizada", "hrp", "benchmark"].map(tarjeta)),
+      el("p", { class: "desc" }, `Volatilidad, CVaR y contribución al riesgo salen de ${r.periodo_escenarios.meses} meses de historia (${fecha(r.periodo_escenarios.desde)} a ${fecha(r.periodo_escenarios.hasta)}) recentrados en los supuestos, con covarianza de Ledoit-Wolf. Una contribución negativa quiere decir que el activo baja el riesgo del conjunto. «Probar en el Laboratorio» muestra cómo le habría ido a esos pesos con la historia (dentro de muestra: la prueba fuera de muestra es la siguiente etapa).`));
+  };
+  calcularBoton.onclick();
+};
 
 // ===== Documentos =====
 // Los PDF y anexos descargados (Superfinanciera, sitios de las compañías, puestos a mano), por categoría,

@@ -191,3 +191,6 @@ form.formulario .acciones { grid-column: 1 / -1; display: flex; gap: 8px; align-
 .anuales .anio.baja strong { color: var(--debil-texto); }
 .panel input[type=month] { color-scheme: dark; }
 .panel input[type=number], .panel input[type=month] { height: 36px; padding: 0 10px; border: 1px solid var(--borde-boton); border-radius: 8px; background: var(--fondo); }
+.resumen-metodo { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 8px 0 0; }
+.resumen-metodo dt { color: var(--texto2); font-size: 13px; }
+.resumen-metodo dd { margin: 0; text-align: right; }

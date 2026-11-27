@@ -1,0 +1,45 @@
+# Supuestos de mercado (etapa 3 del plan de asignación, src/invest/asignacion.py).
+#
+# Retorno real esperado de cada clase a 10 años, por componentes, con los datos de hoy. Nunca es el
+# promedio histórico: con series colombianas cortas eso concentra la cartera en lo que más subió. Cada
+# supuesto lleva un rango (bajo y alto) y la cuenta que lo produce; el aplicativo los muestra y permite
+# cambiarlos. Revisarlos una vez al año o cuando cambie mucho el escenario.
+
+inflacion_esperada:          # anual, a 10 años
+  COP: 0.035                 # meta del Banco de la República 3 % ± 1; se toma algo por encima de la meta
+  USD: 0.023                 # inflación implícita de EE. UU. a 10 años, aproximada
+tasa_real_neutral_cop: 0.015 # tasa real de largo plazo del efectivo en pesos (hacia donde va la tasa de hoy)
+tasa_real_neutral_usd: 0.008
+anios_convergencia_efectivo: 3   # la tasa del efectivo pasa de la actual a la neutral en tantos años
+acciones_co:
+  crecimiento_real: 0.015    # crecimiento real de dividendos y utilidades a largo plazo
+  reversion_valoracion: 0.5  # fracción de la distancia entre el P/U de hoy y su mediana de 10 años que se cierra en 10 años
+  anios_historia_pu: 10
+rango:                       # ancho del rango (más o menos) alrededor del central, por clase
+  EFECTIVO: 0.01
+  CDT: 0.01
+  DIVISA: 0.04               # el dólar en pesos: la tasa de cambio domina
+  TES_TF: 0.02
+  BONO_EXT: 0.04
+  ACCION: 0.04
+historia_covarianza_anios: 15    # retornos mensuales para la covarianza y los escenarios de CVaR
+
+# Activos que entran por defecto en la asignación (activos del Laboratorio, config/backtest.yaml)
+activos_por_defecto: [efectivo_cop, tes_10a, acciones_co_igual, efectivo_usd, tesoro_10a]
+
+# Benchmark simple por objetivo cuando el perfil no tiene asignación objetivo propia
+benchmark_por_objetivo:
+  crecimiento: {acciones_co_igual: 0.6, tes_10a: 0.3, efectivo_usd: 0.1}
+  renta: {acciones_co_igual: 0.3, tes_10a: 0.5, efectivo_cop: 0.2}
+  preservacion: {acciones_co_igual: 0.1, tes_10a: 0.4, efectivo_cop: 0.5}
+
+# Cómo se traduce la clase de la asignación objetivo del perfil a un activo del Laboratorio
+clase_a_activo:
+  ACCION: acciones_co_igual
+  TES_TF: tes_10a
+  TES_UVR: tes_10a
+  BONO_CORP: tes_10a
+  CDT: efectivo_cop
+  FIC: efectivo_cop
+  EFECTIVO: efectivo_cop
+  DIVISA: efectivo_usd

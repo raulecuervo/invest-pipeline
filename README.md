@@ -480,6 +480,7 @@ Doble clic en `scripts\abrir_app.cmd` (o `uv run --extra app invest app`): abre 
 | Mi cartera | Valor, ganancia no realizada, TWR, XIRR, dividendos por cobrar; mapa de posiciones, desvío frente a las bandas del perfil, próximos dividendos, valor diario (1S a 3A o todo) y posiciones |
 | Carteras y transacciones, Perfiles, Tesis | Formularios validados (perfiles con versiones y asignación objetivo) |
 | Laboratorio | Backtesting de carteras por reglas: pesos, rebalanceo, costos, aportes, benchmark, métricas y ventanas (ver «Laboratorio de carteras») |
+| Asignación | Supuestos de mercado y las tres carteras modelo (optimizada con vistas, HRP y benchmark del perfil) (ver «Asignación de activos») |
 | Revisión de estados | Cifras de los estados de compañías en disputa con la página del PDF resaltada y la decisión, y los documentos que no se pudieron leer: indicar las páginas de los estados o confirmar que no los traen (ver «Disputas» y «Documentos que no se pudieron leer» arriba) |
 | Documentos | Los PDF y anexos descargados (información relevante de la Superfinanciera, estados de los sitios de las compañías y los puestos a mano), con filtros por categoría (estados financieros, dividendos, capital/escisiones/OPA, asambleas, calificaciones…), activo, año, origen y texto del título; agrupados por activo y año, con la fecha, el tamaño y el estado de la lectura de los estados (leído, en disputa, sin estados adentro, escaneado). Cada uno se abre en otra pestaña; de un ZIP de la SFC se abre el PDF de los estados que trae. Solo sirve archivos de `anexos/` y `fuentes_compania/` (`src/invest/documentos.py`). Ruta: `#/documentos?categoria=…&activo=CO-…&anio=…` |
 | Salud de datos | Estado de las fuentes, últimas corridas, validación de factores, tamaño de las tablas y botones para leer la Bolsa de Colombia (abre la ventana de Chromium), actualizar el modelo y verificar el contrato |
@@ -518,6 +519,28 @@ uv run invest backtest acciones_co_igual=40,tes_10a=40,accion:coc04paao008=20 --
 Página **Laboratorio** del aplicativo: arma la cartera con un buscador de activos y pesos (o parte de un ejemplo de `config/backtest.yaml`, que no son recomendaciones), elige moneda, rebalanceo, benchmark, fechas, valor inicial, aporte y costos; muestra indicadores, valor de 100 invertidos frente al benchmark, caídas, métricas, ventanas, retorno de cada año y los activos con su peso final. Los escenarios se guardan por nombre en `invest-data/usuario/escenarios_laboratorio.json` (`/api/backtest`, `/api/backtest/activos`, `/api/backtest/escenarios`).
 
 Con los datos al 25-nov-2026 (ejemplo, en pesos, rebalanceo anual): 60 % acciones colombianas de pesos iguales y 40 % TES aproximados, ene-2003 a oct-2026, rinden 16,8 % anual (11,3 % real) con volatilidad de 15,4 % y caída máxima de −23,9 % (2022, 24 meses para recuperarse); la peor ventana de 5 años rinde −1,9 % anual y el 29 % de las de 5 años pierden contra la inflación. El efectivo en pesos rinde 7,7 % anual desde 1998.
+
+## Asignación de activos (`src/invest/asignacion.py`, `invest asignacion`)
+
+Etapa 3 del plan (documento maestro). Carteras modelo para comparar y aprender, con los supuestos a la vista; no son una recomendación.
+
+- **Supuestos de mercado** (`config/supuestos_mercado.yaml`): retorno real esperado a 10 años de cada activo, por componentes y con los datos de hoy, nunca el promedio histórico. Efectivo y CDT: la tasa real de hoy converge a la neutral (1,5 % en pesos) en 3 años. TES y Tesoro a 10 años: la tasa de hoy menos la inflación esperada (3,5 % Colombia, 2,3 % EE. UU.). Dólares y activos en dólares, medidos en pesos: su retorno real en dólares (la devaluación compensa la diferencia de inflación a largo plazo), con rango ancho. Acciones colombianas: rendimiento por dividendo mediano del universo líquido + 1,5 % de crecimiento real + la mitad del regreso del P/U a su mediana de 10 años. Cada supuesto trae rango y su cuenta, y se puede reemplazar en la página.
+- **Escenarios**: retornos mensuales de los últimos 15 años de cada activo en la moneda de la cartera, recentrados en los supuestos (conservan volatilidad, colas y correlaciones), con covarianza de Ledoit-Wolf.
+- **Tres métodos** (skfolio): *optimizada*, la de mayor retorno esperado cuya volatilidad no pasa la objetivo, con máximo por activo y, si hay vistas propias, retornos de Black-Litterman (confianza de Idzorek); si la volatilidad pedida es imposible, la de mínima volatilidad. *HRP*, paridad de riesgo jerárquica, que no usa retornos esperados. *Benchmark*, la asignación objetivo del perfil traducida a activos (`clase_a_activo`) o una mezcla de referencia por objetivo. De cada una: pesos, retorno real esperado con su rango, volatilidad, CVaR del peor 5 % de los meses y contribución de cada activo al riesgo.
+- Página **Asignación**: perfil (toma su volatilidad objetivo, moneda y asignación), activos, vistas, supuestos editables y las tres carteras lado a lado; «Probar en el Laboratorio» lleva cada una al backtest (dentro de muestra: la validación fuera de muestra es la etapa 4). `POST /api/asignacion`.
+
+```
+uv run invest asignacion --volatilidad 10 --maximo 60
+```
+
+Con los datos al 25-nov-2026, el TES a 10 años (13,25 %) promete 9,4 % real, más que las acciones (6,8 %), así que la optimizada se va al tope de TES; con una vista de acciones al 2 % real y confianza de 80 %, sale de las acciones. Muestra cuánto pesan los supuestos: por eso están a la vista.
+
+## Carteras reales con FIC, Mercado Global y extractos
+
+- `usuario/dim_activo_usuario`: activos de las carteras que no están en el catálogo de la SFC (un FIC, una acción del Mercado Global Colombiano como BACCO), con nombre, clase, país y moneda. Los FIC se emparejan con el formato 523 de la SFC (`silver/fact_fic_mensual`) por entidad y palabras del nombre (`fic_entidad`, `fic_fondo`, opcional `fic_participacion`, o directamente `fic_id`); solo vale una coincidencia única.
+- `usuario/fact_precio_manual`: precios tomados de un extracto. La posición se valora con el precio más reciente de todas las fuentes: Bolsa (`fact_precio_diario`), valor de la unidad del FIC en la SFC, extracto y, a falta de todo, el precio de la propia operación. `fact_posicion` trae `fuente_precio`, `fecha_precio`, `nombre` y `clase_activo_id`; Mi cartera muestra de dónde sale cada precio.
+- Cargar un extracto: un `<tabla>.csv` por tabla en una carpeta y `uv run invest usuario --importar-carpeta <carpeta>` (en orden: perfiles, activos, carteras, transacciones, precios; volver a importar reemplaza por clave, no duplica). Luego «Actualizar el modelo».
+- El Laboratorio puede **partir de una cartera real**: sus pesos de hoy, con cada acción, el efectivo y los FIC emparejados con su serie; lo que no tiene serie se aproxima (un FIC, con efectivo) o queda por fuera (BACCO), y se dice.
 
 ## Agregar una fuente
 

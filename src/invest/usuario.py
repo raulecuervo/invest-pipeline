@@ -17,6 +17,11 @@ Tablas (grano → claves):
 - ``dim_parametro_tributario``: regla × vigencia. Vacía a propósito: se llena con un contador (las
   reglas de 2026 están en movimiento y no se adivinan).
 - ``dim_costo_intermediario``: intermediario × producto. Comisión, mínimo, custodia.
+- ``dim_activo_usuario``: activos de las carteras que no están en el catálogo de la SFC (un fondo de
+  inversión colectiva, una acción del Mercado Global Colombiano como BACCO): nombre, clase, país y moneda;
+  los FIC se emparejan con el formato 523 de la SFC por entidad, fondo y participación (o ``fic_id``).
+- ``fact_precio_manual``: especie × fecha. Precio tomado de un extracto cuando no hay precio de mercado
+  (o del FIC en la SFC); la posición usa el más reciente de todas las fuentes.
 - ``dim_alerta``: alertas propias (precio, P/VL, z del P/VL o rendimiento por dividendo de una acción frente
   a un umbral). Las alertas automáticas (cartera, tesis, dividendos, valoración) no necesitan reglas.
 """
@@ -105,6 +110,23 @@ TABLAS: dict[str, dict] = {
                                      "z_p_vl_menor_que", "z_p_vl_mayor_que", "rendimiento_dividendo_mayor_que"],
                        "activa": ["si", "no"]},
     },
+    "dim_activo_usuario": {
+        "claves": ["especie"],
+        "columnas": {
+            "especie": pl.Utf8, "nombre": pl.Utf8, "clase_activo_id": pl.Utf8, "pais_id": pl.Utf8, "moneda_id": pl.Utf8,
+            "fic_entidad": pl.Utf8, "fic_fondo": pl.Utf8, "fic_participacion": pl.Utf8, "fic_id": pl.Utf8, "notas": pl.Utf8,
+        },
+        "obligatorias": ["especie", "nombre", "clase_activo_id"],
+        "permitidos": {"clase_activo_id": ["ACCION", "ETF", "MGC", "TES_TF", "TES_UVR", "BONO_CORP", "CDT", "FIC",
+                                           "INMOBILIARIO", "DIVISA", "OTRO"]},
+    },
+    "fact_precio_manual": {
+        "claves": ["especie", "fecha"],
+        "columnas": {"especie": pl.Utf8, "fecha": pl.Date, "precio": pl.Float64, "moneda": pl.Utf8, "fuente": pl.Utf8,
+                     "notas": pl.Utf8},
+        "obligatorias": ["especie", "fecha", "precio"],
+        "permitidos": {"moneda": ["COP", "USD"]},
+    },
     "dim_costo_intermediario": {
         "claves": ["intermediario", "producto"],
         "columnas": {
@@ -142,6 +164,11 @@ EJEMPLOS = {
                                  "fuente": "", "validado_por": ""},
     "dim_alerta": {"alerta_id": "ejemplo-1", "especie": "coc04paao008", "condicion": "precio_menor_que", "umbral": 2000,
                    "activa": "si", "nota": "Ejemplo: avisar si Ecopetrol baja de 2.000", "creada": date(2026, 11, 25)},
+    "dim_activo_usuario": {"especie": "BACCO", "nombre": "Bank of America (Mercado Global Colombiano)", "clase_activo_id": "MGC",
+                           "pais_id": "US", "moneda_id": "COP", "fic_entidad": None, "fic_fondo": None, "fic_participacion": None,
+                           "fic_id": None, "notas": "Ejemplo"},
+    "fact_precio_manual": {"especie": "BACCO", "fecha": date(2026, 10, 31), "precio": 159181.33, "moneda": "COP",
+                           "fuente": "extracto del intermediario", "notas": "Ejemplo"},
     "dim_costo_intermediario": {"intermediario": "Ejemplo", "producto": "acciones_colombia", "comision_pct": 0.003,
                                 "comision_minima": 0, "custodia_anual_pct": 0, "vigente_desde": date(2026, 1, 1),
                                 "fuente": "tarifario del intermediario"},
@@ -245,9 +272,25 @@ def plantillas() -> list[Path]:
     return escritos
 
 
+ORDEN_IMPORTACION = ["dim_perfil", "dim_perfil_asignacion", "dim_activo_usuario", "dim_cartera", "fact_transaccion",
+                     "fact_precio_manual", "dim_tesis", "dim_alerta", "dim_costo_intermediario", "dim_parametro_tributario"]
+
+
+def importar_carpeta(carpeta_csv: Path) -> dict[str, list[str]]:
+    """Importa cada ``<tabla>.csv`` de la carpeta, en orden (activos y carteras antes que transacciones).
+    Las filas con la misma clave que una existente la reemplazan: volver a importar no duplica."""
+    resultado = {}
+    for tabla in ORDEN_IMPORTACION:
+        ruta = carpeta_csv / f"{tabla}.csv"
+        if ruta.exists():
+            resultado[tabla] = importar_csv(tabla, ruta)
+    return resultado
+
+
 def importar_csv(tabla: str, ruta: Path, reemplazar: bool = False) -> list[str]:
-    """Carga un CSV con las columnas de la tabla (las demás se ignoran) y lo une a lo existente."""
-    nuevo = pl.read_csv(ruta, try_parse_dates=True, infer_schema_length=None)
+    """Carga un CSV con las columnas de la tabla (las demás se ignoran) y lo une a lo existente; una fila con
+    la misma clave que una existente la reemplaza."""
+    nuevo = pl.read_csv(ruta, try_parse_dates=True, infer_schema_length=None, encoding="utf8-lossy")
     columnas = TABLAS[tabla]["columnas"]
     nuevo = nuevo.select([c for c in nuevo.columns if c in columnas])
     if tabla == "fact_transaccion" and "transaccion_id" not in nuevo.columns:
@@ -257,4 +300,6 @@ def importar_csv(tabla: str, ruta: Path, reemplazar: bool = False) -> list[str]:
         nuevo = nuevo.select([pl.col(c).cast(t) if c in nuevo.columns else pl.lit(None, t).alias(c) for c, t in columnas.items()])
     except Exception as e:  # noqa: BLE001
         return [f"tipo de dato inválido: {e}"]
+    claves = TABLAS[tabla]["claves"]
+    base = base.join(nuevo.select(claves), on=claves, how="anti")
     return guardar(tabla, pl.concat([base, nuevo]))

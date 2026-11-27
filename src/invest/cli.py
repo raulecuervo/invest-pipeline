@@ -135,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     pu.add_argument("--plantillas", action="store_true", help="crea tablas vacías y CSV de ejemplo")
     pu.add_argument("--importar", nargs=2, metavar=("TABLA", "ARCHIVO"), help="carga un CSV validado")
     pu.add_argument("--reemplazar", action="store_true", help="con --importar: reemplaza en vez de agregar")
+    pu.add_argument("--importar-carpeta", metavar="CARPETA",
+                    help="importa cada <tabla>.csv de la carpeta (activos, carteras, transacciones, precios), sin duplicar")
 
     pf = sub.add_parser("ficha", help="Puntaje de los factores validados por acción y tablero local")
     pf.add_argument("--abrir", action="store_true", help="abre el tablero en el navegador")
@@ -165,6 +167,12 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--benchmark", help="cartera de comparación con el mismo formato que los pesos")
     pb.add_argument("--activos", action="store_true", help="lista los activos disponibles y sale")
 
+    pa = sub.add_parser("asignacion", help="Supuestos de mercado y las tres carteras modelo (optimizada, HRP, benchmark)")
+    pa.add_argument("--activos", help="activos del Laboratorio separados por coma (por omisión los de config/supuestos_mercado.yaml)")
+    pa.add_argument("--volatilidad", type=float, default=10.0, help="volatilidad objetivo, %% anual")
+    pa.add_argument("--maximo", type=float, default=60.0, help="peso máximo por activo, %%")
+    pa.add_argument("--moneda", default="COP", choices=["COP", "USD"])
+
     pins = sub.add_parser("inspeccionar", help="Prueba en vivo la estructura de la SFC (no guarda)")
     pins.add_argument("especie", nargs="?", default="coc04paao008")
 
@@ -193,6 +201,27 @@ def main(argv: list[str] | None = None) -> int:
     if a.comando == "dims":
         for nombre, ruta in dims.construir().items():
             print(f"  {nombre}: {ruta}")
+        return 0
+
+    if a.comando == "asignacion":
+        from invest import asignacion as asg
+
+        try:
+            r = asg.calcular(activos=[x.strip() for x in a.activos.split(",")] if a.activos else None, moneda=a.moneda,
+                             volatilidad_objetivo=a.volatilidad / 100, maximo_por_activo=a.maximo / 100)
+        except ValueError as e:
+            print(f"No se pudo: {e}")
+            return 2
+        print("Supuestos (retorno real anual esperado a 10 años):")
+        for aid, s in r["supuestos"].items():
+            print(f"  {s['real'] * 100:6.2f} %  ({s['bajo'] * 100:5.1f} a {s['alto'] * 100:5.1f})  {r['nombres'].get(aid, aid)}")
+        for nombre, m in r["metodos"].items():
+            print(f"\n{nombre}: retorno real {m.get('retorno_real', 0) * 100:.1f} %, volatilidad {m.get('volatilidad', 0) * 100:.1f} %, "
+                  f"CVaR mensual {m.get('cvar_95_mensual', 0) * 100:.1f} %")
+            for aid, w in sorted(m["pesos"].items(), key=lambda x: -x[1]):
+                print(f"  {w * 100:5.1f} %  {r['nombres'].get(aid, aid)}")
+        for x in r["avisos"]:
+            print(f"Aviso: {x}")
         return 0
 
     if a.comando == "backtest":
@@ -375,6 +404,23 @@ def main(argv: list[str] | None = None) -> int:
             if problemas:
                 return 1
             print(f"{tabla}: {usuario.leer(tabla).height} filas")
+        if a.importar_carpeta:
+            carpeta = Path(a.importar_carpeta)
+            if not carpeta.is_dir():
+                print(f"No existe la carpeta {carpeta}")
+                return 1
+            resultado = usuario.importar_carpeta(carpeta)
+            if not resultado:
+                print(f"No hay archivos <tabla>.csv en {carpeta}")
+                return 1
+            for tabla, problemas in resultado.items():
+                if problemas:
+                    print(f"[no se guardó] {tabla}: " + "; ".join(problemas))
+                else:
+                    print(f"{tabla}: {usuario.leer(tabla).height} filas")
+            if any(resultado.values()):
+                return 1
+            print("Listo. Para verlo en el aplicativo: «Actualizar el modelo» en Salud de datos (o uv run invest modelo).")
         return 0
 
     if a.comando == "alertas":

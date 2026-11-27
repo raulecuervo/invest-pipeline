@@ -147,8 +147,9 @@ PASOS: dict[str, dict] = {
     "cartera": {
         "modulo": "cartera",
         "entradas": [("usuario", "fact_transaccion"), ("usuario", "dim_cartera"), ("usuario", "dim_perfil"),
-                     ("usuario", "dim_perfil_asignacion"), ("gold", "fact_precio_diario"), ("gold", "dim_activo"),
-                     ("gold", "fact_indice_mercado")],
+                     ("usuario", "dim_perfil_asignacion"), ("usuario", "dim_activo_usuario"), ("usuario", "fact_precio_manual"),
+                     ("gold", "fact_precio_diario"), ("gold", "dim_activo"), ("gold", "fact_indice_mercado"),
+                     ("silver", "fact_fic_mensual")],
         "hoy": True,  # sin precios, las posiciones llegan hasta hoy (es un paso de segundos)
         "salidas": [("gold", "fact_posicion"), ("gold", "fact_asignacion"), ("gold", "fact_desempeno")],
     },
